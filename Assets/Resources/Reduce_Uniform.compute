@@ -1,0 +1,417 @@
+﻿#pragma kernel sh_0
+#pragma kernel sh_1
+#pragma kernel sh_2
+#pragma kernel sh_3
+#pragma kernel sh_4
+#pragma kernel sh_5
+#pragma kernel sh_6
+#pragma kernel sh_7
+#pragma kernel sh_8
+#pragma kernel Reduce
+
+//
+float AreaElement(float x, float y)
+{
+	return atan2(x * y, sqrt(x * x + y * y + 1));
+}
+
+float DifferentialSolidAngle(float textureSize, float2 uv)
+{
+	float inv = 1.0 / textureSize;
+	float u = 2.0 * (uv.x + 0.5 * inv) - 1;
+	float v = 2.0 * (uv.y + 0.5 * inv) - 1;
+	float x0 = u - inv;
+	float y0 = v - inv;
+	float x1 = u + inv;
+	float y1 = v + inv;
+	return AreaElement(x0, y0) - AreaElement(x0, y1) - AreaElement(x1, y0) + AreaElement(x1, y1);
+}
+
+float rand(float2 n)
+{
+	return frac(sin(dot(n, float2(12.9898, 4.1414))) * 43758.5453);
+}
+
+float Y0(float3 v)
+{
+	return 0.2820947917f;
+}
+
+float Y1(float3 v)
+{
+	return 0.4886025119f * v.y;
+}
+
+float Y2(float3 v)
+{
+	return 0.4886025119f * v.z;
+}
+
+float Y3(float3 v)
+{
+	return 0.4886025119f * v.x;
+}
+
+float Y4(float3 v)
+{
+	return 1.0925484306f * v.x * v.y;
+}
+
+float Y5(float3 v)
+{
+	return 1.0925484306f * v.y * v.z;
+}
+
+float Y6(float3 v)
+{
+	return 0.3153915652f * (3.0f * v.z * v.z - 1.0f);
+}
+
+float Y7(float3 v)
+{
+	return 1.0925484306f * v.x * v.z;
+}
+
+float Y8(float3 v)
+{
+	return 0.5462742153f * (v.x * v.x - v.y * v.y);
+}
+
+//GET TEXEL DIRECTION VECTOR FROM UV
+float3 RfromUV(uint face, float u, float v)
+{
+	float3 dir = float3(0, 0, 0);
+
+	switch (face)
+	{
+		case 0: //+X
+			dir.x = 1;
+			dir.y = v * -2.0f + 1.0f;
+			dir.z = u * -2.0f + 1.0f;
+			break;
+
+		case 1: //-X
+			dir.x = -1;
+			dir.y = v * -2.0f + 1.0f;
+			dir.z = u * 2.0f - 1.0f;
+			break;
+
+		case 2: //+Y
+			dir.x = u * 2.0f - 1.0f;
+			dir.y = 1.0f;
+			dir.z = v * 2.0f - 1.0f;
+			break;
+
+		case 3: //-Y
+			dir.x = u * 2.0f - 1.0f;
+			dir.y = -1.0f;
+			dir.z = v * -2.0f + 1.0f;
+			break;
+
+		case 4: //+Z
+			dir.x = u * 2.0f - 1.0f;
+			dir.y = v * -2.0f + 1.0f;
+			dir.z = 1;
+			break;
+
+		case 5: //-Z
+			dir.x = u * -2.0f + 1.0f;
+			dir.y = v * -2.0f + 1.0f;
+			dir.z = -1;
+			break;
+	}
+
+	return dir;
+}//
+
+Texture2DArray<float4>      input_data;
+RWStructuredBuffer<float4>  output_buffer;
+RWStructuredBuffer<float4>  coefficients;
+StructuredBuffer<float4>    input_buffer;
+
+uint ceiled_size;
+uint input_size;
+uint row_size;
+uint face_size;
+uint coeff;
+
+struct CS_INPUT
+{
+	uint3 Gid : SV_GroupID;
+	uint3 GTid : SV_GroupThreadID;
+	uint3 DTid : SV_DispatchThreadID;
+	uint GI : SV_GroupIndex;
+};
+
+groupshared float4 groupMem[384];
+
+void first_reduction(CS_INPUT input, uint coefficient)
+{
+	GroupMemoryBarrierWithGroupSync();
+
+	uint flatGI = input.GI % 64;
+
+	if (flatGI < 32)
+		groupMem[input.GI] += groupMem[input.GI + 32];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 16)
+		groupMem[input.GI] += groupMem[input.GI + 16];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 8)
+		groupMem[input.GI] += groupMem[input.GI + 8];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 4)
+		groupMem[input.GI] += groupMem[input.GI + 4];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 2)
+		groupMem[input.GI] += groupMem[input.GI + 2];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 1)
+		groupMem[input.GI] += groupMem[input.GI + 1];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 1)
+	{
+		float4 output = groupMem[input.GI];
+		uint index = input.Gid.x + input.Gid.y * row_size + input.DTid.z * face_size;
+		output_buffer[index] = output;
+
+		if (input.GI == 0 && input_size <= 8)
+		{
+			float4 output = (groupMem[0] + groupMem[64] + groupMem[128] + groupMem[192] + groupMem[256] + groupMem[320]);
+			coefficients[coefficient] = output;
+		}
+	}
+}
+
+[numthreads(8, 8, 6)]
+void sh_0(CS_INPUT input)
+{
+	if (input.DTid.x < input_size && input.DTid.y < input_size)
+	{
+		float4 loaded = input_data.Load(uint4(input.DTid.x, input.DTid.y, input.DTid.z, 0));
+		float2 uv = float2(input.DTid.xy) / (input_size - 1);
+		float dw = DifferentialSolidAngle(input_size, uv);
+		float3 dir = normalize(RfromUV(input.DTid.z, uv.x, uv.y));
+		float sh = Y0(dir);
+		groupMem[input.GI] = loaded * dw * sh;
+	}
+	else
+		groupMem[input.GI] = float4(0, 0, 0, 0);
+
+	first_reduction(input, 0);
+}
+
+[numthreads(8, 8, 6)]
+void sh_1(CS_INPUT input)
+{
+	if (input.DTid.x < input_size && input.DTid.y < input_size)
+	{
+		float4 loaded = input_data.Load(uint4(input.DTid.x, input.DTid.y, input.DTid.z, 0));
+		float2 uv = float2(input.DTid.xy) / (input_size - 1);
+		float dw = DifferentialSolidAngle(input_size, uv);
+		float3 dir = normalize(RfromUV(input.DTid.z, uv.x, uv.y));
+		float sh = Y1(dir);
+		groupMem[input.GI] = loaded * dw * sh;
+	}
+	else
+		groupMem[input.GI] = float4(0, 0, 0, 0);
+
+	first_reduction(input, 1);
+}
+
+[numthreads(8, 8, 6)]
+void sh_2(CS_INPUT input)
+{
+	if (input.DTid.x < input_size && input.DTid.y < input_size)
+	{
+		float4 loaded = input_data.Load(uint4(input.DTid.x, input.DTid.y, input.DTid.z, 0));
+		float2 uv = float2(input.DTid.xy) / (input_size - 1);
+		float dw = DifferentialSolidAngle(input_size, uv);
+		float3 dir = normalize(RfromUV(input.DTid.z, uv.x, uv.y));
+		float sh = Y2(dir);
+		groupMem[input.GI] = loaded * dw * sh;
+	}
+	else
+		groupMem[input.GI] = float4(0, 0, 0, 0);
+
+	first_reduction(input, 2);
+}
+
+[numthreads(8, 8, 6)]
+void sh_3(CS_INPUT input)
+{
+	if (input.DTid.x < input_size && input.DTid.y < input_size)
+	{
+		float4 loaded = input_data.Load(uint4(input.DTid.x, input.DTid.y, input.DTid.z, 0));
+		float2 uv = float2(input.DTid.xy) / (input_size - 1);
+		float dw = DifferentialSolidAngle(input_size, uv);
+		float3 dir = normalize(RfromUV(input.DTid.z, uv.x, uv.y));
+		float sh = Y3(dir);
+		groupMem[input.GI] = loaded * dw * sh;
+	}
+	else
+		groupMem[input.GI] = float4(0, 0, 0, 0);
+
+	first_reduction(input, 3);
+}
+
+[numthreads(8, 8, 6)]
+void sh_4(CS_INPUT input)
+{
+	if (input.DTid.x < input_size && input.DTid.y < input_size)
+	{
+		float4 loaded = input_data.Load(uint4(input.DTid.x, input.DTid.y, input.DTid.z, 0));
+		float2 uv = float2(input.DTid.xy) / (input_size - 1);
+		float dw = DifferentialSolidAngle(input_size, uv);
+		float3 dir = normalize(RfromUV(input.DTid.z, uv.x, uv.y));
+		float sh = Y4(dir);
+		groupMem[input.GI] = loaded * dw * sh;
+	}
+	else
+		groupMem[input.GI] = float4(0, 0, 0, 0);
+
+	first_reduction(input, 4);
+}
+
+[numthreads(8, 8, 6)]
+void sh_5(CS_INPUT input)
+{
+	if (input.DTid.x < input_size && input.DTid.y < input_size)
+	{
+		float4 loaded = input_data.Load(uint4(input.DTid.x, input.DTid.y, input.DTid.z, 0));
+		float2 uv = float2(input.DTid.xy) / (input_size - 1);
+		float dw = DifferentialSolidAngle(input_size, uv);
+		float3 dir = normalize(RfromUV(input.DTid.z, uv.x, uv.y));
+		float sh = Y5(dir);
+		groupMem[input.GI] = loaded * dw * sh;
+	}
+	else
+		groupMem[input.GI] = float4(0, 0, 0, 0);
+
+	first_reduction(input, 5);
+}
+
+[numthreads(8, 8, 6)]
+void sh_6(CS_INPUT input)
+{
+	if (input.DTid.x < input_size && input.DTid.y < input_size)
+	{
+		float4 loaded = input_data.Load(uint4(input.DTid.x, input.DTid.y, input.DTid.z, 0));
+		float2 uv = float2(input.DTid.xy) / (input_size - 1);
+		float dw = DifferentialSolidAngle(input_size, uv);
+		float3 dir = normalize(RfromUV(input.DTid.z, uv.x, uv.y));
+		float sh = Y6(dir);
+		groupMem[input.GI] = loaded * dw * sh;
+	}
+	else
+		groupMem[input.GI] = float4(0, 0, 0, 0);
+
+	first_reduction(input, 6);
+}
+
+[numthreads(8, 8, 6)]
+void sh_7(CS_INPUT input)
+{
+	if (input.DTid.x < input_size && input.DTid.y < input_size)
+	{
+		float4 loaded = input_data.Load(uint4(input.DTid.x, input.DTid.y, input.DTid.z, 0));
+		float2 uv = float2(input.DTid.xy) / (input_size - 1);
+		float dw = DifferentialSolidAngle(input_size, uv);
+		float3 dir = normalize(RfromUV(input.DTid.z, uv.x, uv.y));
+		float sh = Y7(dir);
+		groupMem[input.GI] = loaded * dw * sh;
+	}
+	else
+		groupMem[input.GI] = float4(0, 0, 0, 0);
+
+	first_reduction(input, 7);
+}
+
+[numthreads(8, 8, 6)]
+void sh_8(CS_INPUT input)
+{
+	if (input.DTid.x < input_size && input.DTid.y < input_size)
+	{
+		float4 loaded = input_data.Load(uint4(input.DTid.x, input.DTid.y, input.DTid.z, 0));
+		float2 uv = float2(input.DTid.xy) / (input_size - 1);
+		float dw = DifferentialSolidAngle(input_size, uv);
+		float3 dir = normalize(RfromUV(input.DTid.z, uv.x, uv.y));
+		float sh = Y8(dir);
+		groupMem[input.GI] = loaded * dw * sh;
+	}
+	else
+		groupMem[input.GI] = float4(0, 0, 0, 0);
+
+	first_reduction(input, 8);
+}
+
+[numthreads(8, 8, 6)]
+void Reduce(CS_INPUT input)
+{
+	if (input.DTid.x < input_size && input.DTid.y < input_size)
+	{
+		uint index = input.DTid.x + input.DTid.y * row_size + input.DTid.z * face_size;
+		float4 v = input_buffer[index];
+		groupMem[input.GI] = v;
+	}
+	else
+		groupMem[input.GI] = float4(0, 0, 0, 0);
+	GroupMemoryBarrierWithGroupSync();
+
+	uint flatGI = input.GI % 64;
+
+	if (flatGI < 32)
+		groupMem[input.GI] += groupMem[input.GI + 32];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 16)
+		groupMem[input.GI] += groupMem[input.GI + 16];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 8)
+		groupMem[input.GI] += groupMem[input.GI + 8];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 4)
+		groupMem[input.GI] += groupMem[input.GI + 4];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 2)
+		groupMem[input.GI] += groupMem[input.GI + 2];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 1)
+		groupMem[input.GI] += groupMem[input.GI + 1];
+
+	GroupMemoryBarrierWithGroupSync();
+
+	if (flatGI < 1)
+	{
+		float4 output = groupMem[input.GI];
+		uint index = input.Gid.x + input.Gid.y * row_size + input.DTid.z * face_size;
+		output_buffer[index] = output;
+
+		if (input.GI == 0 && input_size <= 8)
+		{
+			float4 output = (groupMem[0] + groupMem[64] + groupMem[128] + groupMem[192] + groupMem[256] + groupMem[320]);
+			coefficients[coeff] = output;
+		}
+	}
+}

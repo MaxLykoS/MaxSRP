@@ -1,0 +1,106 @@
+﻿#include "UnityShaderVariables.cginc"
+#include "GlobalResources.hlsl"
+#include "Utils.hlsl"
+#include "RayPayload.hlsl"
+
+#pragma max_recursion_depth 1
+
+// Input
+float                           _Zoom;
+float                           _AspectRatio;
+uint                            _ConvergenceStep;
+uint                            _FrameIndex;
+TextureCube<float4>             _EnvMap;
+SamplerState                    sampler_EnvMap;
+
+// Output
+RWTexture2D<float4>             _RadianceMap;
+
+[shader("raygeneration")]
+void MainRayGenShader()
+{ 
+    uint2 launchIndex = uint2(DispatchRaysIndex().x, DispatchRaysDimensions().y - DispatchRaysIndex().y - 1);
+    uint2 launchDim = DispatchRaysDimensions().xy;
+
+    // Shoot rays through the center of a pixel (plus a jitter in the end).
+    float2 frameCoord = launchIndex + float2(0.5, 0.5);  // 像素中心坐标，范围0-width/height
+
+    // Initial random number generator seed for this pixel. The rngState will change every time we draw a random number.
+    uint rngState = GenRandomUint(launchIndex, _ConvergenceStep + _FrameIndex);
+   
+    float2 jitter = float2(RandomFloat01(rngState), RandomFloat01(rngState)) - float2(0.5, 0.5);
+
+    float2 ndcCoords = (frameCoord + jitter) / float2(launchDim.x - 1, launchDim.y - 1);  // 屏幕uv，范围0-1
+        
+    ndcCoords = ndcCoords * 2 - float2(1, 1);  // 放缩到-1 - 1
+    ndcCoords = ndcCoords * _Zoom;  // FOV
+
+    // Get a ray in view space.
+    float3 viewDirection = normalize(float3(ndcCoords.x * _AspectRatio, ndcCoords.y, 1));
+
+    // Rotate the ray from view space to world space.
+    float3 rayDirection = mul((float3x3)unity_CameraToWorld, viewDirection);
+
+    uint missShaderIndex = 0;
+    
+    // setup ray
+    RayDesc ray;
+    ray.Origin      = _WorldSpaceCameraPos;
+    ray.Direction   = rayDirection;
+    ray.TMin        = 0;
+    ray.TMax        = K_T_MAX;
+              
+    // init payload
+    RayPayload payload;
+    payload.albedo                  = float3(0, 0, 0);
+    payload.emission                = float3(0, 0, 0);
+    payload.rngState                = rngState;
+    payload.bounceIndexOpaque       = 0;
+    payload.bounceIndexTransparent  = 0;
+    payload.bounceRayOrigin         = float3(0, 0, 0);
+    payload.bounceRayDirection      = float3(0, 0, 0);
+    payload.k                       = 1;
+
+    // Safe net for when shaders have compilation errors and don't increase the bounce index, resulting in an infinite loop.
+    uint safeNet = 0;
+
+    float3 radiance = float3(0, 0, 0);
+    float3 throughput = float3(1, 1, 1);
+    do
+    {
+        TraceRay(_AccelStruct, 0, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0, 1, missShaderIndex, ray, payload);
+
+        radiance += payload.emission * throughput;
+
+        throughput *= payload.albedo / max(0.001, payload.k);
+
+        float pathStopProbability = 1;
+
+        // ********* russian roulette 
+        pathStopProbability = max(throughput.r, max(throughput.g, throughput.b));
+
+        // Dark colors have higher chance to terminate the path early.
+        if (pathStopProbability < RandomFloat01(payload.rngState))
+            break;
+
+        throughput *= 1 / pathStopProbability;
+        // ********* end of russian roulette
+
+        ray.Origin      = payload.bounceRayOrigin;
+        ray.Direction   = payload.bounceRayDirection;
+    }
+    while ((payload.bounceIndexOpaque <= _BounceCountOpaque) && (payload.bounceIndexTransparent <= _BounceCountTransparent) && (++safeNet < 1000));
+
+    float3 prevRadiance = _RadianceMap[launchIndex].xyz;
+
+    float3 result = lerp(prevRadiance, radiance, 1 / float(_ConvergenceStep + 1));
+
+    _RadianceMap[launchIndex] = float4(result, 1);
+}
+
+[shader("miss")]
+void MainMissShader0(inout RayPayload payload : SV_RayPayload)
+{
+    payload.emission                = _EnvMap.SampleLevel(sampler_EnvMap, WorldRayDirection(), 0).xyz;
+    payload.bounceIndexOpaque       = -1;
+}
