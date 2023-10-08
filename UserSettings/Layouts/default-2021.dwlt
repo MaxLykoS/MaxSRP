@@ -19,7 +19,7 @@ MonoBehaviour:
     width: 2560
     height: 1357
   m_ShowMode: 4
-  m_Title: Game
+  m_Title: Hierarchy
   m_RootView: {fileID: 2}
   m_MinSize: {x: 875, y: 300}
   m_MaxSize: {x: 10000, y: 10000}
@@ -100,7 +100,7 @@ MonoBehaviour:
   m_MinSize: {x: 400, y: 100}
   m_MaxSize: {x: 32384, y: 8096}
   vertical: 0
-  controlID: 91
+  controlID: 17
 --- !u!114 &5
 MonoBehaviour:
   m_ObjectHideFlags: 52
@@ -141,8 +141,8 @@ MonoBehaviour:
     y: 0
     width: 286
     height: 1307
-  m_MinSize: {x: 202, y: 221}
-  m_MaxSize: {x: 4002, y: 4021}
+  m_MinSize: {x: 200, y: 200}
+  m_MaxSize: {x: 4000, y: 4000}
   m_ActualView: {fileID: 10}
   m_Panes:
   - {fileID: 10}
@@ -258,9 +258,9 @@ MonoBehaviour:
   m_SceneHierarchy:
     m_TreeViewState:
       scrollPos: {x: 0, y: 0}
-      m_SelectedIDs: be010000
+      m_SelectedIDs: 
       m_LastClickedID: 0
-      m_ExpandedIDs: 38fbffff
+      m_ExpandedIDs: a2f0ffff26f5ffffcef9ffff0cfaffff38fbffffc4450000d2530000e0530000
       m_RenameOverlay:
         m_UserAcceptedRename: 0
         m_Name: 
@@ -365,8 +365,7 @@ MonoBehaviour:
     m_ShowAllHits: 0
     m_SkipHidden: 0
     m_SearchArea: 1
-    m_Folders:
-    - Assets/MaxRendererPipeline
+    m_Folders: []
     m_Globs: []
     m_OriginalText: 
   m_ViewMode: 0
@@ -380,7 +379,7 @@ MonoBehaviour:
     scrollPos: {x: 0, y: 0}
     m_SelectedIDs: 70500000
     m_LastClickedID: 20592
-    m_ExpandedIDs: 000000008c5000008e500000905000009250000094500000
+    m_ExpandedIDs: 0000000020460000224600002446000026460000284600002a4600002c4600002e46000030460000324600003446000036460000384600003a4600003c460000
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -405,24 +404,24 @@ MonoBehaviour:
       m_Icon: {fileID: 0}
       m_ResourceFile: 
   m_AssetTreeState:
-    scrollPos: {x: 0, y: 0}
+    scrollPos: {x: 0, y: 240}
     m_SelectedIDs: 
     m_LastClickedID: 0
-    m_ExpandedIDs: ffffffff000000008c5000008e500000905000009250000094500000
+    m_ExpandedIDs: ffffffff0000000020460000224600002446000026460000284600002a4600002c4600002e46000030460000324600003446000036460000384600003a4600003c460000b8540000ba540000bc540000d0540000
     m_RenameOverlay:
       m_UserAcceptedRename: 0
-      m_Name: 
-      m_OriginalName: 
+      m_Name: SkyboxScene
+      m_OriginalName: SkyboxScene
       m_EditFieldRect:
         serializedVersion: 2
         x: 0
         y: 0
         width: 0
         height: 0
-      m_UserData: 0
+      m_UserData: 18056
       m_IsWaitingForDelay: 0
       m_IsRenaming: 0
-      m_OriginalEventType: 11
+      m_OriginalEventType: 0
       m_IsRenamingFilename: 1
       m_ClientGUIView: {fileID: 7}
     m_SearchString: 
@@ -781,9 +780,9 @@ MonoBehaviour:
   m_PlayAudio: 0
   m_AudioPlay: 0
   m_Position:
-    m_Target: {x: 3.501298, y: 12.775294, z: 25.129375}
+    m_Target: {x: 2.5614796, y: 1.8635343, z: 1.4172721}
     speed: 2
-    m_Value: {x: 3.501298, y: 12.775294, z: 25.129375}
+    m_Value: {x: 2.5614796, y: 1.8635343, z: 1.4172721}
   m_RenderMode: 0
   m_CameraMode:
     drawMode: 0
@@ -830,13 +829,13 @@ MonoBehaviour:
     m_GridAxis: 1
     m_gridOpacity: 0.5
   m_Rotation:
-    m_Target: {x: -0.02658003, y: -0.9048395, z: 0.05741636, w: -0.42111677}
+    m_Target: {x: -0.20349687, y: 0.5910575, z: -0.15688084, w: -0.76486635}
     speed: 2
-    m_Value: {x: -0.026579008, y: -0.90480465, z: 0.05741415, w: -0.42110056}
+    m_Value: {x: -0.2032215, y: 0.59208804, z: -0.15715511, w: -0.76382923}
   m_Size:
-    m_Target: 1.4054321
+    m_Target: 0.8628528
     speed: 2
-    m_Value: 1.4054321
+    m_Value: 0.8628528
   m_Ortho:
     m_Target: 0
     speed: 2

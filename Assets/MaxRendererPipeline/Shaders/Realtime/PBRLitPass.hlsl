@@ -26,8 +26,6 @@ struct v2f
 CBUFFER_START(UnityPerMaterial)
 float4 _AlbedoMap_ST;  
 float _Transparency;
-float _Metalness;
-float _Roughness;
 CBUFFER_END
 
 UNITY_DECLARE_TEX2D(_AlbedoMap);
@@ -59,10 +57,11 @@ float4 PBRFragment(v2f o) : SV_Target
 	o.tW = SchmidtOrthogonalizationTW(o.nW, o.tW);
 	float3 bW = normalize(cross(o.nW, o.tW));
 	float3x3 TBN = float3x3(o.tW, bW, o.nW);
-	float3 bump = DecodeNormalFromTexture(UNITY_SAMPLE_TEX2D(_NormalMap, o.uv));
+	float4 packedNormal = UNITY_SAMPLE_TEX2D(_NormalMap, o.uv);
+	float3 bump = DecodeNormalFromTexture(packedNormal);
 	bump = normalize(mul(bump, TBN));
 
-	float3 c = PBR_Shading( o.pW, bump, albedo.rgb, metalness, roughness);
+	float3 c = PBR_Shading(o.pW, bump, albedo.rgb, metalness, roughness);
 	return float4(c, albedo.a);
 }
 
@@ -76,7 +75,8 @@ float4 PBRFragmentTransparent(v2f o) : SV_Target
 	o.tW = SchmidtOrthogonalizationTW(o.nW, o.tW);
 	float3 bW = normalize(cross(o.nW, o.tW));
 	float3x3 TBN = float3x3(o.tW, bW, o.nW);
-	float3 bump = DecodeNormalFromTexture(UNITY_SAMPLE_TEX2D(_NormalMap, o.uv));
+	float4 packedNormal = UNITY_SAMPLE_TEX2D(_NormalMap, o.uv);
+	float3 bump = DecodeNormalFromTexture(packedNormal);
 	bump = normalize(mul(bump, TBN));
 
 	float3 c = PBR_Shading(o.pW, bump, albedo.rgb, metalness, roughness);

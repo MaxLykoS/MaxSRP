@@ -4,6 +4,7 @@ using UnityEngine;
 
 namespace MaxSRP
 {
+    [ExecuteAlways]
     public class MaxLightProbeSkybox : MaxProbeBase
     {
         //private Material viewMat;
@@ -87,9 +88,14 @@ namespace MaxSRP
             ProbeInit();
         }
 
-        private void FixedUpdate()
+        private void Update()
         {
-            ProbeUpdate();
+            m_CurrentTimer += Time.deltaTime;
+            if (m_CurrentTimer > UPDATE_INTERVAL)
+            {
+                ProbeUpdate();
+                m_CurrentTimer = 0;
+            }
         }
     }
 }

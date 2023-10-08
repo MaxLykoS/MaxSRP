@@ -6,8 +6,6 @@
         _MetalnessMap("Metallic", 2D) = "black" {}
         _RoughnessMap("Roughness",2D) = "black" {}
         _NormalMap("Normal Map",2D) = "black" {}
-        _Roughness("Roughness",Range(0,1)) = 0.2
-        _Metalness("Metalness",Range(0,1)) = 0.2
         _Transparency("Transparency", Range(0,1)) = 0.7
         [Toggle(_RECEIVE_SHADOWS)] _RECEIVE_SHADOWS ("Receive Shadows", Float) = 0
     }

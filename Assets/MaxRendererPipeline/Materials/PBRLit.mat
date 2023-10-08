@@ -9,7 +9,8 @@ Material:
   m_PrefabAsset: {fileID: 0}
   m_Name: PBRLit
   m_Shader: {fileID: 4800000, guid: b7b56707e539de6499dfad1cb0cf1464, type: 3}
-  m_ValidKeywords: []
+  m_ValidKeywords:
+  - _RECEIVE_SHADOWS
   m_InvalidKeywords: []
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
@@ -21,7 +22,7 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _AlbedoMap:
-        m_Texture: {fileID: 2800000, guid: 918d2e6b7fb51b744b280e450fb95336, type: 3}
+        m_Texture: {fileID: 2800000, guid: bba20238f1a90194398e9a5800ccb393, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _BumpMap:
@@ -61,11 +62,11 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MetalnessMap:
-        m_Texture: {fileID: 2800000, guid: e9db6b545d59d124ca078ce2a251800e, type: 3}
+        m_Texture: {fileID: 2800000, guid: 40ef02b4a84394748b1e90661e031b69, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _NormalMap:
-        m_Texture: {fileID: 2800000, guid: 57f7f9de67193a44082104a93197755c, type: 3}
+        m_Texture: {fileID: 2800000, guid: 5499c97a10e34474f853f32a3840af12, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _OcclusionMap:
@@ -77,7 +78,7 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _RoughnessMap:
-        m_Texture: {fileID: 2800000, guid: 546fe27c56535004f955363e810a6d71, type: 3}
+        m_Texture: {fileID: 2800000, guid: 8f9c20146d55dc2408c29b207ce4b437, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
@@ -96,7 +97,7 @@ Material:
     - _Mode: 0
     - _OcclusionStrength: 1
     - _Parallax: 0.02
-    - _RECEIVE_SHADOWS: 0
+    - _RECEIVE_SHADOWS: 1
     - _RECEIVE_SHADOWS_OFF: 0
     - _Roughness: 0
     - _Shininess: 11

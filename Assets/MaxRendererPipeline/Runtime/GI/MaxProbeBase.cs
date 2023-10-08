@@ -3,9 +3,13 @@ using UnityEngine;
 
 namespace MaxSRP
 {
+    [ExecuteAlways]
     public class MaxProbeBase : MonoBehaviour
     {
+        public const float UPDATE_INTERVAL = 1.0f; // seconds
+
         public bool bUpdate = false;
+        protected float m_CurrentTimer = 0;
 
         [SerializeField]
         public Cubemap GroundTruthCubemap;
