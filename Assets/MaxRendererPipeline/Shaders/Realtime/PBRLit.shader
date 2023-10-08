@@ -6,8 +6,6 @@
         _MetalnessMap("Metallic", 2D) = "black" {}
         _RoughnessMap("Roughness",2D) = "black" {}
         _NormalMap("Normal Map",2D) = "black" {}
-        _Roughness("Roughness",Range(0,1)) = 0.2
-        _Metalness("Metalness",Range(0,1)) = 0.2
         [Toggle(_RECEIVE_SHADOWS)] _RECEIVE_SHADOWS ("Receive Shadows", Float) = 0
     }
 
@@ -17,6 +15,7 @@
 
         HLSLINCLUDE
         #pragma enable_cbuffer
+        #pragma enable_d3d11_debug_symbols
         #include "./PBRLitPass.hlsl"
         ENDHLSL 
 

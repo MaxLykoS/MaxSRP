@@ -12,12 +12,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9912806b99c4e854492bc7539254453e, type: 3}
   m_Name: New Max Renderer Pipeline Asset
   m_EditorClassIdentifier: 
-  _offlineRendering: 1
+  _offlineRendering: 0
   _srpBatcher: 1
   _shadowSetting:
-    m_maxShadowDistance: 500
+    m_maxShadowDistance: 100
     m_shadowCascadeCount: 4
-    m_cascadeRatio1: 70
-    m_cascadeRatio2: 80
-    m_cascadeRatio3: 90
+    m_cascadeRatio1: 25
+    m_cascadeRatio2: 50
+    m_cascadeRatio3: 75
     m_cascadeRatio4: 100

@@ -53,7 +53,7 @@ struct Surface
     float roughness;
 };
 
-float3 BRDF(Surface surface)
+float3 CookTorranceBRDF(Surface surface)
 {
     float3 F0 = float3(MIN_REFLECTIVITY, MIN_REFLECTIVITY, MIN_REFLECTIVITY);
     F0 = lerp(F0, surface.albedo, surface.metalness);
@@ -61,14 +61,14 @@ float3 BRDF(Surface surface)
     float3 H = normalize(surface.L + surface.V);     
 
     // cook-torrance brdf
-    float D = DistributionGGX(surface.N, H, surface.roughness);        
+    float NDF = DistributionGGX(surface.N, H, surface.roughness);        
     float G   = GeometrySmith(surface.N, surface.V, surface.L, surface.roughness);      
     float3 F    = fresnelSchlick(max(dot(H, surface.V), 0.0), F0);       
 
     float3 kS = F;
     float3 kD = (float3(1.0, 1.0, 1.0) - kS) * (1.0 - surface.metalness);   
 
-    float3 nominator    = D * F * G;
+    float3 nominator    = NDF * G * F;
     float denominator = 4.0 * max(dot(surface.N, surface.V), 0.0) * max(dot(surface.N, surface.L), 0.0) + 0.001; 
     float3 specular     = nominator / denominator;
                 
