@@ -10,7 +10,7 @@ float3 PBR_DirectLitDirectionalLight(Surface surface)
 {
     //      direct lighting
     // directional light shading
-    surface.L = _MaxDirectionalLightDirection.xyz;
+    surface.L = normalize(_MaxDirectionalLightDirection.xyz);
 
     // 太阳降到地平线下不再产生radiance
     if (-surface.L.y >= 0)
@@ -58,14 +58,20 @@ float3 PBR_IndirectLit(Surface surface)
 
     float3 reflectDir = normalize(reflect(-surface.V, surface.N));
     float NdotV = max(0, dot(surface.N, surface.V));
-    float3 indirectDiffuse = CubemapApprox(surface.N);
-    float3 indirectSpec = GetSpec(reflectDir, surface.roughness, NdotV);
-    Lo = Lo + IndirectBRDF(surface, indirectDiffuse, indirectSpec);
-    
-    //return Lo + _AmbientColor.rgb;
+
+    float3 kS = fresnelSchlickRoughness(max(dot(surface.N, surface.V), 0.0), surface.F0, surface.roughness);
+    float3 kD = 1.0 - kS;
+    kD = kD * (1.0 - surface.metalness);
+
+    float3 indirectDiffuse = CubemapApprox(surface.N) * surface.albedo;
+
+    float3 indirectSpec = GetSpec(reflectDir, surface.roughness, NdotV, kS);
+    //float3 ambient = (kD * indirectDiffuse + indirectSpec) * surface.ao; // AO图
+    Lo = Lo + indirectDiffuse + indirectSpec;
     return Lo;
 }
 
+// 总光照函数
 float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float roughness)
 {
     // surface的L赋值放到各个函数里
@@ -76,6 +82,9 @@ float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float ro
     surface.albedo = albedo;
     surface.metalness = metalness;
     surface.roughness = roughness;
+    float3 F0 = float3(MIN_REFLECTIVITY, MIN_REFLECTIVITY, MIN_REFLECTIVITY);
+    F0 = lerp(F0, albedo, metalness);
+    surface.F0 = F0;
 
     float3 c_dirDirLight = PBR_DirectLitDirectionalLight(surface);
     float3 c_dirPointLight = PBR_DirectLitPointLight(surface);
