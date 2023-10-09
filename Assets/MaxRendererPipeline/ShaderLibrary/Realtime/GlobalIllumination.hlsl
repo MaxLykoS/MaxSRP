@@ -14,19 +14,19 @@ float4 c8;
 samplerCUBE _IBLSpec;
 UNITY_DECLARE_TEX2D(_BRDFLUT);
 
-#define MAX_MIP_COUNT 1.0
+#define MAX_MIP_COUNT 8.0
 #define MIN_REFLECTIVITY 0.04
 
-half3 BRDFIBLSpec(float2 scaleBias)
+float3 fresnelSchlickRoughness(float NdotV, float3 F0, float roughness)
 {
-	float3 F0 = float3(MIN_REFLECTIVITY, MIN_REFLECTIVITY, MIN_REFLECTIVITY);
-    return F0 * scaleBias.x + scaleBias.y;
+	return F0 + (max(float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
 }
-float3 GetSpec(float3 reflectDir, float roughness, float NdotV)
+
+float3 GetSpec(float3 reflectDir, float roughness, float NdotV, float3 kS)
 {
 	float3 prefilteredColor = texCUBElod(_IBLSpec, float4(reflectDir, roughness * MAX_MIP_COUNT)).rgb;
-	float4 scaleBias = UNITY_SAMPLE_TEX2D(_BRDFLUT, float2(NdotV, roughness));
-    half3 indirectSpec = BRDFIBLSpec(scaleBias.xy) * prefilteredColor;
+	float2 envBRDF = UNITY_SAMPLE_TEX2D(_BRDFLUT, float2(NdotV, roughness)).rg;
+	half3 indirectSpec = prefilteredColor * (kS * envBRDF.x + envBRDF.y);
 	return indirectSpec;
 }
 

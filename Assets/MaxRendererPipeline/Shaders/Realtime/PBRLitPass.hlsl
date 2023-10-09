@@ -54,11 +54,11 @@ float4 PBRFragment(v2f o) : SV_Target
 	float roughness = UNITY_SAMPLE_TEX2D(_RoughnessMap, o.uv).r;
 
 	o.nW = normalize(o.nW);
-	o.tW = SchmidtOrthogonalizationTW(o.nW, o.tW);
+	o.tW = normalize(SchmidtOrthogonalizationTW(o.nW, o.tW));
 	float3 bW = normalize(cross(o.nW, o.tW));
 	float3x3 TBN = float3x3(o.tW, bW, o.nW);
 	float4 packedNormal = UNITY_SAMPLE_TEX2D(_NormalMap, o.uv);
-	float3 bump = DecodeNormalFromTexture(packedNormal);
+	float3 bump = normalize(DecodeNormalFromTexture(packedNormal));
 	bump = normalize(mul(bump, TBN));
 
 	float3 c = PBR_Shading(o.pW, bump, albedo.rgb, metalness, roughness);
