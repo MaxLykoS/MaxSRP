@@ -21,12 +21,14 @@ namespace MaxSRP
             // 点光源
             public static int OtherLightPositionAndRanges = Shader.PropertyToID("_MaxOtherLightPositionAndRanges");
             public static int OtherLightColors = Shader.PropertyToID("_MaxOtherLightColors");
+            public static int OtherLightCount = Shader.PropertyToID("_MaxOtherLightCount");
         }
 
         private int m_mainLightIndex = -1;
         private const int MAX_VISIBLE_OTHER_LIGHTS = 32;
         private Vector4[] m_otherLightPositionAndRanges = new Vector4[MAX_VISIBLE_OTHER_LIGHTS];
         private Vector4[] m_otherLightColors = new Vector4[MAX_VISIBLE_OTHER_LIGHTS];
+        private int m_otherLightCount = 0;
 
         private static int GetMainLightIndex(NativeArray<VisibleLight> lights)
         {
@@ -75,6 +77,7 @@ namespace MaxSRP
             NativeArray<int> lightMapIndex = cullingResults.GetLightIndexMap(Allocator.Temp);
             int otherLightIndex = 0;
             int visibleLightIndex = 0;
+            m_otherLightCount = 0;
             foreach (VisibleLight light in visibleLights)
             {
                 switch (light.lightType)
@@ -92,6 +95,7 @@ namespace MaxSRP
                         m_otherLightColors[otherLightIndex] = light.finalColor;
 
                         otherLightIndex++;
+                        ++m_otherLightCount;
                         break;
                     default:
                         lightMapIndex[visibleLightIndex] = -1;
@@ -106,6 +110,7 @@ namespace MaxSRP
             cullingResults.SetLightIndexMap(lightMapIndex);
             Shader.SetGlobalVectorArray(ShaderProperties.OtherLightPositionAndRanges, m_otherLightPositionAndRanges);
             Shader.SetGlobalVectorArray(ShaderProperties.OtherLightColors, m_otherLightColors);
+            Shader.SetGlobalInteger(ShaderProperties.OtherLightCount, m_otherLightCount);
         }
     }
 

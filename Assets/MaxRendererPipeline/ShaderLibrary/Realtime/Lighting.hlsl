@@ -29,7 +29,7 @@ float3 PBR_DirectLitPointLight(Surface surface)
 {
     // point light shading
     float3 Lo = float3(0.0, 0.0, 0.0);
-    int lightCount = clamp(OTHER_LIGHT_COUNT, 0, MAX_OTHER_LIGHT_PER_OBJECT);
+    int lightCount = clamp(_MaxOtherLightCount, 0, MAX_OTHER_LIGHT_PER_OBJECT);
 
     for (int i1 = 0; i1 < lightCount; ++i1)
     {
@@ -90,7 +90,8 @@ float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float ro
     float3 c_dirPointLight = PBR_DirectLitPointLight(surface);
     float3 c_indirLit = PBR_IndirectLit(surface);
 
-    float visibility = max(0.0, (1 - GetMainLightShadowAtten(surface.P, surface.N)));
-    return c_dirDirLight * visibility + c_dirPointLight + c_indirLit;
+    //float visibility = max(0.0, (1 - GetMainLightShadowAtten(surface.P, surface.N)));
+    //return c_dirDirLight * visibility + c_dirPointLight + c_indirLit;
+    return c_dirDirLight + c_dirPointLight + c_indirLit;
 }
 #endif

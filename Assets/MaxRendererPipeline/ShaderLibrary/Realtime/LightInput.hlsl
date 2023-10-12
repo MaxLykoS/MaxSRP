@@ -18,9 +18,8 @@ float4 _MaxDirectionalLightDirection;
 float4 _MaxOtherLightPositionAndRanges[MAX_OTHER_VISIBLE_LIGHT_COUNT];
 //非主光源的颜色
 half4 _MaxOtherLightColors[MAX_OTHER_VISIBLE_LIGHT_COUNT];
+int _MaxOtherLightCount;
 CBUFFER_END
-
-#define OTHER_LIGHT_COUNT unity_LightData.y
 
 struct MaxDirLight
 {
@@ -45,11 +44,8 @@ MaxDirLight GetMainLight()
 MaxOtherLight GetOtherLight(uint index)
 {
     MaxOtherLight light;
-    uint idx = index / 4;
-    uint offset = index % 4;
-    uint lightIndex  = unity_LightIndices[idx][offset];
-    float4 positionRange = _MaxOtherLightPositionAndRanges[lightIndex];
-    half4 color = _MaxOtherLightColors[lightIndex];
+    float4 positionRange = _MaxOtherLightPositionAndRanges[index];
+    half4 color = _MaxOtherLightColors[index];
     light.positionRange = positionRange;
     light.color = color;
     return light;
