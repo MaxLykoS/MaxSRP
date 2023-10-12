@@ -10,69 +10,74 @@ struct a2v
 {
 	float4 pO : POSITION;
 	float2 uv : TEXCOORD0;
-	float3 nO : NORMAL;
-	float3 tO : TANGENT;
 };
 
 struct v2f
 {
 	float2 uv : TEXCOORD0;
 	float4 pH : SV_POSITION;
-	float3 nW : TEXCOORD1;
-	float3 pW : TEXCOORD2;
-	float3 tW : TEXCOORD3;
 };
 
-CBUFFER_START(UnityPerMaterial)
-float4 _AlbedoMap_ST;  
-float _Transparency;
-CBUFFER_END
-
-UNITY_DECLARE_TEX2D(_AlbedoMap);
-UNITY_DECLARE_TEX2D(_MetalnessMap);
-UNITY_DECLARE_TEX2D(_RoughnessMap);
-UNITY_DECLARE_TEX2D(_NormalMap);
+UNITY_DECLARE_TEX2D(_GDepth);
+UNITY_DECLARE_TEX2D(_GBuffer0);
+UNITY_DECLARE_TEX2D(_GBuffer1);
+UNITY_DECLARE_TEX2D(_GBuffer2);
+UNITY_DECLARE_TEX2D(_GBuffer3);
 
 v2f PBRVertex(a2v v)
 {
 	v2f o;
 	o.pH = UnityObjectToClipPos(v.pO);
 	o.uv = v.uv;
-	o.uv = o.uv * _AlbedoMap_ST.xy + _AlbedoMap_ST.zw;
-	o.pW = mul(unity_ObjectToWorld, v.pO).xyz;
-
-	o.nW = TransformObjectToWorldNormal(v.nO);
-	o.tW = normalize(TransformObjectToWorld(v.tO.xyz));
 
 	return o;
 }
 
-float4 PBRFragment(v2f o) : SV_Target
+float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 {
-	float4 albedo = UNITY_SAMPLE_TEX2D(_AlbedoMap, o.uv);
-	float metalness = UNITY_SAMPLE_TEX2D(_MetalnessMap, o.uv).r;
-	float roughness = UNITY_SAMPLE_TEX2D(_RoughnessMap, o.uv).r;
+	float4 GBuffer0 = UNITY_SAMPLE_TEX2D(_GBuffer0, o.uv);
+	float4 GBuffer1 = UNITY_SAMPLE_TEX2D(_GBuffer1, o.uv);
+	float4 GBuffer2 = UNITY_SAMPLE_TEX2D(_GBuffer2, o.uv);
+	float4 GBuffer3 = UNITY_SAMPLE_TEX2D(_GBuffer3, o.uv);
+	float GDepth = UNITY_SAMPLE_DEPTH(UNITY_SAMPLE_TEX2D(_GDepth, o.uv));
 
-	o.nW = normalize(o.nW);
-	o.tW = normalize(SchmidtOrthogonalizationTW(o.nW, o.tW));
-	float3 bW = normalize(cross(o.nW, o.tW));
-	float3x3 TBN = float3x3(o.tW, bW, o.nW);
-	float4 packedNormal = UNITY_SAMPLE_TEX2D(_NormalMap, o.uv);
-	float3 bump = normalize(DecodeNormalFromTexture(packedNormal));
-	bump = normalize(mul(bump, TBN));
+	// gb0
+	float4 albedo = GBuffer0;
+	
+	// bg1
+	float3 normal = GBuffer1.rgb * 2 - 1;
 
-	float3 c = PBR_Shading(o.pW, bump, albedo.rgb, metalness, roughness);
+	// gb2
+	float2 motionVec = GBuffer2.rg;
+	float roughness = GBuffer2.b; roughness = max(roughness, 0.05);
+	float metalness = GBuffer2.a;
+
+	// gb3
+	float3 emission = GBuffer3.rgb;
+	float occlusion = GBuffer3.a;
+
+	// depth buffer
+	float depth = GDepth;
+	float depthLinear = Linear01Depth(depth);
+	depthOut = depth;
+
+	// 反投影计算世界坐标
+	float4 pNDC = float4(o.uv * 2 - 1, depth, 1);
+	float4 pW = mul(unity_MatrixInvVP, pNDC);
+	pW = pW / pW.w;
+
+	float3 c = PBR_Shading(pW, normal, albedo.rgb, metalness, roughness);
 	return float4(c, albedo.a);
 }
 
-float4 PBRFragmentTransparent(v2f o) : SV_Target
+/*float4 PBRFragmentTransparent(v2f o) : SV_Target
 {
 	float4 albedo = UNITY_SAMPLE_TEX2D(_AlbedoMap, o.uv);
 	float metalness = UNITY_SAMPLE_TEX2D(_MetalnessMap, o.uv).r;
 	float roughness = UNITY_SAMPLE_TEX2D(_RoughnessMap, o.uv).r;
 
 	o.nW = normalize(o.nW);
-	o.tW = SchmidtOrthogonalizationTW(o.nW, o.tW);
+	o.tW = normalize(o.tW);
 	float3 bW = normalize(cross(o.nW, o.tW));
 	float3x3 TBN = float3x3(o.tW, bW, o.nW);
 	float4 packedNormal = UNITY_SAMPLE_TEX2D(_NormalMap, o.uv);
@@ -80,6 +85,6 @@ float4 PBRFragmentTransparent(v2f o) : SV_Target
 	bump = normalize(mul(bump, TBN));
 
 	float3 c = PBR_Shading(o.pW, bump, albedo.rgb, metalness, roughness);
-	return float4(c, _Transparency);
-}
+	return float4(1.0,1.0,1.0, _Transparency);
+}*/
 #endif

@@ -1,17 +1,17 @@
-﻿Shader "MaxSRP/PBRLit"
+﻿Shader "MaxSRP/PBRLitPass"
 {
     Properties
     {
         _AlbedoMap ("Albedo", 2D) = "white" {}
         _MetalnessMap("Metallic", 2D) = "black" {}
         _RoughnessMap("Roughness",2D) = "black" {}
-        _NormalMap("Normal Map",2D) = "black" {}
+        [Normal] _NormalMap("Normal Map",2D) = "black" {}
         [Toggle(_RECEIVE_SHADOWS)] _RECEIVE_SHADOWS ("Receive Shadows", Float) = 0
     }
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "LightMode"="MaxForwardBase"}
+        Tags { "RenderType"="Opaque" "LightMode"="MaxDeferred"}
 
         HLSLINCLUDE
         #pragma enable_cbuffer
@@ -33,7 +33,7 @@
             ENDHLSL
         }
 
-        Pass
+        /*Pass
         {
             Name "ShadowCaster"
             Tags{"LightMode" = "ShadowCaster"}
@@ -49,6 +49,6 @@
             #pragma fragment ShadowCasterFragment
         
             ENDHLSL
-        }
+        }*/
     }
 }

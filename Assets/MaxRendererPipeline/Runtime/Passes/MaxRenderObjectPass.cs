@@ -6,7 +6,7 @@ namespace MaxSRP
 {
     public class MaxRenderObjectPass
     {
-        private ShaderTagId m_shaderTag = new ShaderTagId("MaxForwardBase");
+        private ShaderTagId m_shaderTag = new ShaderTagId("MaxDeferred");
         private bool m_isTransparent = false;
         public MaxRenderObjectPass(bool transparent)
         {
@@ -15,11 +15,11 @@ namespace MaxSRP
 
         public void Execute(ScriptableRenderContext context, Camera camera, ref CullingResults cullingResults)
         {
-            var drawSetting = CreateDrawSettings(camera);
+            var drawingSetting = CreateDrawSettings(camera);
             //根据_isTransparent，利用RenderQueueRange来过滤出透明物体，或者非透明物体
             var filterSetting = new FilteringSettings(m_isTransparent ? RenderQueueRange.transparent : RenderQueueRange.opaque);
             //绘制物体
-            context.DrawRenderers(cullingResults, ref drawSetting, ref filterSetting);
+            context.DrawRenderers(cullingResults, ref drawingSetting, ref filterSetting);
         }
 
         private DrawingSettings CreateDrawSettings(Camera camera)
@@ -27,10 +27,9 @@ namespace MaxSRP
             var sortingSetting = new SortingSettings(camera);
             //设置物体渲染排序标准
             sortingSetting.criteria = m_isTransparent ? SortingCriteria.CommonTransparent : SortingCriteria.CommonOpaque;
-            var drawSetting = new DrawingSettings(m_shaderTag, sortingSetting);
-            drawSetting.perObjectData |= PerObjectData.LightData;
-            drawSetting.perObjectData |= PerObjectData.LightIndices;
-            return drawSetting;
+            var drawingSetting = new DrawingSettings(m_shaderTag, sortingSetting);
+            drawingSetting.perObjectData |= PerObjectData.None;
+            return drawingSetting;
         }
     }
 }
