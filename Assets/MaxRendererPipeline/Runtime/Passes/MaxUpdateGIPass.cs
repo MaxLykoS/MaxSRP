@@ -3,27 +3,18 @@ using UnityEngine;
 
 namespace MaxSRP
 {
-    public class MaxUpdateGIPass
+    public class MaxIBLGIPass
     {
         private MaxLightProbeSkybox skyboxLightProbe;
         private MaxReflectionProbeSkybox skyboxReflectionProbe;
 
-        public MaxUpdateGIPass()
+        public MaxIBLGIPass(Cubemap cubemap, Texture2D brdfLut, ComputeShader cs)
         {
-            var array1 = Resources.FindObjectsOfTypeAll<MaxLightProbeSkybox>();
-            skyboxLightProbe = array1[0];
+            skyboxLightProbe = new MaxLightProbeSkybox(cubemap, cs);
+            skyboxLightProbe.Bake();
+            skyboxLightProbe.Submit();
 
-            var array2 = Resources.FindObjectsOfTypeAll<MaxReflectionProbeSkybox>();
-            skyboxReflectionProbe = array2[0];
-
-            skyboxLightProbe.ProbeInit();
-            skyboxReflectionProbe.ProbeInit();
-        }
-
-        public void Execute()
-        {
-            skyboxLightProbe.ProbeUpdate();
-            skyboxReflectionProbe.ProbeUpdate();
+            skyboxReflectionProbe = new MaxReflectionProbeSkybox(cubemap, brdfLut, cs);
         }
     }
 }

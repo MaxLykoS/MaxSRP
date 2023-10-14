@@ -6,49 +6,30 @@ namespace MaxSRP
     [ExecuteAlways]
     public class MaxReflectionProbeSkybox : MaxProbeBase
     {
-        [SerializeField]
-        public Texture2D BRDFLUT;
-        public override void ProbeInit()
-        {
-            Shader.SetGlobalTexture("_BRDFLUT", BRDFLUT);
+        private Texture2D m_brdfLUT;
+        private ComputeShader m_cs;
 
-            RenderCubeMap();
-            //SaveCubeMap();
-            SubmitReflectionMap();
+        public MaxReflectionProbeSkybox(Cubemap groundTruthEnvMap, Texture2D brdfLut, ComputeShader cs) : base(groundTruthEnvMap)
+        {
+            m_GroundTruthEnvMap = groundTruthEnvMap;
+            m_brdfLUT = brdfLut;
+            m_cs = cs;
         }
 
-        public void SubmitReflectionMap()
+        public override void Bake()
         {
-            Shader.SetGlobalTexture("_IBLSpec", capturedCubemap);
+
+        }
+
+        public override void Submit()
+        {
+            Shader.SetGlobalTexture("_IBLSpec", m_BakedEnvMap);
+            Shader.SetGlobalTexture("_BRDFLUT", m_brdfLUT);
         }
 
         public override void Clear()
         {
             base.Clear();
-        }
-
-        public override bool ProbeUpdate()
-        {
-            bool result = base.ProbeUpdate();
-            if (!result) return false;
-            RenderCubeMap();
-            SubmitReflectionMap();
-            return true;
-        }
-
-        private void Awake()
-        {
-            ProbeInit();
-        }
-
-        private void Update()
-        {
-            m_CurrentTimer += Time.deltaTime;
-            if (m_CurrentTimer > UPDATE_INTERVAL)
-            {
-                ProbeUpdate();
-                m_CurrentTimer = 0;
-            }
         }
     }
 }

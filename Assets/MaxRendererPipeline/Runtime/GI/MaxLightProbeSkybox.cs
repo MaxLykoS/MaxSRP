@@ -1,101 +1,85 @@
-using System.Collections;
-using System.Collections.Generic;
+using UnityEditor.EventSystems;
 using UnityEngine;
+using UnityEngine.Rendering;
+using static SphericalHarmonics;
 
 namespace MaxSRP
 {
     [ExecuteAlways]
     public class MaxLightProbeSkybox : MaxProbeBase
     {
-        //private Material viewMat;
+        private ComputeShader m_shader;
+        private int m_kernelIndex;
 
-        Vector4[] coefficients = new Vector4[9];
+        private Vector4[] m_coefficients;
 
-        private void ComputeSH()
+        public MaxLightProbeSkybox(Cubemap groundTruthEnvMap, ComputeShader shader) : base(groundTruthEnvMap)
         {
-            SphericalHarmonics.GPU_Project_Uniform_9Coeff(capturedCubemap, coefficients);
+            m_coefficients = new Vector4[9];
+
+            m_shader = shader;
+            m_kernelIndex = m_shader.FindKernel("CSMain");
         }
-        private void ComputeSHCustom()
+
+        public override void Bake()
         {
-            SphericalHarmonics.GPU_Project_Uniform_9Coeff(GroundTruthCubemap, coefficients);
+            //SphericalHarmonics.CPU_Project_Uniform_9Coeff(m_GroundTruthEnvMap, m_coefficients);
+            BakeCubemapDiffuse();
         }
 
-        private void Submiit()
+        public override void Submit()
         {
+            base.Submit();
+
             for (int i = 0; i < 9; ++i)
             {
-                Shader.SetGlobalVector("c" + i.ToString(), coefficients[i]);
+                Shader.SetGlobalVector("c" + i.ToString(), m_coefficients[i]);
             }
-            UnityEditor.SceneView.RepaintAll();
-        }
 
-        public void Display()
-        {
-            for (int i = 0; i < 9; ++i)
-                Debug.Log(coefficients[i]);
+            if (m_BakedEnvMap != null)
+            {
+                Shader.SetGlobalTexture("_IBLDiffuse", m_BakedEnvMap);
+            }
         }
 
         public override void Clear()
         {
             base.Clear();
-
-            for (int i = 0; i < coefficients.Length; ++i)
-                coefficients[i] = Vector3.zero;
         }
 
-        private void UpdateSHDiffuse()
+        public Cubemap BakeCubemapDiffuse(int resultWidth = 32)
         {
-            /*if (viewMat == null)
-                viewMat = new Material(Shader.Find("MaxSRP/CoeffVisualizer"));*/
+            const int threadsPerGroup = 32;
+            int texelCountsPerFace = resultWidth * resultWidth;
+            Cubemap diffuse = new Cubemap(resultWidth, m_GroundTruthEnvMap.format, 0);
 
-            RenderCubeMap();
-            ComputeSH();
-            //SaveCubeMap();
+            ComputeBuffer faceResult = new ComputeBuffer(texelCountsPerFace, sizeof(float) * 4);
+            Color[] faceColors = new Color[texelCountsPerFace];
+            m_shader.SetBuffer(m_kernelIndex, "_Result", faceResult);
+            m_shader.SetTexture(m_kernelIndex, "_RadianceMap", m_GroundTruthEnvMap);
+            m_shader.SetInt("_Width", resultWidth);
+            m_shader.SetInt("_TexelCountsPerFace", texelCountsPerFace);
 
-            /*for (int i = 0; i < 9; ++i)
+            // ±éÀú6¸öÃæ
+            for (int face = 0; face < 6; ++face)
             {
-                viewMat.SetVector("c" + i.ToString(), coefficients[i]);
-                viewMat.SetTexture("input", GroundTruthCubemap);
+                m_shader.SetInt("_Face", face);
+                int groupsCount = texelCountsPerFace / threadsPerGroup + 1;
+
+                m_shader.Dispatch(m_kernelIndex, groupsCount, 1, 1);
+
+                faceResult.GetData(faceColors);
+
+                diffuse.SetPixels(faceColors, (CubemapFace)face);
             }
-            viewMat.SetFloat("_Mode", 1.0f);
-            RenderSettings.skybox = viewMat;*/
 
-            Submiit();
+            faceResult.Release();
 
-            for (int i = 0; i < coefficients.Length; ++i)
-                coefficients[i] = Vector4.zero;
-        }
+            m_BakedEnvMap = diffuse;
+            m_BakedEnvMap.SmoothEdges();
+            m_BakedEnvMap.Apply(false, true);
 
-        public override void ProbeInit()
-        {
-            base.ProbeInit();
-
-            UpdateSHDiffuse();
-        }
-
-        public override bool ProbeUpdate()
-        {
-            bool result = base.ProbeUpdate();
-
-            if (!result) return false;
-
-            UpdateSHDiffuse();
-            return true;
-        }
-
-        private void Awake()
-        {
-            ProbeInit();
-        }
-
-        private void Update()
-        {
-            m_CurrentTimer += Time.deltaTime;
-            if (m_CurrentTimer > UPDATE_INTERVAL)
-            {
-                ProbeUpdate();
-                m_CurrentTimer = 0;
-            }
+            return diffuse;
         }
     }
 }

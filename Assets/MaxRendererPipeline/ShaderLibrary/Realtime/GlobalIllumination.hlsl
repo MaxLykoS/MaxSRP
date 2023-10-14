@@ -11,6 +11,7 @@ float4 c6;
 float4 c7;
 float4 c8;
 
+samplerCUBE _IBLDiffuse;
 samplerCUBE _IBLSpec;
 UNITY_DECLARE_TEX2D(_BRDFLUT);
 
@@ -28,6 +29,17 @@ float3 GetSpec(float3 reflectDir, float roughness, float NdotV, float3 kS)
 	float2 envBRDF = UNITY_SAMPLE_TEX2D(_BRDFLUT, float2(NdotV, roughness)).rg;
 	half3 indirectSpec = prefilteredColor * (kS * envBRDF.x + envBRDF.y);
 	return indirectSpec;
+}
+
+float3 GetDiffuseIBL(float3 N, float NdotV, float F0, float roughness, float3 albedo)
+{
+	float3 kS = fresnelSchlickRoughness(NdotV, F0, roughness);
+	float3 kD = 1.0 - kS;
+	float3 irradiance = texCUBElod(_IBLDiffuse, float4(normalize(N), 0)).rgb;
+	float3 diffuse = irradiance * albedo;
+	float3 ambient = (kD * diffuse);// * ao;
+
+	return ambient;
 }
 
 float Y0(float3 v)
