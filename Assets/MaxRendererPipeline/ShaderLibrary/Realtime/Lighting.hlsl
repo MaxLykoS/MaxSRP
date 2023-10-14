@@ -63,7 +63,8 @@ float3 PBR_IndirectLit(Surface surface)
     float3 kD = 1.0 - kS;
     kD = kD * (1.0 - surface.metalness);
 
-    float3 indirectDiffuse = CubemapApprox(surface.N) * surface.albedo;
+    float3 indirectDiffuse = GetDiffuseIBL(surface.N, NdotV, surface.F0, surface.roughness, surface.albedo);
+    return indirectDiffuse;
 
     float3 indirectSpec = GetSpec(reflectDir, surface.roughness, NdotV, kS);
     //float3 ambient = (kD * indirectDiffuse + indirectSpec) * surface.ao; // AOͼ
@@ -90,8 +91,11 @@ float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float ro
     float3 c_dirPointLight = PBR_DirectLitPointLight(surface);
     float3 c_indirLit = PBR_IndirectLit(surface);
 
+    //return N;
     //float visibility = max(0.0, (1 - GetMainLightShadowAtten(surface.P, surface.N)));
     //return c_dirDirLight * visibility + c_dirPointLight + c_indirLit;
+    return c_indirLit;
+    return c_indirLit + c_dirPointLight;
     return c_dirDirLight + c_dirPointLight + c_indirLit;
 }
 #endif

@@ -1,0 +1,124 @@
+#pragma kernel CSMain
+
+#define PI 3.1415926535897931
+
+float AreaElement(float x, float y)
+{
+    return atan2(x * y, sqrt(x * x + y * y + 1));
+}
+
+float DifferentialSolidAngle(int textureSize, float U, float V)
+{
+    float inv = 1.0f / textureSize;
+    float u = 2.0f * (U + 0.5f * inv) - 1;
+    float v = 2.0f * (V + 0.5f * inv) - 1;
+    float x0 = u - inv;
+    float y0 = v - inv;
+    float x1 = u + inv;
+    float y1 = v + inv;
+    return AreaElement(x0, y0) - AreaElement(x0, y1) - AreaElement(x1, y0) + AreaElement(x1, y1);
+}
+
+float3 DirectionFromCubemapTexel(int face, float u, float v)
+{
+    float3 dir = float3(0, 0, 0);
+
+    switch (face)
+    {
+    case 0: //+X
+        dir.x = 1;
+        dir.y = v * -2.0f + 1.0f;
+        dir.z = u * -2.0f + 1.0f;
+        break;
+
+    case 1: //-X
+        dir.x = -1;
+        dir.y = v * -2.0f + 1.0f;
+        dir.z = u * 2.0f - 1.0f;
+        break;
+
+    case 2: //+Y
+        dir.x = u * 2.0f - 1.0f;
+        dir.y = 1.0f;
+        dir.z = v * 2.0f - 1.0f;
+        break;
+
+    case 3: //-Y
+        dir.x = u * 2.0f - 1.0f;
+        dir.y = -1.0f;
+        dir.z = v * -2.0f + 1.0f;
+        break;
+
+    case 4: //+Z
+        dir.x = u * 2.0f - 1.0f;
+        dir.y = v * -2.0f + 1.0f;
+        dir.z = 1;
+        break;
+
+    case 5: //-Z
+        dir.x = u * -2.0f + 1.0f;
+        dir.y = v * -2.0f + 1.0f;
+        dir.z = -1;
+        break;
+    }
+
+    return normalize(dir);
+}
+
+// radiance map
+TextureCube _RadianceMap;
+SamplerState _Sampler_LinearClamp;
+
+uint _Width;
+uint _Face;
+uint _TexelCountsPerFace;
+RWStructuredBuffer<float4> _Result;
+
+//Texture format is RGBA SFloat, so we do not need to decode sampleHDR
+float3 SampleCubeMap(TextureCube cubTex, float3 sampleDir)
+{
+    float4 sampleHDR = cubTex.SampleLevel(_Sampler_LinearClamp, sampleDir, 0);
+    return sampleHDR.rgb;
+}
+
+[numthreads(32,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    uint texel = id.x;
+
+    if (texel > _TexelCountsPerFace)
+        return;
+
+    float3 result = float3(0, 0, 0);
+
+    float u = (texel % _Width) / (float)_Width;
+    float v = ((int)(texel / _Width)) / (float)_Width;
+
+    //get the direction vector
+    float3 N = DirectionFromCubemapTexel(_Face, u, v);
+    N = normalize(N);
+
+    float3 up = float3(0, 1, 0);
+    float3 right = cross(up, N);
+    up = cross(N, right); 
+
+    float sampleDelta = 0.025f;
+    float nrSamples = 0.0f;
+
+    for (float phi = 0.0f; phi < 2.0 * PI; phi += sampleDelta)
+    {
+        for (float theta = 0.0f; theta < 0.5 * PI; theta += sampleDelta)
+        {
+            // spherical to cartesian (in tangent space)
+            float3 tangentSample = float3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
+            // tangent space to world
+            float3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * N;
+
+            result = result + SampleCubeMap(_RadianceMap, sampleVec).rgb * cos(theta) * sin(theta);
+            nrSamples++;
+        }
+    }
+    result = PI * result * (1.0f / nrSamples);
+ 
+    _Result[texel] = float4(result, 1.0);
+}

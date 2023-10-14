@@ -67,6 +67,11 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 	pW = pW / pW.w;
 
 	float3 c = PBR_Shading(pW, normal, albedo.rgb, metalness, roughness);
+
+	// ldr to hdr
+	//c = c / (c + float3(1.0, 1.0, 1.0));
+	//c = pow(c, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+
 	return float4(c, albedo.a);
 }
 

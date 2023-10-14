@@ -10,19 +10,49 @@ namespace MaxSRP
     public class MaxRendererPipelineAsset : RenderPipelineAsset
     {
         [SerializeField]
-        private ShadowSetting _shadowSetting = new ShadowSetting();
+        private ShadowSetting m_shadowSetting = new ShadowSetting();
 
         public ShadowSetting ShadowSetting
         {
             get
             {
-                return _shadowSetting;
+                return m_shadowSetting;
             }
         }
 
         protected override RenderPipeline CreatePipeline()
         {
             return new MaxRenderPipeline(this);
+        }
+
+        [SerializeField]
+        private Texture2D m_iblLut;
+        public Texture2D IBLLut
+        {
+            get 
+            {
+                return m_iblLut;
+            }
+        }
+
+        [SerializeField]
+        private Cubemap m_envMap;
+        public Cubemap ENVMap
+        {
+            get 
+            {
+                return m_envMap;
+            }
+        }
+
+        [SerializeField]
+        private ComputeShader m_iblCS;
+        public ComputeShader IBLCS
+        {
+            get
+            {
+                return m_iblCS;
+            }
         }
     }
 }

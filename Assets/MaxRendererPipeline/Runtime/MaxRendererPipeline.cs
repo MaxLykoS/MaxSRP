@@ -15,6 +15,7 @@ namespace MaxSRP
         private MaxRenderObjectPass m_opaquePass = new MaxRenderObjectPass(false);
         private MaxRenderObjectPass m_transparentPass = new MaxRenderObjectPass(true);
         private MaxLightPass m_LightPass;
+        private MaxIBLGIPass m_iblGIPass;
 
         private MaxShadowCasterPass m_shadowCastPass = new MaxShadowCasterPass();
 
@@ -44,6 +45,7 @@ namespace MaxSRP
                 m_GBufferIDs[i] = m_GBuffers[i];
 
             m_LightPass = new MaxLightPass(m_GBufferIDs, m_GDepthBuffer);
+            m_iblGIPass = new MaxIBLGIPass(setting.ENVMap, setting.IBLLut, setting.IBLCS);  // 构造函数里bake和提交
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
@@ -66,25 +68,6 @@ namespace MaxSRP
             }
             //提交渲染命令
             context.Submit();
-        }
-
-        private void RecreateRTWhenScreenModified()
-        {
-            if (m_GDepthBuffer.width != Screen.width || m_GDepthBuffer.height != Screen.height || m_GDepthBuffer == null)
-            {
-                GameObject.DestroyImmediate(m_GDepthBuffer);
-                GameObject.DestroyImmediate(m_GBuffers[0]);
-                GameObject.DestroyImmediate(m_GBuffers[1]);
-                GameObject.DestroyImmediate(m_GBuffers[2]);
-                GameObject.DestroyImmediate(m_GBuffers[3]);
-
-                m_GDepthBuffer = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.Depth, RenderTextureReadWrite.Linear);
-                m_GBuffers[0] = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
-                m_GBuffers[1] = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGB2101010, RenderTextureReadWrite.Linear);
-                m_GBuffers[2] = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGB64, RenderTextureReadWrite.Linear);
-                m_GBuffers[3] = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
-                m_LightPassTexture = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
-            }
         }
 
         private void RenderMainCamera(ScriptableRenderContext context, Camera camera)
