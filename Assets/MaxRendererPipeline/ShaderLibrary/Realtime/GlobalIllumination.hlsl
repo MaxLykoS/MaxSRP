@@ -15,7 +15,7 @@ samplerCUBE _IBLDiffuse;
 samplerCUBE _IBLSpec;
 UNITY_DECLARE_TEX2D(_BRDFLUT);
 
-#define MAX_MIP_COUNT 8.0
+int _MaxMipCount;
 #define MIN_REFLECTIVITY 0.04
 
 float3 fresnelSchlickRoughness(float NdotV, float3 F0, float roughness)
@@ -23,22 +23,19 @@ float3 fresnelSchlickRoughness(float NdotV, float3 F0, float roughness)
 	return F0 + (max(float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
 }
 
-float3 GetSpec(float3 reflectDir, float roughness, float NdotV, float3 kS)
+float3 GetSpecularIBL(float3 reflectDir, float roughness, float NdotV, float3 kS)
 {
-	float3 prefilteredColor = texCUBElod(_IBLSpec, float4(reflectDir, roughness * MAX_MIP_COUNT)).rgb;
+	float3 prefilteredColor = texCUBElod(_IBLSpec, float4(reflectDir, roughness * _MaxMipCount)).rgb;
 	float2 envBRDF = UNITY_SAMPLE_TEX2D(_BRDFLUT, float2(NdotV, roughness)).rg;
 	half3 indirectSpec = prefilteredColor * (kS * envBRDF.x + envBRDF.y);
 	return indirectSpec;
 }
 
-float3 GetDiffuseIBL(float3 N, float NdotV, float F0, float roughness, float3 albedo)
+float3 GetDiffuseIBL(float3 N, float NdotV, float F0, float roughness, float3 albedo, float3 kD)
 {
-	float3 kS = fresnelSchlickRoughness(NdotV, F0, roughness);
-	float3 kD = 1.0 - kS;
 	float3 irradiance = texCUBElod(_IBLDiffuse, float4(normalize(N), 0)).rgb;
 	float3 diffuse = irradiance * albedo;
-	float3 ambient = (kD * diffuse);// * ao;
-
+	float3 ambient = kD * diffuse;// * ao;
 	return ambient;
 }
 

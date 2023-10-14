@@ -40,12 +40,15 @@ namespace MaxSRP
             m_GBuffers[3] = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
             m_LightPassTexture = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
 
-            // 给纹理 ID 赋值
+            m_GDepthBuffer.filterMode = FilterMode.Point;
             for (int i = 0; i < 4; ++i)
+            {
                 m_GBufferIDs[i] = m_GBuffers[i];
+                m_GBuffers[i].filterMode = FilterMode.Point;
+            }
 
             m_LightPass = new MaxLightPass(m_GBufferIDs, m_GDepthBuffer);
-            m_iblGIPass = new MaxIBLGIPass(setting.ENVMap, setting.IBLLut, setting.IBLCS);  // 构造函数里bake和提交
+            m_iblGIPass = new MaxIBLGIPass(setting.ENVMap, setting.IBLCS);  // 构造函数里bake和提交
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)

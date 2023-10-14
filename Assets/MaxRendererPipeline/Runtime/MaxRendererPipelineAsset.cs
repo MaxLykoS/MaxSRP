@@ -26,22 +26,16 @@ namespace MaxSRP
         }
 
         [SerializeField]
-        private Texture2D m_iblLut;
-        public Texture2D IBLLut
-        {
-            get 
-            {
-                return m_iblLut;
-            }
-        }
-
-        [SerializeField]
         private Cubemap m_envMap;
         public Cubemap ENVMap
         {
             get 
             {
                 return m_envMap;
+            }
+            set
+            {
+                m_envMap = value;
             }
         }
 

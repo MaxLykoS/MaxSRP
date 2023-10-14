@@ -64,7 +64,7 @@ void PBRGBufferFragment(
     bump = normalize(mul(bump, TBN));
 
     GBuffer0 = albedo;
-    GBuffer1 = float4(normalize(bump * 0.5 + 0.5), 0);
+    GBuffer1 = float4(bump * 0.5 + 0.5, 0);
     GBuffer2 = float4(0, 0, roughness, metalness);
     GBuffer3 = float4(0, 0, 0, 0);
 }

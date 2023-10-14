@@ -45,7 +45,7 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 	float4 albedo = GBuffer0;
 	
 	// bg1
-	float3 normal = GBuffer1.rgb * 2 - 1;
+	float3 normal = normalize(GBuffer1.rgb * 2 - 1);
 
 	// gb2
 	float2 motionVec = GBuffer2.rg;
