@@ -8,13 +8,15 @@ namespace MaxSRP
         private MaxLightProbeSkybox skyboxLightProbe;
         private MaxReflectionProbeSkybox skyboxReflectionProbe;
 
-        public MaxIBLGIPass(Cubemap cubemap, Texture2D brdfLut, ComputeShader cs)
+        public MaxIBLGIPass(Cubemap cubemap, ComputeShader cs)
         {
             skyboxLightProbe = new MaxLightProbeSkybox(cubemap, cs);
             skyboxLightProbe.Bake();
             skyboxLightProbe.Submit();
 
-            skyboxReflectionProbe = new MaxReflectionProbeSkybox(cubemap, brdfLut, cs);
+            skyboxReflectionProbe = new MaxReflectionProbeSkybox(cubemap, cs);
+            skyboxReflectionProbe.Bake();
+            skyboxReflectionProbe.Submit();
         }
     }
 }
