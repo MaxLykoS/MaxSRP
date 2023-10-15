@@ -61,7 +61,7 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 	float depthLinear = Linear01Depth(depth);
 	depthOut = depth;
 
-	// 反投影计算世界坐标
+	// reprojection 计算世界坐标
 	float4 pNDC = float4(o.uv * 2 - 1, depth, 1);
 	float4 pW = mul(unity_MatrixInvVP, pNDC);
 	pW = pW / pW.w;

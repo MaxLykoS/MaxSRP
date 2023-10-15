@@ -14,10 +14,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_shadowSetting:
     m_maxShadowDistance: 100
-    m_shadowCascadeCount: 1
-    m_cascadeRatio1: 1
-    m_cascadeRatio2: 0
-    m_cascadeRatio3: 0
-    m_cascadeRatio4: 0
+    m_shadowCascadeCount: 4
+    m_cascadeRatio1: 60
+    m_cascadeRatio2: 70
+    m_cascadeRatio3: 80
+    m_cascadeRatio4: 90
   m_envMap: {fileID: 8900000, guid: 4fd800ab0482d9a478760db6c511ccec, type: 2}
   m_iblCS: {fileID: 7200000, guid: e2b8bb07b144234449da79ec0190d9c9, type: 3}

@@ -37,7 +37,7 @@ namespace MaxSRP
         private float m_cascadeRatio4 = 0;
 
 
-        public int cascadeCount
+        public int m_cascadeCount
         {
             get
             {
@@ -45,7 +45,7 @@ namespace MaxSRP
             }
         }
 
-        public Vector3 cascadeRatio
+        public Vector3 CascadeRatio
         {
             get
             {
