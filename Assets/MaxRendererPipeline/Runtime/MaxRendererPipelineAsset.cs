@@ -33,10 +33,6 @@ namespace MaxSRP
             {
                 return m_envMap;
             }
-            set
-            {
-                m_envMap = value;
-            }
         }
 
         [SerializeField]

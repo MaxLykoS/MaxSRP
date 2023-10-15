@@ -110,6 +110,7 @@ namespace MaxSRP
 
             Texture2D lut = new Texture2D(width, width, TextureFormat.RGBA32, false, true);
             lut.wrapMode = TextureWrapMode.Clamp;
+            lut.filterMode = FilterMode.Point;
             ComputeBuffer lutBuffer = new ComputeBuffer(width * width, sizeof(float) * 4);
 
             m_cs.SetInt("_Width", width);

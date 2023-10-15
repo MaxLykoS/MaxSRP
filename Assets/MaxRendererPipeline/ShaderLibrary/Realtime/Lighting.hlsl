@@ -88,8 +88,8 @@ float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float ro
     float3 c_dirPointLight = PBR_DirectLitPointLight(surface);
     float3 c_indirLit = PBR_IndirectLit(surface);
 
-    //float visibility = max(0.0, (1 - GetMainLightShadowAtten(surface.P, surface.N)));
-    //return c_dirDirLight * visibility + c_dirPointLight + c_indirLit;
-    return c_dirDirLight + c_dirPointLight + c_indirLit;
+    float visibility = GetMainLightShadowVisibility(surface.P, surface.N, _MaxDirectionalLightDirection.xyz);
+    //return c_dirDirLight;  // Test
+    return c_dirDirLight * visibility + c_dirPointLight + c_indirLit;
 }
 #endif

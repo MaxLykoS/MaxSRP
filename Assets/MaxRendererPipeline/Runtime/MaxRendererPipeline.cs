@@ -90,12 +90,12 @@ namespace MaxSRP
                 shadowSetting = m_setting.ShadowSetting
             };
 
-            /*
+            
             //投影Pass
             m_shadowCastPass.Execute(context, casterSetting);
 
             //重设摄像机参数
-            context.SetupCameraProperties(camera);*/
+            context.SetupCameraProperties(camera);
 
             // 清除gbuffer
             using (CommandBuffer clearGBufferCmd = CommandBufferPool.Get("ClearGBuffer"))
@@ -105,7 +105,7 @@ namespace MaxSRP
                 context.ExecuteCommandBuffer(clearGBufferCmd);
             }
 
-            CommandBuffer cmd = CommandBufferPool.Get();
+            CommandBuffer cmd = CommandBufferPool.Get("Draw Opaque");
             // 设置gbuffer
             cmd.SetGlobalTexture("_GDepth", m_GDepthBuffer);
             cmd.SetGlobalTexture("_GBuffer0", m_GBuffers[0]);
@@ -113,10 +113,10 @@ namespace MaxSRP
             cmd.SetGlobalTexture("_GBuffer2", m_GBuffers[2]);
             cmd.SetGlobalTexture("_GBuffer3", m_GBuffers[3]);
 
-            context.ExecuteCommandBuffer(cmd);
-
             //非透明物体渲染
             m_opaquePass.Execute(context, camera, ref cullingResults);
+
+            context.ExecuteCommandBuffer(cmd);
 
             m_LightPass.Execute(context, camera);
 

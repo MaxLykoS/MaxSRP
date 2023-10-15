@@ -69,7 +69,7 @@ float3 CookTorranceBRDF(Surface surface)
     float3 nominator    = NDF * G * F;
     float denominator = 4.0 * max(dot(surface.N, surface.V), 0.0) * max(dot(surface.N, surface.L), 0.0) + 0.001; 
     float3 specular     = nominator / denominator;
-                
+    //return specular * kS;  // Test
     return kD * surface.albedo / PI + specular * kS; 
 }
 #endif

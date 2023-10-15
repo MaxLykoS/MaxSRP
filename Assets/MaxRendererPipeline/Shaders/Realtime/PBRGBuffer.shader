@@ -6,7 +6,6 @@ Shader "Unlit/PBRGBuffer"
         _MetalnessMap("Metallic", 2D) = "black" {}
         _RoughnessMap("Roughness",2D) = "black" {}
         [Normal] _NormalMap("Normal Map",2D) = "black" {}
-        [Toggle(_RECEIVE_SHADOWS)] _RECEIVE_SHADOWS("Receive Shadows", Float) = 0
     }
     SubShader
     {
@@ -27,12 +26,11 @@ Shader "Unlit/PBRGBuffer"
             #pragma target 5.0
             #pragma vertex PBRGBufferVertex
             #pragma fragment PBRGBufferFragment
-
-            //#pragma shader_feature _RECEIVE_SHADOWS       
+    
             ENDHLSL
         }
 
-        /*Pass
+        Pass
         {
             Name "ShadowCaster"
             Tags{"LightMode" = "ShadowCaster"}
@@ -48,6 +46,6 @@ Shader "Unlit/PBRGBuffer"
             #pragma fragment ShadowCasterFragment
 
             ENDHLSL
-        }*/
+        }
     }
 }
