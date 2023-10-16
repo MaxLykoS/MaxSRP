@@ -18,8 +18,6 @@ Shader "MaxSRP/ScreenSpaceShadowMap"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-
-
             ENDHLSL
         }
     }

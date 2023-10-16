@@ -90,6 +90,7 @@ float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float ro
     float3 c_indirLit = PBR_IndirectLit(surface);
 
     float visibility = UNITY_SAMPLE_TEX2D(_ScreenSpaceShadowMap, uv);
+    return visibility;
     return c_dirDirLight * visibility + c_dirPointLight + c_indirLit;
 }
 #endif
