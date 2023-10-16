@@ -65,7 +65,6 @@ float GetMainLightShadowVisibility(float3 positionWS,float3 normalWS, float3 lig
     float3 shadowMapPos = WorldToShadowMapPos(positionWS + normalWS * _ShadowParams.y);
     float curDepth = shadowMapPos.z;
     float2 sampleUV = shadowMapPos.xy;
-    float minDepth = UNITY_SAMPLE_TEX2D(_MaxMainShadowMap, sampleUV);
 
     float bias = max(0.05 * (1.0 - dot(normalWS, lightDir)), 0.005);
     float visibility = PCF_3x3(sampleUV, curDepth, bias);

@@ -11,10 +11,14 @@ namespace MaxSRP
         public MaxIBLGIPass(Cubemap cubemap, ComputeShader cs)
         {
             skyboxLightProbe = new MaxLightProbeSkybox(cubemap, cs);
+            skyboxReflectionProbe = new MaxReflectionProbeSkybox(cubemap, cs);
+        }
+
+        public void BakeAndSubmit() 
+        {
             skyboxLightProbe.Bake();
             skyboxLightProbe.Submit();
 
-            skyboxReflectionProbe = new MaxReflectionProbeSkybox(cubemap, cs);
             skyboxReflectionProbe.Bake();
             skyboxReflectionProbe.Submit();
         }

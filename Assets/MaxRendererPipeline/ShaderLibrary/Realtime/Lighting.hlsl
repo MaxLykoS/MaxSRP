@@ -4,7 +4,8 @@
 #include "BRDF.hlsl"
 #include "LightInput.hlsl"
 #include "GlobalIllumination.hlsl"
-#include "Shadow.hlsl"
+
+UNITY_DECLARE_TEX2D(_ScreenSpaceShadowMap);
 
 float3 PBR_DirectLitDirectionalLight(Surface surface)
 {
@@ -70,7 +71,7 @@ float3 PBR_IndirectLit(Surface surface)
 }
 
 // 总光照函数
-float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float roughness)
+float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float roughness, float2 uv)
 {
     // surface的L赋值放到各个函数里
     Surface surface;
@@ -88,8 +89,7 @@ float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float ro
     float3 c_dirPointLight = PBR_DirectLitPointLight(surface);
     float3 c_indirLit = PBR_IndirectLit(surface);
 
-    float visibility = GetMainLightShadowVisibility(surface.P, surface.N, _MaxDirectionalLightDirection.xyz);
-    //return c_dirDirLight;  // Test
+    float visibility = UNITY_SAMPLE_TEX2D(_ScreenSpaceShadowMap, uv);
     return c_dirDirLight * visibility + c_dirPointLight + c_indirLit;
 }
 #endif

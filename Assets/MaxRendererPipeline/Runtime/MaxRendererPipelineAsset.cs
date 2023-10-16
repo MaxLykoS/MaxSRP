@@ -44,5 +44,15 @@ namespace MaxSRP
                 return m_iblCS;
             }
         }
+
+        [SerializeField]
+        private Shader m_ssShadowMapShader;
+        public Shader SSShadowMapShader
+        {
+            get
+            {
+                return m_ssShadowMapShader;
+            }
+        }
     }
 }

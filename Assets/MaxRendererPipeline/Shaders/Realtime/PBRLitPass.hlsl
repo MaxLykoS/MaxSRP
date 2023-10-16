@@ -58,7 +58,6 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 
 	// depth buffer
 	float depth = GDepth;
-	float depthLinear = Linear01Depth(depth);
 	depthOut = depth;
 
 	// reprojection 计算世界坐标
@@ -66,7 +65,7 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 	float4 pW = mul(unity_MatrixInvVP, pNDC);
 	pW = pW / pW.w;
 
-	float3 c = PBR_Shading(pW, normal, albedo.rgb, metalness, roughness);
+	float3 c = PBR_Shading(pW, normal, albedo.rgb, metalness, roughness, o.uv);
 
 	// ldr to hdr
 	//c = c / (c + float3(1.0, 1.0, 1.0));
