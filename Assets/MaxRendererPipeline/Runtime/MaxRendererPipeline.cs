@@ -16,6 +16,7 @@ namespace MaxSRP
         private MaxRenderObjectPass m_transparentPass = new MaxRenderObjectPass(true);
         private MaxLightPass m_LightPass;
         private MaxIBLGIPass m_iblGIPass;
+        private MaxScreenSpaceShadowMapPass m_ssShadowMapPass;
 
         private MaxShadowCasterPass m_shadowCastPass = new MaxShadowCasterPass();
 
@@ -48,7 +49,11 @@ namespace MaxSRP
             }
 
             m_LightPass = new MaxLightPass(m_GBufferIDs, m_GDepthBuffer);
-            m_iblGIPass = new MaxIBLGIPass(setting.ENVMap, setting.IBLCS);  // 构造函数里bake和提交
+
+            m_iblGIPass = new MaxIBLGIPass(setting.ENVMap, setting.IBLCS);
+            m_iblGIPass.BakeAndSubmit();
+
+            m_ssShadowMapPass = new MaxScreenSpaceShadowMapPass(setting.SSShadowMapShader);
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
@@ -105,7 +110,7 @@ namespace MaxSRP
                 context.ExecuteCommandBuffer(clearGBufferCmd);
             }
 
-            CommandBuffer cmd = CommandBufferPool.Get("Draw Opaque");
+            CommandBuffer cmd = CommandBufferPool.Get("Bind GBuffer");
             // 设置gbuffer
             cmd.SetGlobalTexture("_GDepth", m_GDepthBuffer);
             cmd.SetGlobalTexture("_GBuffer0", m_GBuffers[0]);
@@ -115,6 +120,8 @@ namespace MaxSRP
 
             //非透明物体渲染
             m_opaquePass.Execute(context, camera, ref cullingResults);
+
+            m_ssShadowMapPass.Execute(context);
 
             context.ExecuteCommandBuffer(cmd);
 

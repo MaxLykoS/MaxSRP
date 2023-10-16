@@ -186,7 +186,7 @@ namespace MaxSRP
 
                 if(m_shadowmapTexture == null)
                 {
-                    m_shadowmapTexture = RenderTexture.GetTemporary(resolution,resolution,16,RenderTextureFormat.Shadowmap);
+                    m_shadowmapTexture = RenderTexture.GetTemporary(resolution,resolution,16,RenderTextureFormat.Shadowmap, RenderTextureReadWrite.Linear);
                     Shader.SetGlobalTexture(ShaderProperties.MainShadowMap, m_shadowmapTexture);
                     m_renderTargetIdentifier = new RenderTargetIdentifier(m_shadowmapTexture);
                 }
