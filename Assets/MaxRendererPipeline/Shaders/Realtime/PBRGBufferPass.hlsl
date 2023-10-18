@@ -63,8 +63,6 @@ void PBRGBufferFragment(
     float3 bump = DecodeNormalFromTexture(packedNormal);
     bump = normalize(mul(bump, TBN));
 
-    bump = o.nW;
-
     GBuffer0 = albedo;
     GBuffer1 = float4(bump * 0.5 + 0.5, 0);
     GBuffer2 = float4(0, 0, roughness, metalness);

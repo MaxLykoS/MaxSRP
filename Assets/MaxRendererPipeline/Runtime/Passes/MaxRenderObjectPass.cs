@@ -4,20 +4,15 @@ using UnityEngine.Rendering;
 
 namespace MaxSRP
 {
-    public class MaxRenderObjectPass
+    public class MaxRenderOpaquePass
     {
         private ShaderTagId m_shaderTag = new ShaderTagId("MaxDeferred");
-        private bool m_isTransparent = false;
-        public MaxRenderObjectPass(bool transparent)
-        {
-            m_isTransparent = transparent;
-        }
 
         public void Execute(ScriptableRenderContext context, Camera camera, ref CullingResults cullingResults)
         {
             var drawingSetting = CreateDrawSettings(camera);
             //根据_isTransparent，利用RenderQueueRange来过滤出透明物体，或者非透明物体
-            var filterSetting = new FilteringSettings(m_isTransparent ? RenderQueueRange.transparent : RenderQueueRange.opaque);
+            var filterSetting = new FilteringSettings(RenderQueueRange.opaque);
             //绘制物体
             context.DrawRenderers(cullingResults, ref drawingSetting, ref filterSetting);
         }
@@ -26,7 +21,7 @@ namespace MaxSRP
         {
             var sortingSetting = new SortingSettings(camera);
             //设置物体渲染排序标准
-            sortingSetting.criteria = m_isTransparent ? SortingCriteria.CommonTransparent : SortingCriteria.CommonOpaque;
+            sortingSetting.criteria = SortingCriteria.CommonOpaque;
             var drawingSetting = new DrawingSettings(m_shaderTag, sortingSetting);
             drawingSetting.perObjectData |= PerObjectData.None;
             return drawingSetting;

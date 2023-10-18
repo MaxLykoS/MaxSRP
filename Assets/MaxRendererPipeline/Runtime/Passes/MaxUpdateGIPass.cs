@@ -5,22 +5,22 @@ namespace MaxSRP
 {
     public class MaxIBLGIPass
     {
-        private MaxLightProbeSkybox skyboxLightProbe;
-        private MaxReflectionProbeSkybox skyboxReflectionProbe;
+        private MaxLightProbeSkybox m_skyboxLightProbe;
+        private MaxReflectionProbeSkybox m_skyboxReflectionProbe;
 
         public MaxIBLGIPass(Cubemap cubemap, ComputeShader cs)
         {
-            skyboxLightProbe = new MaxLightProbeSkybox(cubemap, cs);
-            skyboxReflectionProbe = new MaxReflectionProbeSkybox(cubemap, cs);
+            m_skyboxLightProbe = new MaxLightProbeSkybox(cubemap, cs);
+            m_skyboxReflectionProbe = new MaxReflectionProbeSkybox(cubemap, cs);
         }
 
         public void BakeAndSubmit() 
         {
-            skyboxLightProbe.Bake();
-            skyboxLightProbe.Submit();
+            m_skyboxLightProbe.Bake();
+            m_skyboxLightProbe.Submit();
 
-            skyboxReflectionProbe.Bake();
-            skyboxReflectionProbe.Submit();
+            m_skyboxReflectionProbe.Bake();
+            m_skyboxReflectionProbe.Submit();
         }
     }
 }

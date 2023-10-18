@@ -46,7 +46,7 @@ float4 frag(v2f o) : SV_Target
 	float4 pW = mul(unity_MatrixInvVP, pNDC);
 	pW = pW / pW.w;
 
-	return GetMainLightShadowVisibility(pW, normal, _MaxDirectionalLightDirection.xyz);
+	return GetMainLightShadowVisibility(pW, normal, _DirectionalLightDirection.xyz);
 }
 
 #endif
