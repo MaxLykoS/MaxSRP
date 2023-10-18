@@ -36,15 +36,6 @@ namespace MaxSRP
         [Tooltip("4级联阴影比重")]
         private float m_cascadeRatio4 = 0;
 
-
-        public int m_cascadeCount
-        {
-            get
-            {
-                return m_shadowCascadeCount;
-            }
-        }
-
         public Vector3 CascadeRatio
         {
             get

@@ -10,118 +10,87 @@ namespace MaxSRP
 {
     public class MaxLightConfigurator
     {
-        public class ShaderProperties
+        private const int MAX_VISIBLE_POINT_LIGHTS = 32;
+        private Vector4[] m_pointLightPositionAndRanges = new Vector4[MAX_VISIBLE_POINT_LIGHTS];
+        private Vector4[] m_pointLightColors = new Vector4[MAX_VISIBLE_POINT_LIGHTS];
+
+        // 拿到主光index，拿到另外4个点光的数据
+        // 因为是延迟管线 + cluster lighting(未实现)，不需要per draw light cbuffer，所以拿到光源数据后直接把所有光源都给-1
+        // 目前只给点光留了4个
+        public (int mainLightIndex, VisibleLight mainLight) SetupMultiShaderLightingParams(ScriptableRenderContext context, ref CullingResults cullingResults)
         {
-            public static int AmbientColor = Shader.PropertyToID("_AmbientColor");
+            CommandBuffer cmd = CommandBufferPool.Get("Setup Global Light Data");
 
-            // 方向光
-            public static int DirectionalLightDirection = Shader.PropertyToID("_MaxDirectionalLightDirection");
-            public static int DirectionalLightColor = Shader.PropertyToID("_MaxDirectionalLightColor");
+            int pointLightCount = 0;
+            int mainLightIndex = -1;
 
-            // 点光源
-            public static int OtherLightPositionAndRanges = Shader.PropertyToID("_MaxOtherLightPositionAndRanges");
-            public static int OtherLightColors = Shader.PropertyToID("_MaxOtherLightColors");
-            public static int OtherLightCount = Shader.PropertyToID("_MaxOtherLightCount");
-        }
-
-        private int m_mainLightIndex = -1;
-        private const int MAX_VISIBLE_OTHER_LIGHTS = 32;
-        private Vector4[] m_otherLightPositionAndRanges = new Vector4[MAX_VISIBLE_OTHER_LIGHTS];
-        private Vector4[] m_otherLightColors = new Vector4[MAX_VISIBLE_OTHER_LIGHTS];
-        private int m_otherLightCount = 0;
-
-        private static int GetMainLightIndex(NativeArray<VisibleLight> lights)
-        {
-            for (int i = 0; i < lights.Length; ++i)
-            {
-                if (lights[i].lightType == LightType.Directional)
-                {
-                    return i;
-                }
-            }
-            return -1;
-        }
-
-        public LightData SetupMultiShaderLightingParams(ref CullingResults cullingResults)
-        {
             NativeArray<VisibleLight> visibleLights = cullingResults.visibleLights;
-            m_mainLightIndex = GetMainLightIndex(visibleLights);
-            if (m_mainLightIndex >= 0)
+            NativeArray<int> lightIndexingMap = cullingResults.GetLightIndexMap(Allocator.Temp);
+            for (int i = 0; i < lightIndexingMap.Length; ++i)
+                lightIndexingMap[i] = -1;
+            for (int i = 0; i < visibleLights.Length; ++i)
             {
-                var mainLight = visibleLights[m_mainLightIndex];
-                var forward = -(Vector4)mainLight.light.gameObject.transform.forward;
-                Shader.SetGlobalVector(ShaderProperties.DirectionalLightDirection, forward);
-                Shader.SetGlobalColor(ShaderProperties.DirectionalLightColor, mainLight.finalColor);
-            }
-            else
-            {
-                Shader.SetGlobalColor(ShaderProperties.DirectionalLightColor, new Color(0, 0, 0, 0));
-            }
+                VisibleLight light = visibleLights[i];
 
-            SetupOtherLightDatas(ref cullingResults);
-
-            Shader.SetGlobalColor(ShaderProperties.AmbientColor, RenderSettings.ambientLight);
-
-            LightData ld = new LightData()
-            {
-                mainLight = m_mainLightIndex >= 0 && m_mainLightIndex < visibleLights.Length? visibleLights[m_mainLightIndex] : default,
-                mainLightIndex = m_mainLightIndex
-            };
-            return ld;
-        }
-
-        //设置非平行光源的GPU数据
-        private void SetupOtherLightDatas(ref CullingResults cullingResults)
-        {
-            NativeArray<VisibleLight> visibleLights = cullingResults.visibleLights;
-            NativeArray<int> lightMapIndex = cullingResults.GetLightIndexMap(Allocator.Temp);
-            int otherLightIndex = 0;
-            int visibleLightIndex = 0;
-            m_otherLightCount = 0;
-            foreach (VisibleLight light in visibleLights)
-            {
                 switch (light.lightType)
                 {
                     case LightType.Directional:
-                        lightMapIndex[visibleLightIndex] = -1;
+                        mainLightIndex = i;
                         break;
                     case LightType.Point:
-                        lightMapIndex[visibleLightIndex] = otherLightIndex;
-
-                        // setup point light
+                        // 收集点光信息
                         Vector4 positionAndRange = light.light.gameObject.transform.position;
                         positionAndRange.w = light.range;
-                        m_otherLightPositionAndRanges[otherLightIndex] = positionAndRange;
-                        m_otherLightColors[otherLightIndex] = light.finalColor;
-
-                        otherLightIndex++;
-                        ++m_otherLightCount;
+                        m_pointLightPositionAndRanges[pointLightCount] = positionAndRange;
+                        m_pointLightColors[pointLightCount] = light.finalColor;
+                        ++pointLightCount;
                         break;
                     default:
-                        lightMapIndex[visibleLightIndex] = -1;
                         break;
                 }
-                visibleLightIndex++;
+
+                if (pointLightCount >= MAX_VISIBLE_POINT_LIGHTS)
+                    break;
             }
-            for (var i = visibleLightIndex; i < lightMapIndex.Length; i++)
+            cullingResults.SetLightIndexMap(lightIndexingMap); // 全给-1，不需要per draw data
+
+            #region 设置主光
+            bool hasMainLight = mainLightIndex != -1;
+            if (hasMainLight)  // has main light
             {
-                lightMapIndex[i] = -1;
+                var mainLight = visibleLights[mainLightIndex];
+                var forward = -(Vector4)mainLight.light.gameObject.transform.forward;
+                cmd.SetGlobalVector(ShaderProperties._DirectionalLightDirection, forward);
+                cmd.SetGlobalVector(ShaderProperties._DirectionalLightDirection, forward);
+                cmd.SetGlobalColor(ShaderProperties._DirectionalLightColor, mainLight.finalColor);
             }
-            cullingResults.SetLightIndexMap(lightMapIndex);
-            Shader.SetGlobalVectorArray(ShaderProperties.OtherLightPositionAndRanges, m_otherLightPositionAndRanges);
-            Shader.SetGlobalVectorArray(ShaderProperties.OtherLightColors, m_otherLightColors);
-            Shader.SetGlobalInteger(ShaderProperties.OtherLightCount, m_otherLightCount);
+            else
+            {
+                cmd.SetGlobalColor(ShaderProperties._DirectionalLightColor, new Color(0, 0, 0, 0));
+            }
+            #endregion
+
+            #region 设置点光
+            cmd.SetGlobalVectorArray(ShaderProperties._PointLightPositionAndRanges, m_pointLightPositionAndRanges);
+            cmd.SetGlobalVectorArray(ShaderProperties._PointLightColors, m_pointLightColors);
+            cmd.SetGlobalInteger(ShaderProperties._PointLightCount, pointLightCount);
+            #endregion
+
+            context.ExecuteCommandBuffer(cmd);
+
+            return (mainLightIndex, hasMainLight ? visibleLights[mainLightIndex] : default);
         }
-    }
 
-    public struct LightData
-    {
-        public int mainLightIndex;
-        public VisibleLight mainLight;
-
-        public bool HasMainLight()
+        public class ShaderProperties
         {
-            return mainLightIndex >= 0;
+            // 方向光
+            public static readonly int _DirectionalLightDirection = Shader.PropertyToID("_DirectionalLightDirection");
+            public static readonly int _DirectionalLightColor = Shader.PropertyToID("_DirectionalLightColor");
+
+            // 点光源
+            public static readonly int _PointLightPositionAndRanges = Shader.PropertyToID("_PointLightPositionAndRanges");
+            public static readonly int _PointLightColors = Shader.PropertyToID("_PointLightColors");
+            public static readonly int _PointLightCount = Shader.PropertyToID("_PointLightCount");
         }
     }
 }

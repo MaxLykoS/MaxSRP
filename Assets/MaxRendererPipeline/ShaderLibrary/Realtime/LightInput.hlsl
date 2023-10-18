@@ -4,48 +4,43 @@
 #include "HLSLSupport.cginc"
 #include "./CommonInput.hlsl"
 
-#define MAX_OTHER_VISIBLE_LIGHT_COUNT 32
-#define MAX_OTHER_LIGHT_PER_OBJECT 8
+#define POINT_LIGHT_COUNT 32
 
-CBUFFER_START(MaxLighting)
-float4 _AmbientColor;
-
-float4x4 _MaxMainLightMatrixWorldToShadowMap;
-float4 _MaxDirectionalLightColor;
-float4 _MaxDirectionalLightDirection;
+float4x4 _MainLightMatrixWorldToShadowMap;
+float4 _DirectionalLightColor;
+float4 _DirectionalLightDirection;
 
 //非主光源的位置和范围,xyz代表位置，w代表范围
-float4 _MaxOtherLightPositionAndRanges[MAX_OTHER_VISIBLE_LIGHT_COUNT];
+float4 _PointLightPositionAndRanges[POINT_LIGHT_COUNT];
 //非主光源的颜色
-half4 _MaxOtherLightColors[MAX_OTHER_VISIBLE_LIGHT_COUNT];
-int _MaxOtherLightCount;
-CBUFFER_END
+half4 _PointLightColors[POINT_LIGHT_COUNT];
+int _PointLightCount;
 
-struct MaxDirLight
+struct DirLight
 {
     float3 direction;
     half4 color;
 };
 
-struct MaxOtherLight
+struct PointLight
 {
     float4 positionRange;
     half4 color;
 };
 
-MaxDirLight GetMainLight()
+DirLight GetMainLight()
 {
-    MaxDirLight light;
-    light.direction = _MaxDirectionalLightDirection;
-    light.color = _MaxDirectionalLightColor;
+    DirLight light;
+    light.direction = _DirectionalLightDirection;
+    light.color = _DirectionalLightColor;
     return light;
 }
 
-MaxOtherLight GetOtherLight(uint index)
+PointLight GetPointLight(uint index)
 {
-    MaxOtherLight light;
-    float4 positionRange = _MaxOtherLightPositionAndRanges[index];
-    half4 color = _MaxOtherLightColors[index];
+    PointLight light;
+    float4 positionRange = _PointLightPositionAndRanges[index];
+    half4 color = _PointLightColors[index];
     light.positionRange = positionRange;
     light.color = color;
     return light;
@@ -57,5 +52,7 @@ float DistanceAtten(float distanceSqr, float rangeSqr)
     factor = factor * factor;
     return factor * rcp(max(distanceSqr, 0.001));
 }
+
+UNITY_DECLARE_TEX2D(_ScreenSpaceShadowMap);  // 采一次就行
 
 #endif

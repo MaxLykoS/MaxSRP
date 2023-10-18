@@ -18,6 +18,7 @@ namespace MaxSRP
             m_ssShadowMap = new RenderTexture(Screen.width / 4, Screen.height / 4, 24, UnityEngine.Experimental.Rendering.GraphicsFormat.R32_SFloat, 0);
             m_ssShadowMap.filterMode = FilterMode.Trilinear;
             m_ssShadowMap.wrapMode = TextureWrapMode.Clamp;
+            m_ssShadowMap.name = "ScreenSpaceShadowMap";
         }
 
         public void Execute(ScriptableRenderContext context)
@@ -48,7 +49,7 @@ namespace MaxSRP
 
         private static class ShaderProperties
         {
-            public static int _ScreenSpaceShadowMap = Shader.PropertyToID("_ScreenSpaceShadowMap");
+            public static readonly int _ScreenSpaceShadowMap = Shader.PropertyToID("_ScreenSpaceShadowMap");
         }
     }
 }

@@ -9,20 +9,21 @@ namespace MaxSRP
     public class MaxShadowCasterPass
     {
         private const int SHADOWMAP_RESOLUTION = 2048;
-        private ShadowMapTextureHandler m_shadowMapHandler = new ShadowMapTextureHandler();
+        private const int CASCADE_COUNT = 4;
+        private RenderTexture m_mainShadowMapRT;
 
-        private Matrix4x4[] m_worldToCascadeShadowMapMatrices = new Matrix4x4[4];
-        private Vector4[] m_cascadeCullingSpheres = new Vector4[4];
+        private Matrix4x4[] m_worldToCascadeShadowMapMatrices = new Matrix4x4[CASCADE_COUNT];
+        private Vector4[] m_cascadeCullingSpheres = new Vector4[CASCADE_COUNT];
 
         public MaxShadowCasterPass()
         {
-            
+            Shader.SetGlobalInt(ShaderProperties._ShadowMapWidth, SHADOWMAP_RESOLUTION);  // constant
+            m_mainShadowMapRT = new RenderTexture(SHADOWMAP_RESOLUTION, SHADOWMAP_RESOLUTION, 24, RenderTextureFormat.Shadowmap, RenderTextureReadWrite.Linear);
+            m_mainShadowMapRT.name = "MainShadowMap";
         }
 
-        /// <summary>
-        /// 通过ComputeDirectionalShadowMatricesAndCullingPrimitives得到的投影矩阵，其对应的x,y,z范围分别为均为(-1,1).
-        /// 因此我们需要构造坐标变换矩阵，可以将世界坐标转换到ShadowMap齐次坐标空间。对应的xy范围为(0,1),z范围为(1,0)
-        /// </summary>
+        // 通过ComputeDirectionalShadowMatricesAndCullingPrimitives得到的投影矩阵，其对应的x,y,z范围分别为均为(-1,1).
+        // 因此我们需要构造坐标变换矩阵，可以将世界坐标转换到ShadowMap齐次坐标空间。对应的xy范围为(0,1),z范围为(1,0)
         static Matrix4x4 GetWorldToCascadeShadowMapSpaceMatrix(Matrix4x4 proj, Matrix4x4 view, Vector4 cascadeOffsetAndScale)
         {
             //检查平台是否zBuffer反转,一般情况下，z轴方向是朝屏幕内，即近小远大。但是在zBuffer反转的情况下，z轴是朝屏幕外，即近大远小。
@@ -70,11 +71,8 @@ namespace MaxSRP
         {
             CommandBuffer cmd = CommandBufferPool.Get("ClearShadowMap");
 
-            cmd.Clear();
             //设置渲染目标
-            cmd.SetRenderTarget(m_shadowMapHandler.renderTargetIdentifier, m_shadowMapHandler.renderTargetIdentifier);
-
-            cmd.SetViewport(new Rect(0, 0, shadowMapResolution, shadowMapResolution));
+            cmd.SetRenderTarget(m_mainShadowMapRT);
             //Clear贴图
             cmd.ClearRenderTarget(true, true, Color.black, 1);
 
@@ -92,38 +90,39 @@ namespace MaxSRP
 
         public void Execute(ScriptableRenderContext context, ShadowCasterSetting setting)
         {
-            ref var lightData = ref setting.lightData;
-            ref var cullingResults = ref setting.cullingResults;
-            var shadowSetting = setting.shadowSetting;
+            CommandBuffer cmd = CommandBufferPool.Get("SetupShadowCasterPass");
 
-            if (!lightData.HasMainLight())
+            int mainLightIndex = setting.m_MainLightIndex;
+            ref VisibleLight mainLight = ref setting.m_VisibleLight;
+            ref CullingResults cullingResults = ref setting.m_CullingResults;
+
+            if (!setting.HasMainLight)
             {
                 //表示场景无主灯光
-                Shader.SetGlobalVector(ShaderProperties.ShadowParams, new Vector4(0, 0, 0, 0));
+                cmd.SetGlobalVector(ShaderProperties._ShadowParams, new Vector4(0, 0, 0, 0));
                 return;
             }
+
             //false表示该灯光对场景无影响
-            if (!cullingResults.GetShadowCasterBounds(lightData.mainLightIndex, out var lightBounds))
+            if (!cullingResults.GetShadowCasterBounds(mainLightIndex, out Bounds lightBounds))
             {
-                Shader.SetGlobalVector(ShaderProperties.ShadowParams, new Vector4(0, 0, 0, 0));
+                cmd.SetGlobalVector(ShaderProperties._ShadowParams, new Vector4(0, 0, 0, 0));
                 return;
             }
-            VisibleLight mainLight = lightData.mainLight;
             Light lightComponent = mainLight.light;
 
+            Vector3 cascadeRatio = setting.m_ShadowSetting.CascadeRatio;
 
-            m_shadowMapHandler.AcquireRenderTextureIfNot(SHADOWMAP_RESOLUTION);
-
-            Vector3 cascadeRatio = setting.shadowSetting.CascadeRatio;
+            cmd.SetGlobalTexture(ShaderProperties._MainShadowMap, m_mainShadowMapRT);
 
             this.ClearAndActiveShadowMapTexture(context, SHADOWMAP_RESOLUTION);
 
-            int cascadeAtlasGridSize = Mathf.CeilToInt(Mathf.Sqrt(shadowSetting.m_cascadeCount));
+            int cascadeAtlasGridSize = Mathf.CeilToInt(Mathf.Sqrt(CASCADE_COUNT));
             int cascadeResolution = SHADOWMAP_RESOLUTION / cascadeAtlasGridSize;
 
             Vector2 cascadeOffsetInAtlas = new Vector2(0, 0);
 
-            for (int i = 0; i < shadowSetting.m_cascadeCount; i++)
+            for (int i = 0; i < CASCADE_COUNT; i++)
             {
                 int x = i % cascadeAtlasGridSize;
                 int y = i / cascadeAtlasGridSize;
@@ -132,11 +131,11 @@ namespace MaxSRP
                 Vector2 offsetInAtlas = new Vector2(x * cascadeResolution, y * cascadeResolution);
 
                 //get light matrixView,matrixProj,shadowSplitData
-                cullingResults.ComputeDirectionalShadowMatricesAndCullingPrimitives(lightData.mainLightIndex, i, shadowSetting.m_cascadeCount,
+                cullingResults.ComputeDirectionalShadowMatricesAndCullingPrimitives(mainLightIndex, i, CASCADE_COUNT,
                 cascadeRatio, cascadeResolution, lightComponent.shadowNearPlane, out var matrixView, out var matrixProj, out var shadowSplitData);
 
                 //generate ShadowDrawingSettings
-                ShadowDrawingSettings shadowDrawSetting = new ShadowDrawingSettings(cullingResults, lightData.mainLightIndex);
+                ShadowDrawingSettings shadowDrawSetting = new ShadowDrawingSettings(cullingResults, mainLightIndex);
                 shadowDrawSetting.splitData = shadowSplitData;
 
                 //设置Cascade相关参数
@@ -154,69 +153,39 @@ namespace MaxSRP
             }
 
             //setup shader params
-            Shader.SetGlobalMatrixArray(ShaderProperties.WorldToMainLightCascadeShadowMapSpaceMatrices, m_worldToCascadeShadowMapMatrices);
-            Shader.SetGlobalVectorArray(ShaderProperties.CascadeCullingSpheres, m_cascadeCullingSpheres);
+            cmd.SetGlobalMatrixArray(ShaderProperties._WorldToMainLightCascadeShadowMapSpaceMatrices, m_worldToCascadeShadowMapMatrices);
+            cmd.SetGlobalVectorArray(ShaderProperties._CascadeCullingSpheres, m_cascadeCullingSpheres);
             //将阴影的一些数据传入Shader
-            Shader.SetGlobalVector(ShaderProperties.ShadowParams, new Vector4(lightComponent.shadowBias, lightComponent.shadowNormalBias, lightComponent.shadowStrength, shadowSetting.m_cascadeCount));
+            cmd.SetGlobalVector(ShaderProperties._ShadowParams, new Vector4(lightComponent.shadowBias, lightComponent.shadowNormalBias, lightComponent.shadowStrength, CASCADE_COUNT));
+
+            context.ExecuteCommandBuffer(cmd);
         }
 
-        public class ShadowMapTextureHandler
-        {
-            private RenderTargetIdentifier m_renderTargetIdentifier = "_MaxMainShadowMap";
-            private int m_shadowmapId = Shader.PropertyToID("_MaxMainShadowMap");
-            private RenderTexture m_shadowmapTexture;    
-
-            public RenderTargetIdentifier renderTargetIdentifier
-            {
-                get
-                {
-                    return m_renderTargetIdentifier;
-                }
-            }
-
-
-            public void AcquireRenderTextureIfNot(int resolution)
-            {
-                if(m_shadowmapTexture && m_shadowmapTexture.width != resolution)
-                {
-                    //resolution changed
-                    RenderTexture.ReleaseTemporary(m_shadowmapTexture);
-                    m_shadowmapTexture = null;
-                }
-
-                if(m_shadowmapTexture == null)
-                {
-                    m_shadowmapTexture = RenderTexture.GetTemporary(resolution,resolution,16,RenderTextureFormat.Shadowmap, RenderTextureReadWrite.Linear);
-                    Shader.SetGlobalTexture(ShaderProperties.MainShadowMap, m_shadowmapTexture);
-                    m_renderTargetIdentifier = new RenderTargetIdentifier(m_shadowmapTexture);
-                }
-            }
-
-        }
         public struct ShadowCasterSetting
         {
-            public ShadowSetting shadowSetting;
-            public CullingResults cullingResults;
-            public LightData lightData;
+            public ShadowSetting m_ShadowSetting;
+            public CullingResults m_CullingResults;
+            public int m_MainLightIndex;
+            public VisibleLight m_VisibleLight;
+
+            public bool HasMainLight
+            {
+                get { return m_MainLightIndex != -1; }
+            }
         }
         public static class ShaderProperties
         {
-            public static readonly int MainLightMatrixWorldToShadowSpace = Shader.PropertyToID("_MaxMainLightMatrixWorldToShadowMap");
-
-            /// <summary>
             /// 类型Matrix4x4[4]，表示每级Cascade从世界到贴图空间的转换矩阵
-            /// </summary>
-            public static readonly int WorldToMainLightCascadeShadowMapSpaceMatrices = Shader.PropertyToID("_MaxWorldToMainLightCascadeShadowMapSpaceMatrices");
+            public static readonly int _WorldToMainLightCascadeShadowMapSpaceMatrices = Shader.PropertyToID("_WorldToMainLightCascadeShadowMapSpaceMatrices");
 
-            /// <summary>
             /// 类型Vector4[4],表示每级Cascade的空间裁剪包围球
-            /// </summary>
-            public static readonly int CascadeCullingSpheres = Shader.PropertyToID("_MaxCascadeCullingSpheres");
+            public static readonly int _CascadeCullingSpheres = Shader.PropertyToID("_CascadeCullingSpheres");
 
             //x为depthBias,y为normalBias,z为shadowStrength
-            public static readonly int ShadowParams = Shader.PropertyToID("_ShadowParams");
-            public static readonly int MainShadowMap = Shader.PropertyToID("_MaxMainShadowMap");
+            public static readonly int _ShadowParams = Shader.PropertyToID("_ShadowParams");
+            public static readonly int _MainShadowMap = Shader.PropertyToID("_MainShadowMap");
 
+            public static readonly int _ShadowMapWidth = Shader.PropertyToID("_ShadowMapWidth");
         }
     }
 }
