@@ -20,7 +20,7 @@ float DistributionGGX(float3 N, float3 H, float roughness)
 
 float GeometrySchlickGGX(float NdotV, float roughness)
 {
-    float r = (roughness + 1.0);
+    float r = (roughness + 1.0); 
     float k = (r * r) / 8.0;
 
     float nom   = NdotV;
@@ -40,7 +40,7 @@ float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
 float3 fresnelSchlick(float cosTheta, float3 F0)
 {
     return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-}  
+}
 
 struct Surface
 {
@@ -69,7 +69,6 @@ float3 CookTorranceBRDF(Surface surface)
     float3 nominator    = NDF * G * F;
     float denominator = 4.0 * max(dot(surface.N, surface.V), 0.0) * max(dot(surface.N, surface.L), 0.0) + 0.001; 
     float3 specular     = nominator / denominator;
-    //return specular * kS;  // Test
     return kD * surface.albedo / PI + specular * kS; 
 }
 #endif

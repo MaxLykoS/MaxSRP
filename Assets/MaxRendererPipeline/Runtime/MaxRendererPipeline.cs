@@ -17,7 +17,7 @@ namespace MaxSRP
         private MaxIBLGIPass m_iblGIPass;
         private MaxScreenSpaceShadowMapPass m_ssShadowMapPass;
 
-        private MaxShadowCasterPass m_shadowCastPass = new MaxShadowCasterPass();
+        private MaxShadowCasterPass m_shadowCastPass;
 
         private MaxRendererPipelineAsset m_setting;
 
@@ -50,6 +50,7 @@ namespace MaxSRP
             m_iblGIPass = new MaxIBLGIPass(setting.ENVMap, setting.IBLCS);
             m_iblGIPass.BakeAndSubmit();
 
+            m_shadowCastPass = new MaxShadowCasterPass(setting.CascadeSetting);
             m_ssShadowMapPass = new MaxScreenSpaceShadowMapPass(setting.SSShadowMapShader);
         }
 
@@ -66,10 +67,8 @@ namespace MaxSRP
                     ScriptableRenderContext.EmitWorldGeometryForSceneView(camera);
 #endif
                 ShaderBindings.SetPerCameraShaderVariables(context, camera);
-                if (camera.cameraType == CameraType.Game)
-                    RenderMainCamera(context, camera);
-                else
-                    RenderMainCamera(context, camera);
+                RenderMainCamera(context, camera);
+                break;
             }
 
             //提交渲染命令
@@ -78,27 +77,19 @@ namespace MaxSRP
 
         private void RenderMainCamera(ScriptableRenderContext context, Camera camera)
         {
-            //设置摄像机参数
+            // 设置摄像机参数
             context.SetupCameraProperties(camera);
-            //对场景进行裁剪
+            // 对场景进行裁剪
             camera.TryGetCullingParameters(out var cullingParams);
-            cullingParams.shadowDistance = Mathf.Min(m_setting.ShadowSetting.shadowDistance, camera.farClipPlane - camera.nearClipPlane);
+            cullingParams.shadowDistance = Mathf.Min(m_setting.CascadeSetting.ShadowDistance, camera.farClipPlane - camera.nearClipPlane);
             CullingResults cullingResults = context.Cull(ref cullingParams);
-            (int mainLightIndex, VisibleLight mainLight) = m_lightConfigurator.SetupMultiShaderLightingParams(context, ref cullingResults);
+            m_lightConfigurator.SetupMultiShaderLightingParams(context, ref cullingResults);
 
-            MaxShadowCasterPass.ShadowCasterSetting casterSetting = new MaxShadowCasterPass.ShadowCasterSetting
-            {
-                m_MainLightIndex = mainLightIndex,
-                m_VisibleLight = mainLight,
-                m_CullingResults = cullingResults,
-                m_ShadowSetting = m_setting.ShadowSetting
-            };
+            // 投影Pass
+            if (camera.cameraType == CameraType.Game)
+                m_shadowCastPass.Execute(context, camera);
 
-            
-            //投影Pass
-            m_shadowCastPass.Execute(context, casterSetting);
-
-            //重设摄像机参数
+            // 重设摄像机参数
             context.SetupCameraProperties(camera);
 
             // 清除gbuffer

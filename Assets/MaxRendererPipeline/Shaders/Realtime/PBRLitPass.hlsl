@@ -49,7 +49,8 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 
 	// gb2
 	float2 motionVec = GBuffer2.rg;
-	float roughness = GBuffer2.b; roughness = max(roughness, 0.05);
+	float roughness = GBuffer2.b;
+	roughness = max(roughness, 0.05);
 	float metalness = GBuffer2.a;
 
 	// gb3

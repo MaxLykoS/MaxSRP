@@ -17,7 +17,7 @@ namespace MaxSRP
         // 拿到主光index，拿到另外4个点光的数据
         // 因为是延迟管线 + cluster lighting(未实现)，不需要per draw light cbuffer，所以拿到光源数据后直接把所有光源都给-1
         // 目前只给点光留了4个
-        public (int mainLightIndex, VisibleLight mainLight) SetupMultiShaderLightingParams(ScriptableRenderContext context, ref CullingResults cullingResults)
+        public void SetupMultiShaderLightingParams(ScriptableRenderContext context, ref CullingResults cullingResults)
         {
             CommandBuffer cmd = CommandBufferPool.Get("Setup Global Light Data");
 
@@ -77,8 +77,6 @@ namespace MaxSRP
             #endregion
 
             context.ExecuteCommandBuffer(cmd);
-
-            return (mainLightIndex, hasMainLight ? visibleLights[mainLightIndex] : default);
         }
 
         public class ShaderProperties

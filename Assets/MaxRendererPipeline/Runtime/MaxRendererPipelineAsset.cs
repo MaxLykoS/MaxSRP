@@ -10,13 +10,13 @@ namespace MaxSRP
     public class MaxRendererPipelineAsset : RenderPipelineAsset
     {
         [SerializeField]
-        private ShadowSetting m_shadowSetting = new ShadowSetting();
+        private CascadeSettings m_cascadeSettings = new CascadeSettings();
 
-        public ShadowSetting ShadowSetting
+        public CascadeSettings CascadeSetting
         {
             get
             {
-                return m_shadowSetting;
+                return m_cascadeSettings;
             }
         }
 

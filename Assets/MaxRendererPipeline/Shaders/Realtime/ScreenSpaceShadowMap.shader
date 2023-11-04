@@ -13,11 +13,27 @@ Shader "MaxSRP/ScreenSpaceShadowMap"
         #pragma enable_d3d11_debug_symbols
         #include "./ScreenSpaceShadowMapPass.hlsl"
         ENDHLSL
-        Pass
+        Pass //ScreenSpaceShadowMap
         {
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            ENDHLSL
+        }
+
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex vert_v
+            #pragma fragment fragBlur
+            ENDHLSL
+        }
+
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex vert_h
+            #pragma fragment fragBlur
             ENDHLSL
         }
     }

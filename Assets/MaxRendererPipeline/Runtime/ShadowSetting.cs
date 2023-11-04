@@ -5,66 +5,50 @@ using UnityEngine;
 namespace MaxSRP
 {
     [System.Serializable]
-    public class ShadowSetting
+    public class CascadeSettings
     {
-        [SerializeField]
-        [Range(10, 500)]
-        [Tooltip("最远阴影距离")]
-        private float m_maxShadowDistance = 100;
+        public float ShadowDistance = 50;
+        public ShadowSettings Cascade0 = new ShadowSettings();
+        public ShadowSettings Cascade1 = new ShadowSettings();
+        public ShadowSettings Cascade2 = new ShadowSettings();
+        public ShadowSettings Cascade3 = new ShadowSettings();
 
-        [SerializeField]
-        [Range(1, 4)]
-        [Tooltip("级联阴影级数")]
-        private int m_shadowCascadeCount = 1;
+        public Texture2D BlueNoiseTexture;
 
-        [SerializeField]
-        [Range(1, 100)]
-        [Tooltip("1级联阴影比重")]
-        private float m_cascadeRatio1 = 1;
-
-        [SerializeField]
-        [Range(1, 100)]
-        [Tooltip("2级联阴影比重")]
-        private float m_cascadeRatio2 = 0;
-        [SerializeField]
-        [Range(1, 100)]
-        [Tooltip("3级联阴影比重")]
-        private float m_cascadeRatio3 = 0;
-
-        [SerializeField]
-        [Range(1, 100)]
-        [Tooltip("4级联阴影比重")]
-        private float m_cascadeRatio4 = 0;
-
-        public Vector3 CascadeRatio
+        public void Set()
         {
-            get
-            {
-                float total = m_cascadeRatio1;
-                if (m_shadowCascadeCount > 1)
-                {
-                    total += m_cascadeRatio2;
-                }
-                if (m_shadowCascadeCount > 2)
-                {
-                    total += m_cascadeRatio3;
-                }
-                if (m_shadowCascadeCount > 3)
-                {
-                    total += m_cascadeRatio4;
-                }
-                return new Vector3(m_cascadeRatio1 / total, m_cascadeRatio2 / total, m_cascadeRatio3 / total);
-            }
+            int i = 0;
+            Shader.SetGlobalFloat("_ShadingPointNormalBias" + i, Cascade0.ShadingPointNormalBias);
+            Shader.SetGlobalFloat("_DepthNormalBias" + i, Cascade0.DepthNormalBias);
+            Shader.SetGlobalFloat("_PcssSearchRadius" + i, Cascade0.PcssSearchRadius);
+            Shader.SetGlobalFloat("_PcssFilterRadius" + i, Cascade0.PcssFilterRadius);
+
+            i = 1;
+            Shader.SetGlobalFloat("_ShadingPointNormalBias" + i, Cascade1.ShadingPointNormalBias);
+            Shader.SetGlobalFloat("_DepthNormalBias" + i, Cascade1.DepthNormalBias);
+            Shader.SetGlobalFloat("_PcssSearchRadius" + i, Cascade1.PcssSearchRadius);
+            Shader.SetGlobalFloat("_PcssFilterRadius" + i, Cascade1.PcssFilterRadius);
+
+            i = 2;
+            Shader.SetGlobalFloat("_ShadingPointNormalBias" + i, Cascade2.ShadingPointNormalBias);
+            Shader.SetGlobalFloat("_DepthNormalBias" + i, Cascade2.DepthNormalBias);
+            Shader.SetGlobalFloat("_PcssSearchRadius" + i, Cascade2.PcssSearchRadius);
+            Shader.SetGlobalFloat("_PcssFilterRadius" + i, Cascade2.PcssFilterRadius);
+
+            i = 3;
+            Shader.SetGlobalFloat("_ShadingPointNormalBias" + i, Cascade3.ShadingPointNormalBias);
+            Shader.SetGlobalFloat("_DepthNormalBias" + i, Cascade3.DepthNormalBias);
+            Shader.SetGlobalFloat("_PcssSearchRadius" + i, Cascade3.PcssSearchRadius);
+            Shader.SetGlobalFloat("_PcssFilterRadius" + i, Cascade3.PcssFilterRadius);
         }
+    }
 
-
-
-        public float shadowDistance
-        {
-            get
-            {
-                return m_maxShadowDistance;
-            }
-        }
+    [System.Serializable]
+    public class ShadowSettings
+    {
+        public float ShadingPointNormalBias = 0.1f;
+        public float DepthNormalBias = 0.005f;
+        public float PcssSearchRadius = 1.0f;
+        public float PcssFilterRadius = 7.0f;
     }
 }
