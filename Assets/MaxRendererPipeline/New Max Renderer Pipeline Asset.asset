@@ -12,13 +12,29 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9912806b99c4e854492bc7539254453e, type: 3}
   m_Name: New Max Renderer Pipeline Asset
   m_EditorClassIdentifier: 
-  m_shadowSetting:
-    m_maxShadowDistance: 100
-    m_shadowCascadeCount: 4
-    m_cascadeRatio1: 60
-    m_cascadeRatio2: 70
-    m_cascadeRatio3: 80
-    m_cascadeRatio4: 90
+  m_cascadeSettings:
+    ShadowDistance: 500
+    Cascade0:
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.005
+      PcssSearchRadius: 0.75
+      PcssFilterRadius: 10
+    Cascade1:
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.005
+      PcssSearchRadius: 0.75
+      PcssFilterRadius: 10
+    Cascade2:
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.005
+      PcssSearchRadius: 0.75
+      PcssFilterRadius: 10
+    Cascade3:
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.005
+      PcssSearchRadius: 1
+      PcssFilterRadius: 7
+    BlueNoiseTexture: {fileID: 2800000, guid: 7b6c5d0a0f3f87f46978fba30cbbb168, type: 3}
   m_envMap: {fileID: 8900000, guid: 4fd800ab0482d9a478760db6c511ccec, type: 2}
   m_iblCS: {fileID: 7200000, guid: e2b8bb07b144234449da79ec0190d9c9, type: 3}
   m_ssShadowMapShader: {fileID: 4800000, guid: 70af75b221c839346b8ee9ad94878350, type: 3}

@@ -5,7 +5,7 @@ namespace MaxSRP
 {
     public static class ShaderPassTag
     {
-        public static ShaderTagId forwardLit = new ShaderTagId("ForwardLit");
+        public static ShaderTagId forwardLit = new ShaderTagId("MaxDeferred");
     }
 
     public static class ShaderBindings
