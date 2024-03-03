@@ -1,5 +1,5 @@
-#ifndef MAX_PBRGBuffer_PASS_INCLUDED
-#define MAX_PBRGBuffer_PASS_INCLUDED
+#ifndef MAX_PBRGBUFFER_PASS_INCLUDED
+#define MAX_PBRGBUFFER_PASS_INCLUDED
 
 #include "../../ShaderLibrary/Realtime/Lighting.hlsl"
 #include "../../ShaderLibrary/Realtime/Shadow.hlsl"

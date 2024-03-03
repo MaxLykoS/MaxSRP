@@ -41,10 +41,8 @@ Shader "Unlit/PBRGBuffer"
             Cull Back
 
             HLSLPROGRAM
-
             #pragma vertex ShadowCasterVertex
             #pragma fragment ShadowCasterFragment
-
             ENDHLSL
         }
     }
