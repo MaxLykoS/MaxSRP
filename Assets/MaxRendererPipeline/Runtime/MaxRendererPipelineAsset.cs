@@ -54,5 +54,15 @@ namespace MaxSRP
                 return m_ssShadowMapShader;
             }
         }
+
+        [SerializeField]
+        private MaxProceduralSkyboxPass.AtmosphereSettings m_atmosphereScatteringSetting = new MaxProceduralSkyboxPass.AtmosphereSettings();
+        public MaxProceduralSkyboxPass.AtmosphereSettings AtmosphereScatteringSetting
+        {
+            get
+            {
+                return m_atmosphereScatteringSetting;
+            }
+        }
     }
 }

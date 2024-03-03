@@ -18,6 +18,7 @@ namespace MaxSRP
         private MaxScreenSpaceShadowMapPass m_ssShadowMapPass;
 
         private MaxShadowCasterPass m_shadowCastPass;
+        private MaxProceduralSkyboxPass m_proceduralSkyboxPass;
 
         private MaxRendererPipelineAsset m_setting;
 
@@ -52,6 +53,9 @@ namespace MaxSRP
 
             m_shadowCastPass = new MaxShadowCasterPass(setting.CascadeSetting);
             m_ssShadowMapPass = new MaxScreenSpaceShadowMapPass(setting.SSShadowMapShader);
+
+            // 保存skybox相关的持久化设置
+            m_proceduralSkyboxPass = new MaxProceduralSkyboxPass(setting.AtmosphereScatteringSetting);
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
@@ -122,9 +126,14 @@ namespace MaxSRP
                 m_LightPass.Execute(context, camera);
             }
 
-            // Renders skybox if required
-            if (camera.clearFlags == CameraClearFlags.Skybox && RenderSettings.skybox != null)
-                context.DrawSkybox(camera);
+            using (CommandBuffer cmd = CommandBufferPool.Get("Atmosphere Scattering"))
+            {
+                // Render skybox if required
+                if (camera.clearFlags == CameraClearFlags.Skybox)
+                {
+                    m_proceduralSkyboxPass.DrawSkybox(context, camera, cmd);
+                }
+            }
 
             if (Handles.ShouldRenderGizmos())
             {

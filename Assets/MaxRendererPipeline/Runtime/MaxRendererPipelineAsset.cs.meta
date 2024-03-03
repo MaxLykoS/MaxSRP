@@ -3,7 +3,15 @@ guid: 9912806b99c4e854492bc7539254453e
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2
-  defaultReferences: []
+  defaultReferences:
+  - m_envMap: {instanceID: 0}
+  - m_iblCS: {fileID: 7200000, guid: e2b8bb07b144234449da79ec0190d9c9, type: 3}
+  - m_ssShadowMapShader: {fileID: 4800000, guid: 70af75b221c839346b8ee9ad94878350, type: 3}
+  - m_proceduralSkyboxShader: {fileID: 4800000, guid: e672d8dbb2dc9254b9fedecd6817998b, type: 3}
+  - m_transmittanceShader: {fileID: 4800000, guid: b155559cdc37a5040b239fb63b6e7033, type: 3}
+  - m_multiscatteringShader: {fileID: 4800000, guid: afbbd3e0f2a7706469dbbd78e6c093e1, type: 3}
+  - m_skyviewShader: {fileID: 4800000, guid: f84fc030683c2d142ae755f2707cc0e1, type: 3}
+  - m_aerialPerspectiveShader: {fileID: 4800000, guid: 490e2fdb45ef33746b278a0a9cbd2109, type: 3}
   executionOrder: 0
   icon: {instanceID: 0}
   userData: 

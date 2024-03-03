@@ -20,7 +20,10 @@ namespace MaxSRP
 
             m_shadowTexture = new RenderTexture[4];
             for (int i = 0; i < 4; i++)
+            {
                 m_shadowTexture[i] = new RenderTexture(SHADOWMAP_RESOLUTION, SHADOWMAP_RESOLUTION, 24, RenderTextureFormat.Depth, RenderTextureReadWrite.Linear);
+                m_shadowTexture[i].wrapMode = TextureWrapMode.Clamp;
+            }
 
             Shader.SetGlobalTexture(ShaderProperties._MainShadowMap0, m_shadowTexture[0]);
             Shader.SetGlobalTexture(ShaderProperties._MainShadowMap1, m_shadowTexture[1]);

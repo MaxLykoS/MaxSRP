@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9912806b99c4e854492bc7539254453e, type: 3}
-  m_Name: New Max Renderer Pipeline Asset
+  m_Name: Max Renderer Pipeline Asset
   m_EditorClassIdentifier: 
   m_cascadeSettings:
     ShadowDistance: 500
@@ -38,3 +38,25 @@ MonoBehaviour:
   m_envMap: {fileID: 8900000, guid: 4fd800ab0482d9a478760db6c511ccec, type: 2}
   m_iblCS: {fileID: 7200000, guid: e2b8bb07b144234449da79ec0190d9c9, type: 3}
   m_ssShadowMapShader: {fileID: 4800000, guid: 70af75b221c839346b8ee9ad94878350, type: 3}
+  m_atmosphereScatteringSetting:
+    _SeaLevel: 0
+    _PlanetRadius: 6360000
+    _AtmosphereHeight: 60000
+    _SunLightIntensity: 31.4
+    _SunLightColor: {r: 1, g: 1, b: 1, a: 1}
+    _SunDiskAngle: 1
+    _RayleighScatteringScale: 1
+    _RayleighScatteringScalarHeight: 8000
+    _MieScatteringScale: 1
+    _MieAnisotropy: 0.8
+    _MieScatteringScalarHeight: 1200
+    _OzoneAbsorptionScale: 1
+    _OzoneLevelCenterHeight: 25000
+    _OzoneLevelWidth: 15000
+    _AerialPerspectiveDistance: 32000
+    m_proceduralSkyboxShader: {fileID: 4800000, guid: e672d8dbb2dc9254b9fedecd6817998b, type: 3}
+    m_transmittanceShader: {fileID: 4800000, guid: b155559cdc37a5040b239fb63b6e7033, type: 3}
+    m_multiscatteringShader: {fileID: 4800000, guid: afbbd3e0f2a7706469dbbd78e6c093e1, type: 3}
+    m_skyviewShader: {fileID: 4800000, guid: f84fc030683c2d142ae755f2707cc0e1, type: 3}
+    m_aerialPerspectiveLUTShader: {fileID: 4800000, guid: 490e2fdb45ef33746b278a0a9cbd2109, type: 3}
+    m_aerialPerspectiveShader: {fileID: 4800000, guid: 490e2fdb45ef33746b278a0a9cbd2109, type: 3}
