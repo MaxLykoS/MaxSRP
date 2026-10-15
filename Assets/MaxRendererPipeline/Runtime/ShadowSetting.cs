@@ -47,6 +47,7 @@ namespace MaxSRP
     public class ShadowSettings
     {
         public float ShadingPointNormalBias = 0.1f;
+        [Min(0.0f), Tooltip("Receiver depth bias in world units; scales up at grazing angles.")]
         public float DepthNormalBias = 0.005f;
         public float PcssSearchRadius = 1.0f;
         public float PcssFilterRadius = 7.0f;

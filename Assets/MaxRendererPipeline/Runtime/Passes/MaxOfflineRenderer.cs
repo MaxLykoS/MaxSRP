@@ -4,13 +4,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+#if UNITY_EDITOR
 using UnityEditor;
-using UnityEditor.VersionControl;
+#endif
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
-class MaxOfflineRenderer
+class MaxOfflineRenderer : IDisposable
 {
     // 1 - 100
     public int BounceCountOpaque = 5;
@@ -47,31 +48,46 @@ class MaxOfflineRenderer
         }
     }
 
-    ~MaxOfflineRenderer()
+    public void Dispose()
     {
         m_BVH?.Release();
-
-        m_outputRT.Release();
-        m_cmd.Release();
-
+        m_BVH = null;
+        MaxRenderResources.Destroy(ref m_outputRT);
+        m_cmd?.Release();
+        m_cmd = null;
         m_canvasWidth = 0;
         m_canvasHeight = 0;
     }
-
-    public MaxOfflineRenderer()
+    public MaxOfflineRenderer(RayTracingShader shader, Cubemap envMap)
     {
-        m_shader = (RayTracingShader)AssetDatabase.LoadAssetAtPath("Assets/MaxRendererPipeline/ShaderLibrary/Offline/RayGenerator.raytrace", typeof(RayTracingShader));
-        m_envMap = (Cubemap)AssetDatabase.LoadAssetAtPath("Assets/Testing/herkulessaulen_4k.hdr", typeof(Cubemap));
+        m_shader = shader;
+        m_envMap = envMap;
         m_notUploaded = true;
 
-        CreateBVH();
+        try
+        {
+            CreateBVH();
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
     }
+
+#if UNITY_EDITOR
+    public MaxOfflineRenderer() : this(
+        AssetDatabase.LoadAssetAtPath<RayTracingShader>("Assets/MaxRendererPipeline/ShaderLibrary/Offline/RayGenerator.raytrace"),
+        AssetDatabase.LoadAssetAtPath<Cubemap>("Assets/Testing/herkulessaulen_4k.hdr"))
+    {
+    }
+#endif
 
     private void Update(Camera cam)
     {
         if (m_canvasWidth != cam.pixelWidth || m_canvasHeight != cam.pixelHeight)
         {
-            m_outputRT?.Release();
+            MaxRenderResources.Destroy(ref m_outputRT);
 
             RenderTextureDescriptor rtDesc = new RenderTextureDescriptor()
             {
@@ -98,6 +114,7 @@ class MaxOfflineRenderer
     private bool m_notUploaded;
     public void Render(ScriptableRenderContext context, Camera cam, bool dynamic = false)
     {
+        if (m_cmd == null) throw new ObjectDisposedException(nameof(MaxOfflineRenderer));
         Update(cam);
         
         if (!SystemInfo.supportsRayTracing)

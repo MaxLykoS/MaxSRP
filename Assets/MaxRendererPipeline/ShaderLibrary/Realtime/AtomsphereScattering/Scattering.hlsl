@@ -10,8 +10,7 @@ struct AtmosphereParameter
     float SeaLevel;
     float PlanetRadius;
     float AtmosphereHeight;
-    float SunLightIntensity;
-    float3 SunLightColor;
+    float3 SolarIrradiance;
     float SunDiskAngle;
     float RayleighScatteringScale;
     float RayleighScatteringScalarHeight;
@@ -25,12 +24,20 @@ struct AtmosphereParameter
 
 // ------------------------------------------------------------------------- //
 
+// A uniform solar disk integrates to normal illuminance E = L*pi*sin(radius)^2.
+// SolarIrradiance and this radiance share the fixed 100000 photometric unit scale.
+float3 SolarDiskRadiance(in AtmosphereParameter param)
+{
+    float radius = max(param.SunDiskAngle, 0.001) * (PI / 180.0);
+    float sine = sin(radius);
+    return param.SolarIrradiance / max(PI * sine * sine, 1e-10);
+}
 float3 RayleighCoefficient(in AtmosphereParameter param, float h)
 {
     const float3 sigma = float3(5.802, 13.558, 33.1) * 1e-6;
     float H_R = param.RayleighScatteringScalarHeight;
     float rho_h = exp(-(h / H_R));
-    return sigma * rho_h;
+    return sigma * rho_h * max(param.RayleighScatteringScale, 0.0);
 }
 
 float RayleiPhase(in AtmosphereParameter param, float cos_theta)
@@ -43,7 +50,7 @@ float3 MieCoefficient(in AtmosphereParameter param, float h)
     const float3 sigma = (3.996 * 1e-6).xxx;
     float H_M = param.MieScatteringScalarHeight;
     float rho_h = exp(-(h / H_M));
-    return sigma * rho_h;
+    return sigma * rho_h * max(param.MieScatteringScale, 0.0);
 }
 
 float MiePhase(in AtmosphereParameter param, float cos_theta)
@@ -58,12 +65,14 @@ float MiePhase(in AtmosphereParameter param, float cos_theta)
     return a * b * (c / d);
 }
 
+// Mie scale changes aerosol density: scattering and absorption scale together.
 float3 MieAbsorption(in AtmosphereParameter param, float h)
 {
-    const float3 sigma = (4.4 * 1e-6).xxx;
+    // Absorption = extinction (4.440) - scattering (3.996), in 1/metre.
+    const float3 sigma = ((4.440 - 3.996) * 1e-6).xxx;
     float H_M = param.MieScatteringScalarHeight;
     float rho_h = exp(-(h / H_M));
-    return sigma * rho_h;
+    return sigma * rho_h * max(param.MieScatteringScale, 0.0);
 }
 
 float3 OzoneAbsorption(in AtmosphereParameter param, float h)
@@ -72,7 +81,7 @@ float3 OzoneAbsorption(in AtmosphereParameter param, float h)
     float center = param.OzoneLevelCenterHeight;
     float width = param.OzoneLevelWidth;
     float rho = max(0, 1.0 - (abs(h - center) / width));
-    return sigma_lambda * rho;
+    return sigma_lambda * rho * max(param.OzoneAbsorptionScale, 0.0);
 }
 
 // ------------------------------------------------------------------------- //
@@ -81,7 +90,7 @@ float3 Scattering(in AtmosphereParameter param, float3 p, float3 lightDir, float
 {
     float cos_theta = dot(lightDir, viewDir);
 
-    float h = length(p) - param.PlanetRadius;
+    float h = max(0.0, length(p) - param.PlanetRadius);
     float3 rayleigh = RayleighCoefficient(param, h) * RayleiPhase(param, cos_theta);
     float3 mie = MieCoefficient(param, h) * MiePhase(param, cos_theta);
 

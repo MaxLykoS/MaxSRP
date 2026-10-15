@@ -1,6 +1,8 @@
 #ifndef GLOBAL_ILLUMINATION_INCLUDED
 #define GLOBAL_ILLUMINATION_INCLUDED
 
+#include "IBLValidation.hlsl"
+
 float4 c0;
 float4 c1;
 float4 c2;
@@ -20,23 +22,25 @@ int _MaxMipCount;
 
 float3 fresnelSchlickRoughness(float NdotV, float3 F0, float roughness)
 {
-	return F0 + (max(float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
+	float f = 1.0 - saturate(NdotV);
+    float f2 = f * f;
+    return F0 + (max(float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness), F0) - F0) * (f2 * f2 * f);
 }
 
 float3 GetSpecularIBL(float3 reflectDir, float roughness, float NdotV, float3 kS)
 {
-	float3 prefilteredColor = texCUBElod(_IBLSpec, float4(reflectDir, roughness * _MaxMipCount)).rgb;
+	float3 prefilteredColor = texCUBElod(_IBLSpec, float4(reflectDir, roughness * max(0, _MaxMipCount - 1))).rgb;
 	float2 envBRDF = UNITY_SAMPLE_TEX2D(_BRDFLUT, float2(NdotV, roughness)).rg;
-	half3 indirectSpec = prefilteredColor * (kS * envBRDF.x + envBRDF.y);
-	return indirectSpec;
+	float3 indirectSpec = prefilteredColor * (kS * envBRDF.x + envBRDF.y);
+	return FiniteIBLColor(indirectSpec);
 }
 
 float3 GetDiffuseIBL(float3 N, float NdotV, float F0, float roughness, float3 albedo, float3 kD)
 {
 	float3 irradiance = texCUBElod(_IBLDiffuse, float4(normalize(N), 0)).rgb;
-	float3 diffuse = irradiance * albedo;
+	float3 diffuse = FiniteIBLColor(irradiance) * albedo;
 	float3 ambient = kD * diffuse;// * ao;
-	return ambient;
+	return FiniteIBLColor(ambient);
 }
 
 float Y0(float3 v)

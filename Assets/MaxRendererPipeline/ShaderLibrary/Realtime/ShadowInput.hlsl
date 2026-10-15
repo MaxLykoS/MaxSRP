@@ -15,6 +15,8 @@ float4x4 _ShadowVPMatrix1;
 float4x4 _ShadowVPMatrix2;
 float4x4 _ShadowVPMatrix3;
 
+// Cumulative cascade endpoints in the normalized camera depth range.
+float4 _CascadeDepthRange; // near, far, inverse span, unused
 float _Split0;
 float _Split1;
 float _Split2;
@@ -26,6 +28,11 @@ float _OrthoWidth2;
 float _OrthoWidth3;
 
 float _OrthoDistance;
+float _ShadowDepthHalfRange0;
+float _ShadowDepthHalfRange1;
+float _ShadowDepthHalfRange2;
+float _ShadowDepthHalfRange3;
+float4x4 _ShadowCasterVP;
 float _ShadowMapResolution;
 float _LightSize;
 

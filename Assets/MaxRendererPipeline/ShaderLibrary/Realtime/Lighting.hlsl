@@ -4,19 +4,24 @@
 #include "BRDF.hlsl"
 #include "LightInput.hlsl"
 #include "GlobalIllumination.hlsl"
+#include "AtomsphereScattering/RayMarching.hlsl"
+
+float3 GetSurfaceViewDirection(float3 positionWS)
+{
+    if (unity_OrthoParams.w > 0.5)
+        return normalize(mul((float3x3)unity_MatrixInvV, float3(0.0, 0.0, 1.0)));
+    return normalize(_WorldSpaceCameraPos - positionWS);
+}
 
 float3 PBR_DirectLitDirectionalLight(Surface surface)
 {
     //      direct lighting
     // directional light shading
+    if (!any(_DirectionalLightColor.rgb > 0.0)) return float3(0.0, 0.0, 0.0);
     surface.L = normalize(_DirectionalLightDirection.xyz);
 
-    // 太阳降到地平线下不再产生radiance
-    if (-surface.L.y >= 0)
-        return float3(0.0, 0.0, 0.0);
-
     float3 Lo = float3(0.0, 0.0, 0.0);
-    float3 radiance = _DirectionalLightColor.rgb;
+    float3 radiance = _DirectionalLightColor.rgb * SurfaceSunTransmittance(surface.P, surface.L);
     float NdotL = max(dot(surface.N, surface.L), 0);
 
     Lo = Lo + CookTorranceBRDF(surface) * radiance * NdotL;
@@ -33,13 +38,14 @@ float3 PBR_DirectLitPointLight(Surface surface)
     {
         PointLight pointLight = GetPointLight(i1);
         float3 pointLightPos = pointLight.positionRange.xyz;
-        float distance = length(pointLightPos.xyz - surface.P);
+        float3 lightOffset = pointLightPos - surface.P;
+        float distanceSqr = dot(lightOffset, lightOffset);
         float lightRange = pointLight.positionRange.w;
-        float attenuation = DistanceAtten(distance * distance, lightRange * lightRange);
+        float attenuation = DistanceAtten(distanceSqr, lightRange * lightRange);
         float3 radiance = pointLight.color.rgb * attenuation;
 
-        surface.L = normalize(pointLightPos - surface.P);
-        surface.V = normalize(_WorldSpaceCameraPos - surface.P);
+        surface.L = lightOffset * rsqrt(max(distanceSqr, 1e-6));
+
         float NdotL = max(dot(surface.N, surface.L), 0);
 
         Lo = Lo + CookTorranceBRDF(surface) * radiance * NdotL;
@@ -55,9 +61,9 @@ float3 PBR_IndirectLit(Surface surface)
     float3 Lo = float3(0.0, 0.0, 0.0);
 
     float3 reflectDir = normalize(reflect(-surface.V, surface.N));
-    float NdotV = max(0, dot(surface.N, surface.V));
+    float NdotV = saturate(dot(surface.N, surface.V));
 
-    float3 kS = fresnelSchlickRoughness(max(dot(surface.N, surface.V), 0.0), surface.F0, surface.roughness);
+    float3 kS = fresnelSchlickRoughness(NdotV, surface.F0, surface.roughness);
     float3 kD = 1.0 - kS;
     kD = kD * (1.0 - surface.metalness);
 
@@ -73,7 +79,7 @@ float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float ro
     // surface的L赋值放到各个函数里
     Surface surface;
     surface.P = Pw;
-    surface.V = normalize(_WorldSpaceCameraPos - Pw);
+    surface.V = GetSurfaceViewDirection(Pw);
     surface.N = normalize(N);
     surface.albedo = albedo;
     surface.metalness = metalness;

@@ -9,6 +9,8 @@ Material:
   m_PrefabAsset: {fileID: 0}
   m_Name: PBR_Ground
   m_Shader: {fileID: 4800000, guid: 524007512db42c34a9736e3f545df75d, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
   m_InvalidKeywords:
   - _RECEIVE_SHADOWS
@@ -18,11 +20,12 @@ Material:
   m_CustomRenderQueue: -1
   stringTagMap: {}
   disabledShaderPasses: []
+  m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
     - _AlbedoMap:
-        m_Texture: {fileID: 2800000, guid: 3b006a91d80871f4283146218d51029c, type: 3}
+        m_Texture: {fileID: 2800000, guid: 9d3b5c8504cfb4c4ab2a070c9af986b4, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _BumpMap:

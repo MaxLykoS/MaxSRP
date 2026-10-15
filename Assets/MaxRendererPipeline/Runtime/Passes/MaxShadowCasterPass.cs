@@ -8,76 +8,110 @@ using UnityEngine.UIElements;
 
 namespace MaxSRP
 {
-    public class MaxShadowCasterPass
+    public class MaxShadowCasterPass : IDisposable
     {
         public const int SHADOWMAP_RESOLUTION = 1024;
         private RenderTexture[] m_shadowTexture;
         private Cascade m_cascade;
+        private Camera m_shadowCamera;
         private ShaderTagId m_shaderTagID = new ShaderTagId("ShadowCaster");
         public MaxShadowCasterPass(CascadeSettings cascadeSettings)
         {
-            m_cascade = new Cascade(cascadeSettings);
-
-            m_shadowTexture = new RenderTexture[4];
-            for (int i = 0; i < 4; i++)
+            try
             {
-                m_shadowTexture[i] = new RenderTexture(SHADOWMAP_RESOLUTION, SHADOWMAP_RESOLUTION, 24, RenderTextureFormat.Depth, RenderTextureReadWrite.Linear);
-                m_shadowTexture[i].wrapMode = TextureWrapMode.Clamp;
+                m_cascade = new Cascade(cascadeSettings);
+                m_shadowTexture = new RenderTexture[4];
+                for (int i = 0; i < m_shadowTexture.Length; ++i)
+                {
+                    m_shadowTexture[i] = new RenderTexture(SHADOWMAP_RESOLUTION, SHADOWMAP_RESOLUTION,
+                        24, RenderTextureFormat.Depth, RenderTextureReadWrite.Linear);
+                    m_shadowTexture[i].wrapMode = TextureWrapMode.Clamp;
+                    Shader.SetGlobalTexture("_MainShadowMap" + i, m_shadowTexture[i]);
+                }
+                Shader.SetGlobalInteger(ShaderProperties._ShadowMapResolution, SHADOWMAP_RESOLUTION);
+                Shader.SetGlobalTexture(ShaderProperties._BlueNoiseTexture, cascadeSettings.BlueNoiseTexture);
+                Shader.SetGlobalInteger(ShaderProperties._BlueNoiseTextureResolution, cascadeSettings.BlueNoiseTexture.width);
             }
-
-            Shader.SetGlobalTexture(ShaderProperties._MainShadowMap0, m_shadowTexture[0]);
-            Shader.SetGlobalTexture(ShaderProperties._MainShadowMap1, m_shadowTexture[1]);
-            Shader.SetGlobalTexture(ShaderProperties._MainShadowMap2, m_shadowTexture[2]);
-            Shader.SetGlobalTexture(ShaderProperties._MainShadowMap3, m_shadowTexture[3]);
-            
-            Shader.SetGlobalInteger(ShaderProperties._ShadowMapResolution, SHADOWMAP_RESOLUTION);
-            Shader.SetGlobalTexture(ShaderProperties._BlueNoiseTexture, cascadeSettings.BlueNoiseTexture);
-            Shader.SetGlobalInteger(ShaderProperties._BlueNoiseTextureResolution, cascadeSettings.BlueNoiseTexture.width);
+            catch
+            {
+                Dispose();
+                throw;
+            }
         }
-
-        public void Execute(ScriptableRenderContext context, Camera camera)
+        public bool Execute(ScriptableRenderContext context, Camera camera, SunLightData sun)
         {
-            Light mainLight = RenderSettings.sun;
-            Vector3 lightDir = mainLight.transform.rotation * Vector3.forward;
+            if (!sun.CastsShadows) return false;
+            Vector3 lightDir = -(Vector3)sun.Direction;
+            if (!m_cascade.UpdateCascade(camera, ref lightDir)) return false;
 
-            m_cascade.UpdateCascade(camera, ref lightDir);
+            // Assigning Camera.aspect disables its automatic viewport tracking, even
+            // when the old numeric value is subsequently restored. Keep all shadow
+            // camera changes off the rendering camera, including custom matrices.
+            if (m_shadowCamera == null)
+            {
+                var shadowObject = new GameObject("MaxSRP Shadow Camera") { hideFlags = HideFlags.HideAndDontSave };
+                m_shadowCamera = shadowObject.AddComponent<Camera>();
+            }
+            m_shadowCamera.CopyFrom(camera);
+            m_shadowCamera.enabled = false;
+            m_shadowCamera.targetTexture = null;
+            m_shadowCamera.rect = new Rect(0, 0, 1, 1);
+            m_shadowCamera.orthographic = true;
+            m_shadowCamera.ResetProjectionMatrix();
+            m_shadowCamera.ResetWorldToCameraMatrix();
+            m_shadowCamera.ResetCullingMatrix();
+            bool renderedAny = false;
 
-            m_cascade.SaveMainCameraSettings(camera);
             for (int i = 0; i < 4; ++i)
             {
-                // 将相机移动到光源方向
-                m_cascade.ConfigCameraToShadowSpace(camera, lightDir, i, m_cascade.m_OrthoDistance, SHADOWMAP_RESOLUTION);
-
-                // 设置阴影矩阵，视锥分割参数
-                Matrix4x4 v = camera.worldToCameraMatrix;
-                Matrix4x4 p = GL.GetGPUProjectionMatrix(camera.projectionMatrix, false);
-                Shader.SetGlobalMatrix("_ShadowVPMatrix" + i, p * v);
+                float halfDepthRange = m_cascade.ConfigCameraToShadowSpace(m_shadowCamera, lightDir, i, m_cascade.m_OrthoDistance, SHADOWMAP_RESOLUTION);
+                Matrix4x4 v = m_shadowCamera.worldToCameraMatrix;
+                Matrix4x4 p = GL.GetGPUProjectionMatrix(m_shadowCamera.projectionMatrix, true);
+                Matrix4x4 shadowVP = p * v;
+                Shader.SetGlobalMatrix("_ShadowVPMatrix" + i, shadowVP);
+                Shader.SetGlobalFloat("_ShadowDepthHalfRange" + i, halfDepthRange);
                 Shader.SetGlobalFloat("_OrthoWidth" + i, m_cascade.m_OrthoWidths[i]);
-
                 CommandBuffer cmd = CommandBufferPool.Get("ShadowMap");
-                
-                // 绘制前准备
-                context.SetupCameraProperties(camera);
-                cmd.SetRenderTarget(m_shadowTexture[i]);
-                cmd.ClearRenderTarget(true, true, Color.clear);
-                context.ExecuteCommandBuffer(cmd);
-                cmd.Clear();
-
-                // 剔除
-                camera.TryGetCullingParameters(out var cullingParameters);
-                var cullingResults = context.Cull(ref cullingParameters);
-                // config settings
-                SortingSettings sortingSettings = new SortingSettings(camera);
-                DrawingSettings drawingSettings = new DrawingSettings(m_shaderTagID, sortingSettings);
-                FilteringSettings filteringSettings = FilteringSettings.defaultValue;
-
-                // 绘制
-                context.DrawRenderers(cullingResults, ref drawingSettings, ref filteringSettings);
-                context.Submit();   // 每次 set camera 之后立即提交
+                try
+                {
+                    context.SetupCameraProperties(m_shadowCamera);
+                    cmd.SetGlobalMatrix("_ShadowCasterVP", shadowVP);
+                    cmd.SetRenderTarget(m_shadowTexture[i]);
+                    cmd.SetViewport(new Rect(0, 0, SHADOWMAP_RESOLUTION, SHADOWMAP_RESOLUTION));
+                    cmd.ClearRenderTarget(true, true, Color.clear);
+                    context.ExecuteCommandBuffer(cmd);
+                    if (!m_shadowCamera.TryGetCullingParameters(out var cullingParameters)) continue;
+                    var cullingResults = context.Cull(ref cullingParameters);
+                    var sortingSettings = new SortingSettings(m_shadowCamera);
+                    var drawingSettings = new DrawingSettings(m_shaderTagID, sortingSettings);
+                    var filteringSettings = FilteringSettings.defaultValue;
+                    context.DrawRenderers(cullingResults, ref drawingSettings, ref filteringSettings);
+                    renderedAny = true;
+                    context.Submit();
+                }
+                finally
+                {
+                    CommandBufferPool.Release(cmd);
+                }
             }
-            m_cascade.RevertMainCameraSettings(camera);
+            return renderedAny;
         }
 
+        public void Dispose()
+        {
+            if (m_shadowCamera != null)
+            {
+                GameObject shadowObject = m_shadowCamera.gameObject;
+                m_shadowCamera = null;
+                MaxRenderResources.Destroy(ref shadowObject);
+            }
+            if (m_shadowTexture == null) return;
+            for (int i = 0; i < m_shadowTexture.Length; ++i)
+            {
+                MaxRenderResources.UnbindTexture("_MainShadowMap" + i, m_shadowTexture[i]);
+                MaxRenderResources.Destroy(ref m_shadowTexture[i]);
+            }
+        }
         private static class ShaderProperties
         {
             public static readonly int _ShadowMapResolution = Shader.PropertyToID("_ShadowMapResolution");
@@ -95,6 +129,7 @@ namespace MaxSRP
     {
         // 分割参数
         public float[] m_Splts = { 0.07f, 0.13f, 0.25f, 0.55f };
+        private readonly float[] m_splitEnds = new float[4];
         public float[] m_OrthoWidths = new float[4];
         public float m_OrthoDistance = 500;
         public float m_LightSize = 2.0f;
@@ -112,15 +147,6 @@ namespace MaxSRP
         // 主相机视锥体包围盒
         private Vector3[] m_box0, m_box1, m_box2, m_box3;
 
-        struct MainCameraSettings
-        {
-            public Vector3 position;
-            public Quaternion rotation;
-            public float nearClipPlane;
-            public float farClipPlane;
-            public float aspect;
-        };
-        private MainCameraSettings m_settings;
         private CascadeSettings m_cascadeSettings;
 
         public Cascade(CascadeSettings settings)
@@ -129,26 +155,39 @@ namespace MaxSRP
 
             m_OrthoDistance = settings.ShadowDistance;
 
-            Shader.SetGlobalFloat(ShaderProperties._Split0, m_Splts[0]);
-            Shader.SetGlobalFloat(ShaderProperties._Split1, m_Splts[1]);
-            Shader.SetGlobalFloat(ShaderProperties._Split2, m_Splts[2]);
-            Shader.SetGlobalFloat(ShaderProperties._Split3, m_Splts[3]);
             Shader.SetGlobalFloat(ShaderProperties._OrthoDistance, m_OrthoDistance);
             Shader.SetGlobalFloat(ShaderProperties._LightSize, m_LightSize);
         }
 
-        public void UpdateCascade(Camera mainCamera, ref Vector3 lightDir)
+        public bool UpdateCascade(Camera mainCamera, ref Vector3 lightDir)
         {
-            // 获取主相机视锥体
-            mainCamera.CalculateFrustumCorners(new Rect(0, 0, 1, 1), mainCamera.farClipPlane, Camera.MonoOrStereoscopicEye.Mono, m_farCorners);
-            mainCamera.CalculateFrustumCorners(new Rect(0, 0, 1, 1), mainCamera.nearClipPlane, Camera.MonoOrStereoscopicEye.Mono, m_nearCorners);
+            // ShadowDistance is the maximum camera-forward depth, capped by the camera far plane.
+            m_OrthoDistance = m_cascadeSettings.ShadowDistance;
+            Shader.SetGlobalFloat(ShaderProperties._OrthoDistance, m_OrthoDistance);
+            float shadowNear = mainCamera.nearClipPlane;
+            float shadowFar = Mathf.Min(mainCamera.farClipPlane, m_OrthoDistance);
+            float span = shadowFar - shadowNear;
+            Shader.SetGlobalVector(ShaderProperties._CascadeDepthRange,
+                new Vector4(shadowNear, shadowFar, span > 0 ? 1.0f / span : 0.0f, 0.0f));
+            if (span <= 0) return false;
 
-            // 视锥体顶点转世界坐标
-            for (int i = 0; i < 4; i++)
+            // The four weights define contiguous slices; publish cumulative endpoints.
+            float total = 0.0f;
+            for (int i = 0; i < 4; ++i) total += Mathf.Max(m_Splts[i], 0.0f);
+            float cumulative = 0.0f;
+            for (int i = 0; i < 4; ++i)
             {
-                m_farCorners[i] = mainCamera.transform.TransformVector(m_farCorners[i]) + mainCamera.transform.position;
-                m_nearCorners[i] = mainCamera.transform.TransformVector(m_nearCorners[i]) + mainCamera.transform.position;
+                cumulative += total > 0 ? Mathf.Max(m_Splts[i], 0.0f) / total : 0.25f;
+                m_splitEnds[i] = cumulative;
             }
+            m_splitEnds[3] = 1.0f;
+            Shader.SetGlobalFloat(ShaderProperties._Split0, m_splitEnds[0]);
+            Shader.SetGlobalFloat(ShaderProperties._Split1, m_splitEnds[1]);
+            Shader.SetGlobalFloat(ShaderProperties._Split2, m_splitEnds[2]);
+            Shader.SetGlobalFloat(ShaderProperties._Split3, m_splitEnds[3]);
+            // 获取主相机视锥体
+            FillFrustumPlaneCorners(mainCamera, shadowNear, m_nearCorners);
+            FillFrustumPlaneCorners(mainCamera, shadowFar, m_farCorners);
 
             // 按照比例划分相机视锥体
             for (int i = 0; i < 4; i++)
@@ -156,16 +195,16 @@ namespace MaxSRP
                 Vector3 dir = m_farCorners[i] - m_nearCorners[i];
 
                 m_f0Near[i] = m_nearCorners[i];
-                m_f0Far[i] = m_f0Near[i] + dir * m_Splts[0];
+                m_f0Far[i] = m_nearCorners[i] + dir * m_splitEnds[0];
 
-                m_f1Near[i] = m_nearCorners[i];
-                m_f1Far[i] = m_f1Near[i] + dir * m_Splts[1];
+                m_f1Near[i] = m_f0Far[i];
+                m_f1Far[i] = m_nearCorners[i] + dir * m_splitEnds[1];
 
-                m_f2Near[i] = m_nearCorners[i];
-                m_f2Far[i] = m_f2Near[i] + dir * m_Splts[2];
+                m_f2Near[i] = m_f1Far[i];
+                m_f2Far[i] = m_nearCorners[i] + dir * m_splitEnds[2];
 
-                m_f3Near[i] = m_nearCorners[i];
-                m_f3Far[i] = m_f3Near[i] + dir * m_Splts[3];
+                m_f3Near[i] = m_f2Far[i];
+                m_f3Far[i] = m_farCorners[i];
             }
 
             // 计算包围盒
@@ -174,13 +213,33 @@ namespace MaxSRP
             m_box2 = LightSpaceAABB(m_f2Near, m_f2Far, lightDir);
             m_box3 = LightSpaceAABB(m_f3Near, m_f3Far, lightDir);
 
-            // 更新 Ortho width
-            m_OrthoWidths[0] = Vector3.Magnitude(m_f0Far[2] - m_f0Near[0]);
-            m_OrthoWidths[1] = Vector3.Magnitude(m_f1Far[2] - m_f1Near[0]);
-            m_OrthoWidths[2] = Vector3.Magnitude(m_f2Far[2] - m_f2Near[0]);
-            m_OrthoWidths[3] = Vector3.Magnitude(m_f3Far[2] - m_f3Near[0]);
-
             m_cascadeSettings.Set();
+            return true;
+        }
+
+        private static Quaternion LightRotation(Vector3 lightDir)
+        {
+            Vector3 up = Mathf.Abs(lightDir.y) > 0.99f ? Vector3.forward : Vector3.up;
+            return Quaternion.LookRotation(lightDir, up);
+        }
+        // Intersect each actual projection ray with the requested view-depth plane.
+        // This supports Scene View orthographic/custom projections and custom view
+        // matrices, without assuming that the Transform exactly matches the view.
+        private static void FillFrustumPlaneCorners(Camera camera, float depth, Vector3[] corners)
+        {
+            Matrix4x4 inverseProjection = CameraViewport.GetProjection(camera).inverse;
+            Matrix4x4 cameraToWorld = camera.worldToCameraMatrix.inverse;
+            for (int i = 0; i < 4; ++i)
+            {
+                float x = i < 2 ? -1.0f : 1.0f;
+                float y = i == 0 || i == 3 ? -1.0f : 1.0f;
+                // Unity's CPU projection uses -1..1 depth. Use two finite points;
+                // depth zero also works for a projection with an infinite far plane.
+                Vector3 a = inverseProjection.MultiplyPoint(new Vector3(x, y, -1.0f));
+                Vector3 b = inverseProjection.MultiplyPoint(new Vector3(x, y, 0.0f));
+                float t = (-depth - a.z) / (b.z - a.z);
+                corners[i] = cameraToWorld.MultiplyPoint(a + (b - a) * t);
+            }
         }
 
         // 齐次坐标矩阵乘法变换
@@ -194,7 +253,7 @@ namespace MaxSRP
         // 计算光源方向包围盒的世界坐标
         Vector3[] LightSpaceAABB(Vector3[] nearCorners, Vector3[] farCorners, Vector3 lightDir)
         {
-            Matrix4x4 toShadowViewInv = Matrix4x4.LookAt(Vector3.zero, lightDir, Vector3.up);
+            Matrix4x4 toShadowViewInv = Matrix4x4.TRS(Vector3.zero, LightRotation(lightDir), Vector3.one);
             Matrix4x4 toShadowView = toShadowViewInv.inverse;
 
             // 视锥体顶点转光源方向
@@ -237,25 +296,25 @@ namespace MaxSRP
         }
 
         // 将相机配置为第 i 级阴影贴图的绘制模式
-        public void ConfigCameraToShadowSpace(Camera camera, Vector3 lightDir, int cascade, float distance, float resolution)
+        public float ConfigCameraToShadowSpace(Camera camera, Vector3 lightDir, int cascade, float distance, float resolution)
         {
             // 选择第 cascade 级视锥划分
             var box = new Vector3[8];
-            var f_near = new Vector3[4]; var f_far = new Vector3[4];
-            if (cascade == 0) { box = m_box0; f_near = m_f0Near; f_far = m_f0Far; }
-            if (cascade == 1) { box = m_box1; f_near = m_f1Near; f_far = m_f1Far; }
-            if (cascade == 2) { box = m_box2; f_near = m_f2Near; f_far = m_f2Far; }
-            if (cascade == 3) { box = m_box3; f_near = m_f3Near; f_far = m_f3Far; }
+            if (cascade == 0) { box = m_box0; }
+            if (cascade == 1) { box = m_box1; }
+            if (cascade == 2) { box = m_box2; }
+            if (cascade == 3) { box = m_box3; }
 
             // 计算 Box 中点, 宽高比
             Vector3 center = (box[3] + box[4]) / 2;
             float w = Vector3.Magnitude(box[0] - box[4]);
             float h = Vector3.Magnitude(box[0] - box[2]);
-            //float len = Mathf.Max(h, w);
-            float len = Vector3.Magnitude(f_far[2] - f_near[0]);
+            // Cover the light-space AABB, including one texel of center snapping per side.
+            float len = Mathf.Max(0.001f, Mathf.Max(h, w)) * resolution / (resolution - 2.0f);
+            m_OrthoWidths[cascade] = len;
             float disPerPix = len / resolution;
 
-            Matrix4x4 toShadowViewInv = Matrix4x4.LookAt(Vector3.zero, lightDir, Vector3.up);
+            Matrix4x4 toShadowViewInv = Matrix4x4.TRS(Vector3.zero, LightRotation(lightDir), Vector3.one);
             Matrix4x4 toShadowView = toShadowViewInv.inverse;
 
             // 相机坐标旋转到光源坐标系下取整
@@ -265,41 +324,23 @@ namespace MaxSRP
             center = matTransform(toShadowViewInv, center, 1.0f);
 
             // 配置相机
-            camera.transform.rotation = Quaternion.LookRotation(lightDir);
+            camera.transform.rotation = LightRotation(lightDir);
             camera.transform.position = center;
-            camera.nearClipPlane = -distance;
-            camera.farClipPlane = distance;
+            // Fit light-space depth too: wide/orthographic Scene views can have
+            // a larger depth extent than the camera-forward shadow distance.
+            float halfDepthRange = Mathf.Max(distance, Vector3.Magnitude(box[0] - box[1]) * 0.5f + disPerPix);
+            camera.nearClipPlane = -halfDepthRange;
+            camera.farClipPlane = halfDepthRange;
             camera.aspect = 1.0f;
             camera.orthographicSize = len * 0.5f;
-        }
-
-        // 保存相机参数, 更改为正交投影
-        public void SaveMainCameraSettings(Camera camera)
-        {
-            m_settings.position = camera.transform.position;
-            m_settings.rotation = camera.transform.rotation;
-            m_settings.farClipPlane = camera.farClipPlane;
-            m_settings.nearClipPlane = camera.nearClipPlane;
-            m_settings.aspect = camera.aspect;
-            camera.orthographic = true;
-        }
-
-        // 还原相机参数, 更改为透视投影
-        public void RevertMainCameraSettings(Camera camera)
-        {
-            camera.transform.position = m_settings.position;
-            camera.transform.rotation = m_settings.rotation;
-            camera.farClipPlane = m_settings.farClipPlane;
-            camera.nearClipPlane = m_settings.nearClipPlane;
-            camera.aspect = m_settings.aspect;
-
-            camera.orthographic = false;
+            return halfDepthRange;
         }
 
         private class ShaderProperties
         {
             public static readonly int _OrthoDistance = Shader.PropertyToID("_OrthoDistance");
             public static readonly int _LightSize = Shader.PropertyToID("_LightSize");
+            public static readonly int _CascadeDepthRange = Shader.PropertyToID("_CascadeDepthRange");
             public static readonly int _Split0 = Shader.PropertyToID("_Split0");
             public static readonly int _Split1 = Shader.PropertyToID("_Split1");
             public static readonly int _Split2 = Shader.PropertyToID("_Split2");

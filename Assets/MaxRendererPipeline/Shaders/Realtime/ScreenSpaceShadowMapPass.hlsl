@@ -22,13 +22,19 @@ struct v2f
 UNITY_DECLARE_TEX2D(_GDepth);
 UNITY_DECLARE_TEX2D(_GBuffer1);
 
-v2f vert(a2v v)
-{
-	v2f o;
-	o.pH = UnityObjectToClipPos(v.pO);
-	o.uv = v.uv;
+float4x4 _ShadowCameraInverseVP;
+float4x4 _ShadowCameraView;
+float4 _ShadowScreenSize;
 
-	return o;
+v2f vert(uint vertexID : SV_VertexID)
+{
+    v2f o;
+    o.uv = float2((vertexID << 1) & 2, vertexID & 2);
+    o.pH = float4(o.uv * 2.0 - 1.0, 0.0, 1.0);
+#if UNITY_UV_STARTS_AT_TOP
+    o.uv.y = 1.0 - o.uv.y;
+#endif
+    return o;
 }
 
 float4 frag(v2f o) : SV_Target
@@ -41,46 +47,57 @@ float4 frag(v2f o) : SV_Target
 
 	// depth buffer
 	float depth = GDepth;
-	float depthLinear = Linear01Depth(depth);
+#if defined(UNITY_REVERSED_Z)
+    if (depth <= 0.0) return 1.0;
+#else
+    if (depth >= 1.0) return 1.0;
+#endif
 	// reprojection 计算世界坐标
-	float4 pNDC = float4(o.uv * 2 - 1, depth, 1);
-	float4 pW = mul(unity_MatrixInvVP, pNDC);
+	float4 pNDC = float4(o.uv * 2 - 1, DeviceDepthToClipDepth(depth), 1);
+#if UNITY_UV_STARTS_AT_TOP
+    pNDC.y = -pNDC.y;
+#endif
+	float4 pW = mul(_ShadowCameraInverseVP, pNDC);
 	pW = pW / pW.w;
+    float eyeDepth = -mul(_ShadowCameraView, pW).z;
+    if (_CascadeDepthRange.z <= 0.0 ||
+        eyeDepth < _CascadeDepthRange.x || eyeDepth > _CascadeDepthRange.y) return 1.0;
+    float depthLinear = saturate((eyeDepth - _CascadeDepthRange.x) * _CascadeDepthRange.z);
 	
 	float3 lightDir = normalize(_DirectionalLightDirection.xyz);
-	float bias = max(0.001 * (1.0 - dot(nW, lightDir)), 0.001);
+	float biasScale = 2.0 - saturate(dot(nW, lightDir));
 
 	// 防止低掠角导致大片阴影
 	if (dot(lightDir, nW) < 0.005) return 0;
 	
 	// 随机旋转角度
-	uint seed = RandomSeed(o.uv, _ScreenParams.xy);
-	float2 uv_noi = o.uv * _ScreenParams.xy / _NoiseTextureResolution;
+	uint seed = RandomSeed(o.uv, _ShadowScreenSize.xy);
+	float2 uv_noi = o.uv * _ShadowScreenSize.xy / _NoiseTextureResolution;
 	float rotateAngle = rand(seed) * 2.0 * 3.1415926;
 	rotateAngle = tex2D(_NoiseTexture, uv_noi * 0.5).r * 2.0 * 3.1415926;   // blue noise
 	
 	// 给法线做bias，向着法线偏移采样点
 	float4 worldPosOffset = pW;
 	float shadow = 1.0;
-	if (depthLinear < _Split0)
+	if (depthLinear <= _Split0)
 	{
 		worldPosOffset.xyz += nW * _ShadingPointNormalBias0;
-		shadow *= PCSS(worldPosOffset, _MainShadowMap0, _ShadowVPMatrix0, _OrthoWidth0, _OrthoDistance, _ShadowMapResolution, rotateAngle, _PcssSearchRadius0, _PcssFilterRadius0);
+		shadow *= PCSS(worldPosOffset, _MainShadowMap0, _ShadowVPMatrix0, _OrthoWidth0, _ShadowDepthHalfRange0, _ShadowMapResolution, rotateAngle, _PcssSearchRadius0, _PcssFilterRadius0, _DepthNormalBias0 * biasScale);
 	}
-	else if (depthLinear < _Split0 + _Split0)
+	else if (depthLinear <= _Split1)
 	{
 		worldPosOffset.xyz += nW * _ShadingPointNormalBias1;
-		shadow *= PCSS(worldPosOffset, _MainShadowMap1, _ShadowVPMatrix1, _OrthoWidth1, _OrthoDistance, _ShadowMapResolution, rotateAngle, _PcssSearchRadius1, _PcssFilterRadius1);
+		shadow *= PCSS(worldPosOffset, _MainShadowMap1, _ShadowVPMatrix1, _OrthoWidth1, _ShadowDepthHalfRange1, _ShadowMapResolution, rotateAngle, _PcssSearchRadius1, _PcssFilterRadius1, _DepthNormalBias1 * biasScale);
 	}
-	else if (depthLinear < _Split0 + _Split1 + _Split2)
+	else if (depthLinear <= _Split2)
 	{
 		worldPosOffset.xyz += nW * _ShadingPointNormalBias2;
-		shadow *= HardShadow(worldPosOffset, _MainShadowMap2, _ShadowVPMatrix2);
+		shadow *= HardShadow(worldPosOffset.xyz, _MainShadowMap2, _ShadowVPMatrix2, _DepthNormalBias2 * biasScale, _ShadowDepthHalfRange2);
 	}
-	else if (depthLinear < _Split0 + _Split1 + _Split2 + _Split3)
+	else if (depthLinear <= _Split3)
 	{
 		worldPosOffset.xyz += nW * _ShadingPointNormalBias3;
-		shadow *= HardShadow(worldPosOffset, _MainShadowMap3, _ShadowVPMatrix3);
+		shadow *= HardShadow(worldPosOffset.xyz, _MainShadowMap3, _ShadowVPMatrix3, _DepthNormalBias3 * biasScale, _ShadowDepthHalfRange3);
 	}
 
 	return shadow;
@@ -93,17 +110,19 @@ struct v2fBlur
 };
 
 #define KERNEL_SIZE 2.0
+float4 _ScreenSpaceShadowMapBeforeBlur_TexelSize;
 
 //用于计算纵向模糊的纹理坐标元素
-v2fBlur vert_v(a2v v)
+v2fBlur vert_v(uint vertexID : SV_VertexID)
 {
 	v2fBlur o;
-	o.pH = UnityObjectToClipPos(v.pO);
-	float2 uv = v.uv;
+    v2f fullscreen = vert(vertexID);
+    o.pH = fullscreen.pH;
+    float2 uv = fullscreen.uv;
 
 	//以扩散的方式对数组进行排序，只偏移y轴，其中1和2,3和4分别位于原始点0的上下，且距离1个单位和2个像素单位
 	//得到的最终偏移与模糊范围的控制参数进行乘积
-	float texelSize = _ShadowMapResolution / 1.0f;
+	float texelSize = _ScreenSpaceShadowMapBeforeBlur_TexelSize.y;
 	o.uv[0] = uv;
 	o.uv[1] = uv + float2(0.0, texelSize) * KERNEL_SIZE;
 	o.uv[2] = uv - float2(0.0, texelSize) * KERNEL_SIZE;
@@ -114,14 +133,15 @@ v2fBlur vert_v(a2v v)
 }
 
 //用于计算横向模糊的纹理坐标元素
-v2fBlur vert_h(a2v v)
+v2fBlur vert_h(uint vertexID : SV_VertexID)
 {
 	v2fBlur o;
-	o.pH = UnityObjectToClipPos(v.pO);
-	float2 uv = v.uv;
+    v2f fullscreen = vert(vertexID);
+    o.pH = fullscreen.pH;
+    float2 uv = fullscreen.uv;
 
 	//与上面同理，只不过是x轴向的模糊偏移
-	float texelSize = 1.0f / _ShadowMapResolution;
+	float texelSize = _ScreenSpaceShadowMapBeforeBlur_TexelSize.x;
 	o.uv[0] = uv;
 	o.uv[1] = uv + float2(texelSize * 1.0, 0.0) * KERNEL_SIZE;
 	o.uv[2] = uv - float2(texelSize * 1.0, 0.0) * KERNEL_SIZE;
