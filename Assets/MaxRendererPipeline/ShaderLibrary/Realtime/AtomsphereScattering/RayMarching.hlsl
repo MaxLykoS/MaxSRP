@@ -11,12 +11,34 @@ float3 TransmittanceToAtmosphere(in AtmosphereParameter param, float3 p, float3 
     float bottomRadius = param.PlanetRadius;
     float topRadius = param.PlanetRadius + param.AtmosphereHeight;
 
+    // Interior samples already lie in the LUT domain; only exterior observers
+    // need a sphere interval and entry shift.
+    if (length(p) > topRadius)
+    {
+        float entry, exit;
+        if (!AtmosphereRayInterval(topRadius, p, dir, entry, exit)) return float3(1.0, 1.0, 1.0);
+        p += dir * entry;
+    }
     float3 upVector = normalize(p);
     float cos_theta = dot(upVector, dir);
     float r = length(p);
 
     float2 uv = GetTransmittanceLutUv(bottomRadius, topRadius, cos_theta, r);
-    return UNITY_SAMPLE_TEX2D(_TransmittanceLUT, uv).rgb;
+    // Ray-march lookups have no meaningful screen-space derivatives.
+    return UNITY_SAMPLE_TEX2D_LOD(_TransmittanceLUT, uv, 0.0).rgb;
+}
+
+// Solar rays that intersect the planet receive no direct sunlight.
+// lightDir is a unit vector toward the sun; test each integration point's local horizon.
+float3 TransmittanceToSun(in AtmosphereParameter param, float3 p, float3 lightDir)
+{
+    float r = length(p);
+    float radius = param.PlanetRadius;
+    if (r < radius) return 0.0;
+    float mu = dot(p / r, lightDir);
+    float horizonSin2 = max(0.0, (r - radius) * (r + radius)) / (r * r);
+    if (mu < 0.0 && mu * mu >= horizonSin2) return 0.0;
+    return TransmittanceToAtmosphere(param, p, lightDir);
 }
 
 
@@ -33,7 +55,7 @@ float3 Transmittance(in AtmosphereParameter param, float3 p1, float3 p2)
 
     for (int i = 0; i < N_SAMPLE; i++)
     {
-        float h = length(p) - param.PlanetRadius;
+        float h = max(0.0, length(p) - param.PlanetRadius);
 
         float3 scattering = RayleighCoefficient(param, h) + MieCoefficient(param, h);
         float3 absorption = OzoneAbsorption(param, h) + MieAbsorption(param, h);
@@ -46,6 +68,31 @@ float3 Transmittance(in AtmosphereParameter param, float3 p1, float3 p2)
     return exp(-sum);
 }
 
+// Flat-world surface height maps to the same local planetary column as the sky.
+// This includes planetary occlusion and works independently of aerial fog.
+float3 SurfaceSunTransmittance(float3 positionWS, float3 lightDir)
+{
+    AtmosphereParameter param = GetAtmosphereParameter();
+    float3 p = AtmosphereCameraPosition(positionWS.y, param.SeaLevel, param.PlanetRadius);
+    return TransmittanceToSun(param, p, lightDir);
+}
+
+// Integral of exp(-extinction * distance) over a step with constant extinction.
+// Use optical thickness for the small-value test; the limit at zero extinction is ds.
+float AtmosphereStepIntegral(float extinction, float ds)
+{
+    float tau = extinction * ds;
+    if (tau < 0.01f)
+        return ds * (1.0f - tau * (0.5f - tau * (1.0f / 6.0f - tau / 24.0f)));
+    // The denominator guard also keeps a speculatively evaluated branch finite at tau=0.
+    return ds * (1.0f - exp(-tau)) / max(tau, 0.01f);
+}
+
+float3 AtmosphereStepIntegral(float3 extinction, float ds)
+{
+    return float3(AtmosphereStepIntegral(extinction.x, ds),
+        AtmosphereStepIntegral(extinction.y, ds), AtmosphereStepIntegral(extinction.z, ds));
+}
 // 积分计算多重散射查找表
 float3 IntegralMultiScattering(
     in AtmosphereParameter param, float3 samplePoint, float3 lightDir)
@@ -129,8 +176,10 @@ float3 IntegralMultiScattering(
         // 光线和大气层求交
         float3 viewDir = RandomSphereSamples[i];
         float dis = RayIntersectSphere(float3(0, 0, 0), param.PlanetRadius + param.AtmosphereHeight, samplePoint, viewDir);
-        float d = RayIntersectSphere(float3(0, 0, 0), param.PlanetRadius, samplePoint, viewDir);
-        if (d > 0) dis = min(dis, d);
+        float d = RayIntersectGroundSphere(param.PlanetRadius, samplePoint, viewDir);
+        if (dis <= 0.0) continue;
+        if (d >= 0.0) dis = min(dis, d);
+        if (dis <= 0.0) continue;
         float ds = dis / float(N_SAMPLE);
 
         float3 p = samplePoint + (viewDir * ds) * 0.5;
@@ -138,20 +187,20 @@ float3 IntegralMultiScattering(
 
         for (int j = 0; j < N_SAMPLE; j++)
         {
-            float h = length(p) - param.PlanetRadius;
+            float h = max(0.0, length(p) - param.PlanetRadius);
             float3 sigma_s = RayleighCoefficient(param, h) + MieCoefficient(param, h);  // scattering
             float3 sigma_a = OzoneAbsorption(param, h) + MieAbsorption(param, h);       // absorption
             float3 sigma_t = sigma_s + sigma_a;                                         // extinction
-            opticalDepth += sigma_t * ds;
 
-            float3 t1 = TransmittanceToAtmosphere(param, p, lightDir);
+            float3 t1 = TransmittanceToSun(param, p, lightDir);
             float3 s = Scattering(param, p, lightDir, viewDir);
-            float3 t2 = exp(-opticalDepth);
+            float3 stepWeight = exp(-opticalDepth) * AtmosphereStepIntegral(sigma_t, ds);
 
             // 用 1.0 代替太阳光颜色, 该变量在后续的计算中乘上去
-            G_2 += t1 * s * t2 * uniform_phase * ds * 1.0;
-            f_ms += t2 * sigma_s * uniform_phase * ds;
+            G_2 += t1 * s * stepWeight * uniform_phase * 1.0;
+            f_ms += stepWeight * sigma_s * uniform_phase;
 
+            opticalDepth += sigma_t * ds;
             p += viewDir * ds;
         }
     }
@@ -164,59 +213,72 @@ float3 IntegralMultiScattering(
 // 读取多重散射查找表
 float3 GetMultiScattering(in AtmosphereParameter param, float3 p, float3 lightDir)
 {
-    float h = length(p) - param.PlanetRadius;
+    float h = max(0.0, length(p) - param.PlanetRadius);
     float3 sigma_s = RayleighCoefficient(param, h) + MieCoefficient(param, h);
 
     float cosSunZenithAngle = dot(normalize(p), lightDir);
     float2 uv = float2(cosSunZenithAngle * 0.5 + 0.5, h / param.AtmosphereHeight);
-    float3 G_ALL = UNITY_SAMPLE_TEX2D(_MultiscatteringLUT, uv).rgb;
+    float3 G_ALL = UNITY_SAMPLE_TEX2D_LOD(_MultiscatteringLUT, uv, 0.0).rgb;
 
     return G_ALL * sigma_s;
 }
 
 // 计算天空颜色
-float3 GetSkyView(
-    in AtmosphereParameter param, float3 eyePos, float3 viewDir, float3 lightDir, float maxDis)
+float3 GetAtmosphereSegment(
+    in AtmosphereParameter param, float3 eyePos, float3 viewDir, float3 lightDir, float maxDis,
+    out float3 transmittance)
 {
+    transmittance = float3(1.0, 1.0, 1.0);
     const int N_SAMPLE = 32;
     float3 color = float3(0, 0, 0);
 
     // 光线和大气层, 星球求交
-    float dis = RayIntersectSphere(float3(0, 0, 0), param.PlanetRadius + param.AtmosphereHeight, eyePos, viewDir);
-    float d = RayIntersectSphere(float3(0, 0, 0), param.PlanetRadius, eyePos, viewDir);
-    if (dis < 0) return color;
-    if (d > 0) dis = min(dis, d);
-    if (maxDis > 0) dis = min(dis, maxDis);  // 带最长距离 maxDis 限制, 方便 aerial perspective lut 部分复用代码
-
+    float entry, exit;
+    if (!AtmosphereRayInterval(param.PlanetRadius + param.AtmosphereHeight,
+        eyePos, viewDir, entry, exit)) return color;
+    float ground = RayIntersectGroundSphere(param.PlanetRadius, eyePos, viewDir);
+    if (ground >= 0.0) exit = min(exit, ground);
+    // maxDis is measured from the original observer, including the vacuum segment.
+    if (maxDis >= 0.0) exit = min(exit, maxDis);
+    float dis = exit - entry;
+    if (dis <= 0.0) return color;
     float ds = dis / float(N_SAMPLE);
-    float3 p = eyePos + (viewDir * ds) * 0.5;
-    float3 sunLuminance = param.SunLightColor * param.SunLightIntensity;
+    float3 p = eyePos + viewDir * (entry + ds * 0.5);
+    float3 sunLuminance = param.SolarIrradiance;
     float3 opticalDepth = float3(0, 0, 0);
 
     for (int i = 0; i < N_SAMPLE; i++)
     {
         // 积累沿途的湮灭系数
-        float h = length(p) - param.PlanetRadius;
+        float h = max(0.0, length(p) - param.PlanetRadius);
         float3 extinction = RayleighCoefficient(param, h) + MieCoefficient(param, h) +  // scattering
             OzoneAbsorption(param, h) + MieAbsorption(param, h);        // absorption
-        opticalDepth += extinction * ds;
 
-        float3 t1 = TransmittanceToAtmosphere(param, p, lightDir);
+        float3 t1 = TransmittanceToSun(param, p, lightDir);
         float3 s = Scattering(param, p, lightDir, viewDir);
-        float3 t2 = exp(-opticalDepth);
+        float3 stepWeight = exp(-opticalDepth) * AtmosphereStepIntegral(extinction, ds);
 
         // 单次散射
-        float3 inScattering = t1 * s * t2 * ds * sunLuminance;
+        float3 inScattering = t1 * s * stepWeight * sunLuminance;
         color += inScattering;
 
         // 多重散射
         float3 multiScattering = GetMultiScattering(param, p, lightDir);
-        color += multiScattering * t2 * ds * sunLuminance;
+        color += multiScattering * stepWeight * sunLuminance;
 
+        opticalDepth += extinction * ds;
         p += viewDir * ds;
     }
 
+    transmittance = exp(-opticalDepth);
     return color;
+}
+
+float3 GetSkyView(
+    in AtmosphereParameter param, float3 eyePos, float3 viewDir, float3 lightDir, float maxDis)
+{
+    float3 transmittance;
+    return GetAtmosphereSegment(param, eyePos, viewDir, lightDir, maxDis, transmittance);
 }
 
 #endif

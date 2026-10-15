@@ -1,35 +1,23 @@
-using UnityEditor.EventSystems;
 using UnityEngine;
-using UnityEngine.Rendering;
-using static SphericalHarmonics;
 
 namespace MaxSRP
 {
-    [ExecuteAlways]
     public class MaxLightProbeSkybox : MaxProbeBase
     {
-        private ComputeShader m_cs;
-        private int m_kernelIndex;
-
-        private Vector4[] m_coefficients;
+        private readonly ComputeShader m_cs;
+        private readonly int m_kernelIndex;
+        private readonly Vector4[] m_coefficients = new Vector4[9];
 
         public MaxLightProbeSkybox(Cubemap groundTruthEnvMap, ComputeShader shader) : base(groundTruthEnvMap)
         {
-            m_coefficients = new Vector4[9];
-
             m_cs = shader;
             m_kernelIndex = m_cs.FindKernel("PrecomputeDiffuse");
         }
 
         public override void Bake()
         {
-            //SphericalHarmonics.CPU_Project_Uniform_9Coeff(m_GroundTruthEnvMap, m_coefficients);
             Cubemap diffuse = BakeCubemapDiffuse();
-            if (m_BakedEnvMap != null)
-            {
-                GameObject.DestroyImmediate(m_BakedEnvMap);
-                m_BakedEnvMap = null;
-            }
+            MaxRenderResources.Destroy(ref m_BakedEnvMap);
             m_BakedEnvMap = diffuse;
             m_BakedEnvMap.SmoothEdges();
             m_BakedEnvMap.Apply(false, true);
@@ -37,53 +25,48 @@ namespace MaxSRP
 
         public override void Submit()
         {
-            base.Submit();
-
-            for (int i = 0; i < 9; ++i)
-            {
-                Shader.SetGlobalVector("c" + i.ToString(), m_coefficients[i]);
-            }
-
+            for (int i = 0; i < m_coefficients.Length; ++i)
+                Shader.SetGlobalVector("c" + i, m_coefficients[i]);
             if (m_BakedEnvMap != null)
-            {
                 Shader.SetGlobalTexture("_IBLDiffuse", m_BakedEnvMap);
-            }
         }
 
         public override void Clear()
         {
+            MaxRenderResources.UnbindTexture("_IBLDiffuse", m_BakedEnvMap);
             base.Clear();
         }
 
         public Cubemap BakeCubemapDiffuse(int resultWidth = 32)
         {
             const int threadsPerGroup = 32;
-            int texelCountsPerFace = resultWidth * resultWidth;
-            int groupsCount = texelCountsPerFace / threadsPerGroup + 1;
+            int count = resultWidth * resultWidth;
+            int groups = (count + threadsPerGroup - 1) / threadsPerGroup;
             Cubemap diffuse = new Cubemap(resultWidth, m_GroundTruthEnvMap.format, 0);
-
-            ComputeBuffer faceResult = new ComputeBuffer(texelCountsPerFace, sizeof(float) * 4);
-            Color[] faceColors = new Color[texelCountsPerFace];
-            m_cs.SetBuffer(m_kernelIndex, "_Result", faceResult);
-            m_cs.SetTexture(m_kernelIndex, "_RadianceMap", m_GroundTruthEnvMap);
-            m_cs.SetInt("_Width", resultWidth);
-            m_cs.SetInt("_TexelCountsPerFace", texelCountsPerFace);
-
-            // ±éÀú6¸öÃæ
-            for (int face = 0; face < 6; ++face)
+            try
             {
-                m_cs.SetInt("_Face", face);
-
-                m_cs.Dispatch(m_kernelIndex, groupsCount, 1, 1);
-
-                faceResult.GetData(faceColors);
-
-                diffuse.SetPixels(faceColors, (CubemapFace)face);
+                using (ComputeBuffer result = new ComputeBuffer(count, sizeof(float) * 4))
+                {
+                    Color[] colors = new Color[count];
+                    m_cs.SetBuffer(m_kernelIndex, "_Result", result);
+                    m_cs.SetTexture(m_kernelIndex, "_RadianceMap", m_GroundTruthEnvMap);
+                    m_cs.SetInt("_Width", resultWidth);
+                    m_cs.SetInt("_TexelCountsPerFace", count);
+                    for (int face = 0; face < 6; ++face)
+                    {
+                        m_cs.SetInt("_Face", face);
+                        m_cs.Dispatch(m_kernelIndex, groups, 1, 1);
+                        result.GetData(colors);
+                        diffuse.SetPixels(colors, (CubemapFace)face);
+                    }
+                }
+                return diffuse;
             }
-
-            faceResult.Release();
-
-            return diffuse;
+            catch
+            {
+                MaxRenderResources.Destroy(ref diffuse);
+                throw;
+            }
         }
     }
 }

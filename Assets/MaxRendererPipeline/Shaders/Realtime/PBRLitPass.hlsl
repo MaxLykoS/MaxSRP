@@ -5,6 +5,7 @@
 #include "../../ShaderLibrary/Realtime/Shadow.hlsl"
 #include "../../ShaderLibrary/Realtime/SpaceTransform.hlsl"
 #include "../../ShaderLibrary/Realtime/Packing.hlsl"
+#include "../../ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl"
 
 struct a2v
 {
@@ -24,11 +25,17 @@ UNITY_DECLARE_TEX2D(_GBuffer1);
 UNITY_DECLARE_TEX2D(_GBuffer2);
 UNITY_DECLARE_TEX2D(_GBuffer3);
 
-v2f PBRVertex(a2v v)
+float4 _CameraBackgroundColor;
+int _CameraClearFlags;
+
+v2f PBRVertex(uint vertexID : SV_VertexID)
 {
 	v2f o;
-	o.pH = UnityObjectToClipPos(v.pO);
-	o.uv = v.uv;
+	o.uv = float2((vertexID << 1) & 2, vertexID & 2);
+    o.pH = float4(o.uv * 2.0 - 1.0, 0.0, 1.0);
+#if UNITY_UV_STARTS_AT_TOP
+    o.uv.y = 1.0 - o.uv.y;
+#endif
 
 	return o;
 }
@@ -40,6 +47,18 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 	float4 GBuffer2 = UNITY_SAMPLE_TEX2D(_GBuffer2, o.uv);
 	float4 GBuffer3 = UNITY_SAMPLE_TEX2D(_GBuffer3, o.uv);
 	float GDepth = UNITY_SAMPLE_DEPTH(UNITY_SAMPLE_TEX2D(_GDepth, o.uv));
+    depthOut = GDepth;
+#if defined(UNITY_REVERSED_Z)
+    bool isBackground = GDepth <= 0.0;
+#else
+    bool isBackground = GDepth >= 1.0;
+#endif
+    if (isBackground)
+    {
+        if (_CameraClearFlags == 4) discard; // Nothing: preserve previous color/depth.
+        if (_CameraClearFlags == 3) return float4(0, 0, 0, 0); // Depth only.
+        return _CameraBackgroundColor;
+    }
 
 	// gb0
 	float4 albedo = GBuffer0;
@@ -62,13 +81,20 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 	depthOut = depth;
 
 	// reprojection 计算世界坐标
-	float4 pNDC = float4(o.uv * 2 - 1, depth, 1);
+	float4 pNDC = float4(o.uv * 2 - 1, DeviceDepthToClipDepth(depth), 1);
+#if UNITY_UV_STARTS_AT_TOP
+    pNDC.y = -pNDC.y;
+#endif
 	float4 pW = mul(unity_MatrixInvVP, pNDC);
 	pW = pW / pW.w;
 
 	float3 c = PBR_Shading(pW, normal, albedo.rgb, metalness, roughness, o.uv);
 
-	return float4(c, albedo.a);
+	// Perspective LUT depth is ray length; orthographic rays start on the camera plane.
+    float atmosphereDistance = unity_OrthoParams.w > 0.5
+        ? max(0.0, -mul(unity_MatrixV, pW).z) : length(pW.xyz - _WorldSpaceCameraPos);
+    c = ApplyAerialPerspective(c, o.uv, atmosphereDistance);
+    return float4(c, 1.0);
 }
 
 /*float4 PBRFragmentTransparent(v2f o) : SV_Target

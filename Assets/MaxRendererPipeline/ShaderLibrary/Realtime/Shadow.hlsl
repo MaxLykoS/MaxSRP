@@ -83,84 +83,111 @@ float2 RotateVec2(float2 v, float angle)
     return float2(v.x * c + v.y * s, -v.x * s + v.y * c);
 }
 
+bool IsShadowOccluded(float receiverDepth, float sampleDepth)
+{
+#if defined(UNITY_REVERSED_Z)
+    return sampleDepth > receiverDepth;
+#else
+    return sampleDepth < receiverDepth;
+#endif
+}
+
+float ShadowDistanceFromNear(float depth, float depthRange)
+{
+#if defined(UNITY_REVERSED_Z)
+    return (1.0 - depth) * depthRange;
+#else
+    return depth * depthRange;
+#endif
+}
+
+// Receiver bias is in world units, independent of cascade depth range and Z convention.
+float BiasedShadowDepth(float depth, float worldBias, float halfDepthRange)
+{
+    float bias = max(worldBias, 0.0) / max(2.0 * halfDepthRange, 1e-5);
+#if defined(UNITY_REVERSED_Z)
+    return depth + bias;
+#else
+    return depth - bias;
+#endif
+}
+
 float2 GetAverageBlockerDepth(float2 sampleUV, sampler2D shadowMap, float curDepth, float searchWidth, float rotateAngle)
 {
-    float step = 3.0;
     float averageDepth = 0.0;
-    int count = 0.005;  // no ÷ 0
-
+    int count = 0;
     for (int i = 0; i < N_SAMPLE; ++i)
     {
-        float2 unitOffset = RotateVec2(poissonDisk[i], rotateAngle);
-        float2 offset = unitOffset * searchWidth;
-        float2 uvo = sampleUV + offset;
-
-        float shadowMapDepth = tex2D(shadowMap, uvo).r;
-        if (shadowMapDepth > curDepth)
+        float2 uvo = sampleUV + RotateVec2(poissonDisk[i], rotateAngle) * searchWidth;
+        if (any(uvo < 0.0) || any(uvo > 1.0)) continue;
+        float sampleDepth = tex2D(shadowMap, uvo).r;
+        if (IsShadowOccluded(curDepth, sampleDepth))
         {
-            averageDepth += shadowMapDepth;
+            averageDepth += sampleDepth;
             count += 1;
         }
     }
+    if (count == 0) return float2(0.0, 0.0);
     return float2(averageDepth / count, count);
+}
+
+float2 ShadowClipToUV(float2 ndc)
+{
+    float2 uv = ndc * 0.5 + 0.5;
+#if UNITY_UV_STARTS_AT_TOP
+    uv.y = 1.0 - uv.y;
+#endif
+    return uv;
+}
+
+float PCSSFilterRadius(float receiverDepth, float blockerDepth, float depthRange,
+    float filterRadius, float orthoWidth)
+{
+    // Depth24 can quantize a near-plane blocker to distance zero. Keep both
+    // the denominator and UV radius finite, including that endpoint.
+    float minDepth = max(depthRange / 16777215.0, 1e-4);
+    float penumbra = max(receiverDepth - blockerDepth, 0.0) / max(blockerDepth, minDepth);
+    return saturate(penumbra * max(filterRadius, 0.0) / max(orthoWidth, 1e-5));
 }
 
 float PCSS(float4 pW, sampler2D shadowMap, float4x4 shadowVPMatrix,
     float orthoWidth, float orthoDistance, float shadowMapResolution, float rotateAngle,
-    float pcssSearchRadius, float pcssFilterRadius)
+    float pcssSearchRadius, float pcssFilterRadius, float worldDepthBias)
 {
     float4 shadowNDC = mul(shadowVPMatrix, pW);
     shadowNDC /= shadowNDC.w;
-    float curDepth = shadowNDC.z;
-    float2 sampleUV = shadowNDC.xy * 0.5 + 0.5;
-
-    // 计算平均遮挡深度
-    float searchWidth = pcssSearchRadius / orthoWidth;
+    float curDepth = ClipDepthToDeviceDepth(shadowNDC.z);
+    float2 sampleUV = ShadowClipToUV(shadowNDC.xy);
+    if (any(sampleUV < 0.0) || any(sampleUV > 1.0) || curDepth < 0.0 || curDepth > 1.0) return 1.0;
+    curDepth = BiasedShadowDepth(curDepth, worldDepthBias, orthoDistance);
+    float searchWidth = saturate(max(pcssSearchRadius, 0.0) / max(orthoWidth, 1e-5));
     float2 blocker = GetAverageBlockerDepth(sampleUV, shadowMap, curDepth, searchWidth, rotateAngle);
-    float averageDepth = blocker.x;
-    float blockCount = blocker.y;
-    if (blockCount < 1) return 1.0;  // 没有遮挡
-
-    // 世界空间下的距离
-    float receiverDepth = (1.0 - curDepth) * 2 * orthoDistance;
-    float blockerDepth = (1.0 - averageDepth) * 2 * orthoDistance;
-
-    // 计算世界空间下filter半径
-    float radius = (receiverDepth - blockerDepth) * pcssFilterRadius / blockerDepth;
-
-    // 深度图上的filter半径
-    radius = radius / orthoWidth;
-
-    // PCF
-    float shadow = 0;
+    if (blocker.y < 1.0) return 1.0;
+    float depthRange = 2.0 * orthoDistance;
+    float receiverDepth = ShadowDistanceFromNear(curDepth, depthRange);
+    float blockerDepth = ShadowDistanceFromNear(blocker.x, depthRange);
+    float radius = PCSSFilterRadius(receiverDepth, blockerDepth, depthRange, pcssFilterRadius, orthoWidth);
+    float shadow = 0.0;
     for (int i = 0; i < N_SAMPLE; ++i)
     {
-        float2 offset = poissonDisk[i];
-        offset = RotateVec2(offset, rotateAngle);
-        float2 uvo = sampleUV + offset * radius;
-
-        float sampleDepth = tex2D(shadowMap, uvo).r;
-        if (sampleDepth > curDepth) shadow += 1.0f;
+        float2 uvo = sampleUV + RotateVec2(poissonDisk[i], rotateAngle) * radius;
+        if (any(uvo < 0.0) || any(uvo > 1.0)) continue;
+        if (IsShadowOccluded(curDepth, tex2D(shadowMap, uvo).r)) shadow += 1.0;
     }
-    shadow /= N_SAMPLE;
-    return 1.0 - shadow;
+    return 1.0 - shadow / N_SAMPLE;
 }
 
-float HardShadow(float3 pW, sampler2D shadowMap, float4x4 shadowVPMatrix)
+float HardShadow(float3 pW, sampler2D shadowMap, float4x4 shadowVPMatrix,
+    float worldDepthBias, float halfDepthRange)
 {
-    float4 shadowNDC = mul(shadowVPMatrix, pW);
+    float4 shadowNDC = mul(shadowVPMatrix, float4(pW, 1.0));
     shadowNDC /= shadowNDC.w;
-    float2 sampleUV = shadowNDC.xy * 0.5 + 0.5;
-
-    if (sampleUV.x < 0 || sampleUV.x > 1 || sampleUV.y < 0 || sampleUV.y > 1) 
-        return 1.0f;
-
-    float curDepth = shadowNDC.z;
-    float sampleDepth = tex2D(shadowMap, sampleUV).r;
-
-    return (curDepth > sampleDepth) ? 1.0 : 0.0;
+    float2 sampleUV = ShadowClipToUV(shadowNDC.xy);
+    float curDepth = ClipDepthToDeviceDepth(shadowNDC.z);
+    if (any(sampleUV < 0.0) || any(sampleUV > 1.0) || curDepth < 0.0 || curDepth > 1.0) return 1.0;
+    curDepth = BiasedShadowDepth(curDepth, worldDepthBias, halfDepthRange);
+    return IsShadowOccluded(curDepth, tex2D(shadowMap, sampleUV).r) ? 0.0 : 1.0;
 }
-
 /**
 ======= Shadow Caster Region =======
 **/
@@ -178,7 +205,7 @@ struct ShadowCasterVaryings
 ShadowCasterVaryings ShadowCasterVertex(ShadowCasterAttributes input)
 {
     ShadowCasterVaryings output;
-    output.pH = UnityObjectToClipPos(input.pO);
+    output.pH = mul(_ShadowCasterVP, mul(unity_ObjectToWorld, float4(input.pO.xyz, 1.0)));
     return output;
 }
 

@@ -7,6 +7,9 @@ Shader "MaxSRP/ScreenSpaceShadowMap"
     SubShader
     {
         Tags { "RenderType"="Opaque" }
+        Cull Off
+        ZWrite Off
+        ZTest Always
 
         HLSLINCLUDE
         #pragma enable_cbuffer
@@ -16,6 +19,7 @@ Shader "MaxSRP/ScreenSpaceShadowMap"
         Pass //ScreenSpaceShadowMap
         {
             HLSLPROGRAM
+            #pragma target 5.0
             #pragma vertex vert
             #pragma fragment frag
             ENDHLSL
@@ -24,6 +28,7 @@ Shader "MaxSRP/ScreenSpaceShadowMap"
         Pass
         {
             HLSLPROGRAM
+            #pragma target 5.0
             #pragma vertex vert_v
             #pragma fragment fragBlur
             ENDHLSL
@@ -32,6 +37,7 @@ Shader "MaxSRP/ScreenSpaceShadowMap"
         Pass
         {
             HLSLPROGRAM
+            #pragma target 5.0
             #pragma vertex vert_h
             #pragma fragment fragBlur
             ENDHLSL

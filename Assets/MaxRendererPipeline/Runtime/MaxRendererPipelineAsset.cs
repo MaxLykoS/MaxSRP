@@ -10,6 +10,10 @@ namespace MaxSRP
     public class MaxRendererPipelineAsset : RenderPipelineAsset
     {
         [SerializeField]
+        private ColorOutputSettings m_colorOutputSettings = new ColorOutputSettings();
+        public ColorOutputSettings ColorOutput => m_colorOutputSettings;
+
+        [SerializeField]
         private CascadeSettings m_cascadeSettings = new CascadeSettings();
 
         public CascadeSettings CascadeSetting
@@ -25,15 +29,8 @@ namespace MaxSRP
             return new MaxRenderPipeline(this);
         }
 
-        [SerializeField]
-        private Cubemap m_envMap;
-        public Cubemap ENVMap
-        {
-            get 
-            {
-                return m_envMap;
-            }
-        }
+        [SerializeField] private SkyIBLSettings m_skyIBLSettings = new SkyIBLSettings();
+        public SkyIBLSettings SkyIBL => m_skyIBLSettings;
 
         [SerializeField]
         private ComputeShader m_iblCS;

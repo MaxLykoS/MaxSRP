@@ -25,22 +25,74 @@ float2 ViewDirToUV(float3 v)
     return uv;
 }
 
+// Keep the observer outside the solid planet. At Earth scale one float ULP is
+// 0.5 metres; a one-metre floor avoids rounding a near-ground camera onto it.
+// Apply the same policy to sky LUT generation, the solar disk and aerial LUTs.
+float3 AtmosphereCameraPosition(float cameraY, float seaLevel, float planetRadius)
+{
+    float altitude = max(cameraY - seaLevel, 1.0);
+    return float3(0.0, planetRadius + altitude, 0.0);
+}
+
 float RayIntersectSphere(float3 center, float radius, float3 rayStart, float3 rayDir)
 {
-    float OS = length(center - rayStart);
-    float SH = dot(center - rayStart, rayDir);
-    float OH = sqrt(OS * OS - SH * SH);
-    float PH = sqrt(radius * radius - OH * OH);
+    float3 offset = rayStart - center;
+    float r = length(offset);
+    float a = dot(rayDir, rayDir);
+    if (a <= 0.0) return -1.0;
+    float b = dot(offset, rayDir);
+    // Factor the difference of squares before multiplying: r*r - radius*radius
+    // loses the entire near-ground distance at planetary scales.
+    float c = (r - radius) * (r + radius);
+    float discriminant = b * b - a * c;
+    if (discriminant < 0.0) return -1.0;
 
-    // ray miss sphere
-    if (OH > radius) return -1;
+    // Compute the root without subtracting nearly equal values, then obtain
+    // the other root from their product c/a. Check misses before sqrt.
+    float root = sqrt(discriminant);
+    float q = -b - (b >= 0.0 ? root : -root);
+    if (q == 0.0) return 0.0;
+    float t0 = q / a;
+    float t1 = c / q;
+    float nearHit = min(t0, t1);
+    float farHit = max(t0, t1);
+    return nearHit >= 0.0 ? nearHit : (farHit >= 0.0 ? farHit : -1.0);
+}
 
-    // use min distance
-    float t1 = SH - PH;
-    float t2 = SH + PH;
-    float t = (t1 < 0) ? t2 : t1;
+// A solid ground boundary differs from an atmosphere boundary: surface rays
+// heading up (or tangent) are unblocked, heading down is an immediate hit.
+// Starts below the surface are blocked rather than tracing through the planet.
+float RayIntersectGroundSphere(float radius, float3 rayStart, float3 rayDir)
+{
+    float r = length(rayStart);
+    if (r < radius) return 0.0;
+    if (r == radius)
+        return dot(rayStart, rayDir) < 0.0 ? 0.0 : -1.0;
+    return RayIntersectSphere(float3(0.0, 0.0, 0.0), radius, rayStart, rayDir);
+}
 
-    return t;
+// Positive ray interval inside a sphere. Unlike a nearest-hit query this
+// preserves both entry and exit for observers outside the atmosphere.
+bool AtmosphereRayInterval(float radius, float3 rayStart, float3 rayDir,
+    out float entry, out float exit)
+{
+    entry = 0.0;
+    exit = 0.0;
+    float a = dot(rayDir, rayDir);
+    if (a <= 0.0) return false;
+    float r = length(rayStart);
+    float b = dot(rayStart, rayDir);
+    float c = (r - radius) * (r + radius);
+    float discriminant = b * b - a * c;
+    if (discriminant <= 0.0) return false; // A tangent has no integration length.
+    float root = sqrt(discriminant);
+    float q = -b - (b >= 0.0 ? root : -root);
+    if (q == 0.0) return false;
+    float t0 = q / a;
+    float t1 = c / q;
+    entry = max(0.0, min(t0, t1));
+    exit = max(t0, t1);
+    return exit > entry;
 }
 
 void UvToTransmittanceLutParams(float bottomRadius, float topRadius, float2 uv, out float mu, out float r)
@@ -61,11 +113,13 @@ void UvToTransmittanceLutParams(float bottomRadius, float topRadius, float2 uv, 
 
 float2 GetTransmittanceLutUv(float bottomRadius, float topRadius, float mu, float r)
 {
+    r = clamp(r, bottomRadius, topRadius);
+    mu = clamp(mu, -1.0, 1.0);
     float H = sqrt(max(0.0f, topRadius * topRadius - bottomRadius * bottomRadius));
     float rho = sqrt(max(0.0f, r * r - bottomRadius * bottomRadius));
 
     float discriminant = r * r * (mu * mu - 1.0f) + topRadius * topRadius;
-    float d = max(0.0f, (-r * mu + sqrt(discriminant)));
+    float d = max(0.0f, (-r * mu + sqrt(max(0.0, discriminant))));
 
     float d_min = topRadius - r;
     float d_max = rho + H;

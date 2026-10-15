@@ -1,11 +1,11 @@
-﻿Shader "MaxSRP/PBRLitPass"
+Shader "MaxSRP/PBRLitPass"
 {
     Properties
     {
         _AlbedoMap ("Albedo", 2D) = "white" {}
         _MetalnessMap("Metallic", 2D) = "black" {}
         _RoughnessMap("Roughness",2D) = "black" {}
-        [Normal] _NormalMap("Normal Map",2D) = "black" {}
+        [Normal] _NormalMap("Normal Map",2D) = "bump" {}
         [Toggle(_RECEIVE_SHADOWS)] _RECEIVE_SHADOWS ("Receive Shadows", Float) = 0
     }
 
@@ -22,7 +22,10 @@
         Pass
         {
             Name "DEFAULT"
-            Cull Back
+            Cull Off
+            ZTest Always
+            ZWrite On
+            Blend Off
 
             HLSLPROGRAM
             #pragma target 5.0
@@ -33,6 +36,34 @@
             ENDHLSL
         }
 
+        Pass
+        {
+            Name "Overlay"
+            Cull Off
+            ZTest Always
+            ZWrite On
+            Blend SrcAlpha OneMinusSrcAlpha, One OneMinusSrcAlpha
+
+            HLSLPROGRAM
+            #pragma target 5.0
+            #pragma vertex PBRVertex
+            #pragma fragment PBRFragment
+            ENDHLSL
+        }
+        Pass
+        {
+            Name "PreserveDepth"
+            Cull Off
+            ZTest LEqual
+            ZWrite On
+            Blend SrcAlpha OneMinusSrcAlpha, One OneMinusSrcAlpha
+
+            HLSLPROGRAM
+            #pragma target 5.0
+            #pragma vertex PBRVertex
+            #pragma fragment PBRFragment
+            ENDHLSL
+        }
         /*Pass
         {
             Name "ShadowCaster"

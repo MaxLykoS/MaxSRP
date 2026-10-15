@@ -1,36 +1,52 @@
-using System.Collections;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
+using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 
 namespace MaxSRP
 {
-    public class MaxLightPass
+    public sealed class MaxLightPass : IDisposable
     {
-        private RenderTargetIdentifier[] m_gBuffers;
-        private static Material s_mat;
-        public MaxLightPass(RenderTargetIdentifier[] gBuffers)
-        {
-            this.m_gBuffers = gBuffers;
+        private Material m_material;
+        private readonly MaterialPropertyBlock m_iblBindings = new MaterialPropertyBlock();
 
-            if (s_mat == null)
-                s_mat = new Material(Shader.Find("MaxSRP/PBRLitPass"));
+        public MaxLightPass()
+        {
+            m_material = new Material(Shader.Find("MaxSRP/PBRLitPass"));
         }
 
-        public void Execute(ScriptableRenderContext context, Camera camera)
+        public void Execute(ScriptableRenderContext context, Camera camera, RenderTargetIdentifier target,
+            RenderTargetIdentifier depth, Rect viewport, MaxIBLGIPass ibl)
         {
             CommandBuffer cmd = CommandBufferPool.Get("LightPass");
-
-            cmd.Blit(m_gBuffers[0], BuiltinRenderTextureType.CameraTarget, s_mat);
-            context.ExecuteCommandBuffer(cmd);
+            try
+            {
+                cmd.SetGlobalColor("_CameraBackgroundColor", camera.backgroundColor.linear);
+                cmd.SetGlobalInteger("_CameraClearFlags", (int)camera.clearFlags);
+                cmd.SetRenderTarget(target, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store,
+                    depth, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store);
+                cmd.SetViewport(viewport);
+                int pass = camera.clearFlags == CameraClearFlags.Nothing ? 2 :
+                    camera.clearFlags == CameraClearFlags.Depth ? 1 : 0;
+                ibl.SetLightingBindings(m_iblBindings);
+#if UNITY_EDITOR
+                // A loading placeholder must never write scene color/depth.
+                UnityEditor.ShaderUtil.SetAsyncCompilation(cmd, false);
+#endif
+                cmd.DrawProcedural(Matrix4x4.identity, m_material, pass, MeshTopology.Triangles, 3, 1, m_iblBindings);
+#if UNITY_EDITOR
+                UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);
+#endif
+                context.ExecuteCommandBuffer(cmd);
+            }
+            finally
+            {
+                CommandBufferPool.Release(cmd);
+            }
         }
 
-        ~MaxLightPass()
+        public void Dispose()
         {
-            if(s_mat != null)
-                GameObject.DestroyImmediate(s_mat);
-            s_mat = null;
+            MaxRenderResources.Destroy(ref m_material);
         }
     }
 }

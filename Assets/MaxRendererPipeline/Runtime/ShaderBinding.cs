@@ -58,6 +58,7 @@ namespace MaxSRP
             Vector4 deltaTimeVector = new Vector4(deltaTime, 1f / deltaTime, smoothDeltaTime, 1f / smoothDeltaTime);
 
             CommandBuffer cmd = CommandBufferPool.Get(nameof(SetPerFrameShaderVariables));
+            try
             {
                 cmd.BeginSample(nameof(SetPerFrameShaderVariables));
                 cmd.SetGlobalVector(ShaderBindings._Time, timeVector);
@@ -66,17 +67,21 @@ namespace MaxSRP
                 cmd.SetGlobalVector(ShaderBindings.unity_DeltaTime, deltaTimeVector);
                 cmd.EndSample(nameof(SetPerFrameShaderVariables));
                 context.ExecuteCommandBuffer(cmd);
+            }
+            finally
+            {
                 CommandBufferPool.Release(cmd);
             }
         }
 
-        public static void SetPerCameraShaderVariables(ScriptableRenderContext context, Camera camera)
+        public static void SetPerCameraShaderVariables(ScriptableRenderContext context, Camera camera, bool renderIntoTexture = true)
         {
-            Rect pixelRect = camera.pixelRect;
-            float cameraWidth = (float)pixelRect.width;
-            float cameraHeight = (float)pixelRect.height;
+            Vector2Int renderSize = CameraViewport.GetRenderSize(camera);
+            float cameraWidth = renderSize.x;
+            float cameraHeight = renderSize.y;
 
-            Matrix4x4 projMatrix = GL.GetGPUProjectionMatrix(camera.projectionMatrix, false);
+            Matrix4x4 cameraProjection = CameraViewport.GetProjection(camera);
+            Matrix4x4 projMatrix = GL.GetGPUProjectionMatrix(cameraProjection, renderIntoTexture);
             Matrix4x4 viewMatrix = camera.worldToCameraMatrix;
             Matrix4x4 viewProjMatrix = projMatrix * viewMatrix;
 
@@ -84,7 +89,7 @@ namespace MaxSRP
             Matrix4x4 invProjectionMatrix = Matrix4x4.Inverse(projMatrix);
             Matrix4x4 invViewProjMatrix = Matrix4x4.Inverse(viewProjMatrix);
 
-            float projectionFlip = SystemInfo.graphicsUVStartsAtTop ? -1.0f : 1.0f;
+            float projectionFlip = projMatrix.m11 * cameraProjection.m11 < 0.0f ? -1.0f : 1.0f;
 
             float near = camera.nearClipPlane;
             float far = camera.farClipPlane;
@@ -113,9 +118,18 @@ namespace MaxSRP
             }
 
             Vector4 projectionParams = new Vector4(projectionFlip, near, far, 1.0f * invFar);
-            Vector4 orthoParams = new Vector4(camera.orthographicSize * camera.aspect, camera.orthographicSize, 0.0f, isOrthographic);
+            // Match the actual orthographic projection, including viewport-dependent Game sizing.
+            float orthoWidth = camera.orthographicSize;
+            float orthoHeight = camera.orthographicSize;
+            if (camera.orthographic)
+            {
+                orthoWidth = Mathf.Abs(1.0f / cameraProjection.m00);
+                orthoHeight = Mathf.Abs(1.0f / cameraProjection.m11);
+            }
+            Vector4 orthoParams = new Vector4(orthoWidth, orthoHeight, 0.0f, isOrthographic);
 
             CommandBuffer cmd = CommandBufferPool.Get(nameof(SetPerCameraShaderVariables));
+            try
             {
                 cmd.SetGlobalVector(ShaderBindings._WorldSpaceCameraPos, camera.transform.position);
                 cmd.SetGlobalVector(ShaderBindings._ProjectionParams, projectionParams);
@@ -124,14 +138,19 @@ namespace MaxSRP
                 cmd.SetGlobalVector(ShaderBindings.unity_OrthoParams, orthoParams);
                 // TODO: missing unity_CameraWorldClipPlanes[6], currently set by context.SetupCameraProperties
 
+                // Upload the already GPU-adjusted matrices directly for this custom SRP.
+                // Do not route them through the Built-in-only SetViewProjectionMatrices API.
                 cmd.SetGlobalMatrix(ShaderBindings.unity_MatrixV, viewMatrix);
                 cmd.SetGlobalMatrix(ShaderBindings.unity_MatrixP, projMatrix);
                 cmd.SetGlobalMatrix(ShaderBindings.unity_MatrixVP, viewProjMatrix);
 
                 cmd.SetGlobalMatrix(ShaderBindings.unity_MatrixInvV, invViewMatrix);
-                cmd.SetGlobalMatrix(ShaderBindings.unity_MatrixInvP, viewMatrix);
+                cmd.SetGlobalMatrix(ShaderBindings.unity_MatrixInvP, invProjectionMatrix);
                 cmd.SetGlobalMatrix(ShaderBindings.unity_MatrixInvVP, invViewProjMatrix);
                 context.ExecuteCommandBuffer(cmd);
+            }
+            finally
+            {
                 CommandBufferPool.Release(cmd);
             }
         }

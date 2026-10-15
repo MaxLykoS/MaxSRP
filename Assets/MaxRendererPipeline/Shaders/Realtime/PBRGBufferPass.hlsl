@@ -11,7 +11,7 @@ struct a2v
     float4 pO : POSITION;
     float2 uv : TEXCOORD0;
     float3 nO : NORMAL;
-    float3 tO : TANGENT;
+    float4 tO : TANGENT;
 };
 
 struct v2f
@@ -19,7 +19,7 @@ struct v2f
     float4 pH : SV_POSITION;
     float2 uv : TEXCOORD0;
     float3 nW : TEXCOORD1;
-    float3 tW : TEXCOORD2;
+    float4 tW : TEXCOORD2;
 };
 
 CBUFFER_START(UnityPerMaterial)
@@ -39,7 +39,8 @@ v2f PBRGBufferVertex(a2v v)
     o.uv = o.uv * _AlbedoMap_ST.xy + _AlbedoMap_ST.zw;
 
     o.nW = TransformObjectToWorldNormal(v.nO);
-    o.tW = normalize(TransformObjectToWorld(v.tO.xyz));
+    o.tW = float4(normalize(TransformObjectToWorldDir(v.tO.xyz)),
+        v.tO.w * unity_WorldTransformParams.w);
     return o;
 }
 
@@ -56,9 +57,10 @@ void PBRGBufferFragment(
     float roughness = UNITY_SAMPLE_TEX2D(_RoughnessMap, o.uv).r;
 
     o.nW = normalize(o.nW);
-    o.tW = normalize(o.tW);
-    float3 bW = normalize(cross(o.nW, o.tW));
-    float3x3 TBN = float3x3(o.tW, bW, o.nW);
+    // Re-orthogonalize the interpolated tangent and preserve UV/transform handedness.
+    float3 tW = normalize(o.tW.xyz - o.nW * dot(o.nW, o.tW.xyz));
+    float3 bW = normalize(cross(o.nW, tW)) * o.tW.w;
+    float3x3 TBN = float3x3(tW, bW, o.nW);
     float4 packedNormal = UNITY_SAMPLE_TEX2D(_NormalMap, o.uv);
     float3 bump = DecodeNormalFromTexture(packedNormal);
     bump = normalize(mul(bump, TBN));

@@ -5,7 +5,7 @@ Shader "Unlit/PBRGBuffer"
         _AlbedoMap("Albedo", 2D) = "white" {}
         _MetalnessMap("Metallic", 2D) = "black" {}
         _RoughnessMap("Roughness",2D) = "black" {}
-        [Normal] _NormalMap("Normal Map",2D) = "black" {}
+        [Normal] _NormalMap("Normal Map",2D) = "bump" {}
     }
     SubShader
     {
@@ -41,6 +41,7 @@ Shader "Unlit/PBRGBuffer"
             Cull Back
 
             HLSLPROGRAM
+            #pragma target 5.0
             #pragma vertex ShadowCasterVertex
             #pragma fragment ShadowCasterFragment
             ENDHLSL

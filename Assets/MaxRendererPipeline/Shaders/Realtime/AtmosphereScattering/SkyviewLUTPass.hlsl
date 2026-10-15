@@ -9,6 +9,8 @@
 #include "../../../ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereParameter.hlsl"
 #include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Raymarching.hlsl"
 
+float _AtmosphereCameraY;
+
 struct appdata
 {
     float4 vertex : POSITION;
@@ -37,10 +39,9 @@ float4 frag(v2f i) : SV_Target
 	float2 uv = i.uv;
 	float3 viewDir = UVToViewDir(uv);
 
-	float3 lightDir = _DirectionalLightDirection;
+	float3 lightDir = _AtmosphereSunDirection;
 
-	float h = _WorldSpaceCameraPos.y - param.SeaLevel + param.PlanetRadius;
-	float3 eyePos = float3(0, h, 0);
+	float3 eyePos = AtmosphereCameraPosition(_AtmosphereCameraY, param.SeaLevel, param.PlanetRadius);
 
 	color.rgb = GetSkyView(
 		param, eyePos, viewDir, lightDir, -1.0f);

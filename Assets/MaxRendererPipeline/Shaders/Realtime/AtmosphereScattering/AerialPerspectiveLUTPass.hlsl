@@ -3,71 +3,62 @@
 
 #include "../../../ShaderLibrary/Realtime/LightInput.hlsl"
 #include "../../../ShaderLibrary/Realtime/SpaceTransform.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Helper.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereParameter.hlsl"
 #include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Raymarching.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl"
 
-struct appdata
-{
-    float4 vertex : POSITION;
-    float2 uv : TEXCOORD0;
-};
+// Dedicated inputs survive utility Blits that may overwrite Unity's camera matrices.
+float4x4 _AerialInverseProjection;
+float4x4 _AerialCameraToWorld;
+float4 _AerialCameraPosition; // world position, orthographic flag
 
 struct v2f
 {
-    float2 uv : TEXCOORD0;
     float4 vertex : SV_POSITION;
 };
 
-float _AerialPerspectiveDistance;
-float4 _AerialPerspectiveVoxelSize;
+struct AerialOutputs
+{
+    float4 scattering : SV_Target0;
+    float4 transmittance : SV_Target1;
+};
 
-v2f vert(appdata v)
+v2f vert(uint vertexID : SV_VertexID)
 {
     v2f o;
-    o.vertex = UnityObjectToClipPos(v.vertex);
-    o.uv = v.uv;
+    float2 uv = float2((vertexID << 1) & 2, vertexID & 2);
+    o.vertex = float4(uv * 2.0 - 1.0, 0.0, 1.0);
     return o;
 }
 
-fixed4 frag(v2f i) : SV_Target
+AerialOutputs frag(v2f i)
 {
     AtmosphereParameter param = GetAtmosphereParameter();
-
-    float4 color = float4(0, 0, 0, 1);
-	float3 uv = float3(i.uv, 0);
-	uv.x *= _AerialPerspectiveVoxelSize.x * _AerialPerspectiveVoxelSize.z;  // X * Z
-	uv.z = int(uv.x / _AerialPerspectiveVoxelSize.z) / _AerialPerspectiveVoxelSize.x;
-	uv.x = fmod(uv.x, _AerialPerspectiveVoxelSize.z) / _AerialPerspectiveVoxelSize.x;
-	uv.xyz += 0.5 / _AerialPerspectiveVoxelSize.xyz;
-
-	float aspect = _ScreenParams.x / _ScreenParams.y;
-	float3 viewDir = normalize(mul(unity_MatrixInvV, float4(
-		(uv.x * 2.0 - 1.0) * 1.0,
-		(uv.y * 2.0 - 1.0) / aspect,
-		1.0, 0.0
-		)).xyz);
-	//return float4(viewDir, 1.0);
-
-	float3 lightDir = _DirectionalLightDirection;
-
-	float h = _WorldSpaceCameraPos.y - param.SeaLevel + param.PlanetRadius;
-	float3 eyePos = float3(0, h, 0);
-
-	float maxDis = uv.z * _AerialPerspectiveDistance;
-
-	// inScattering
-	color.rgb = GetSkyView(param, eyePos, viewDir, lightDir, maxDis);
-
-	// transmittance
-	float3 voxelPos = eyePos + viewDir * maxDis;
-	float3 t1 = TransmittanceToAtmosphere(param, eyePos, viewDir);
-	float3 t2 = TransmittanceToAtmosphere(param, voxelPos, viewDir);
-	float3 t = t1 / t2;
-	color.a = dot(t, float3(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0));
-
-	return color;
+    float slice = floor(i.vertex.x / _AerialPerspectiveParams.y);
+    float2 screenUV = float2((i.vertex.x - slice * _AerialPerspectiveParams.y) /
+        _AerialPerspectiveParams.y, i.vertex.y / _AerialPerspectiveParams.z);
+    float2 ndc = screenUV * 2.0 - 1.0;
+#if UNITY_UV_STARTS_AT_TOP
+    ndc.y = -ndc.y;
+#endif
+    float4 viewPosition = mul(_AerialInverseProjection, float4(ndc, UNITY_NEAR_CLIP_VALUE, 1.0));
+    float3 viewDir = normalize(mul((float3x3)_AerialCameraToWorld, viewPosition.xyz));
+    float3 eyePos = AtmosphereCameraPosition(_AerialCameraPosition.y, param.SeaLevel, param.PlanetRadius);
+    if (_AerialCameraPosition.w > 0.5)
+    {
+        // Parallel rays start at different points on the camera plane.
+        float3 cameraPlanePosition = float3(viewPosition.xy / viewPosition.w, 0.0);
+        eyePos += mul((float3x3)_AerialCameraToWorld, cameraPlanePosition);
+        eyePos.y = max(eyePos.y, param.PlanetRadius + 1.0);
+        viewDir = normalize(mul((float3x3)_AerialCameraToWorld, float3(0.0, 0.0, -1.0)));
+    }
+    float3 lightDir = normalize(_AtmosphereSunDirection);
+    float distance = AerialSliceDistance(slice);
+    float3 transmittance;
+    float3 scattering = GetAtmosphereSegment(param, eyePos, viewDir, lightDir, distance, transmittance);
+    AerialOutputs o;
+    o.scattering = float4(scattering, 1.0);
+    o.transmittance = float4(transmittance, 1.0);
+    return o;
 }
 
 #endif

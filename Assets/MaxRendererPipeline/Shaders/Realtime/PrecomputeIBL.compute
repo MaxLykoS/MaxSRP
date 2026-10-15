@@ -1,6 +1,10 @@
 #pragma kernel PrecomputeDiffuse
 #pragma kernel PrecomputeSpec
 #pragma kernel PrecomputeBRDFLut
+#pragma kernel SkyToEnvironment
+#pragma kernel FilterSkyDiffuse
+#pragma kernel FilterSkySpecular
+#pragma kernel BuildDynamicBRDF
 
 #define PI 3.1415926535897931
 
@@ -74,20 +78,20 @@ void PrecomputeDiffuse(uint3 id : SV_DispatchThreadID)
 {
     uint texel = id.x;
 
-    if (texel > _TexelCountsPerFace)
+    if (texel >= _TexelCountsPerFace)
         return;
 
     float3 result = float3(0, 0, 0);
 
-    float u = (texel % _Width) / (float)_Width;
-    float v = ((int)(texel / _Width)) / (float)_Width;
+    float u = ((texel % _Width) + 0.5) / (float)_Width;
+    float v = ((texel / _Width) + 0.5) / (float)_Width;
 
     //get the direction vector
     float3 N = DirectionFromCubemapTexel(_Face, u, v);
     N = normalize(N);
 
-    float3 up = float3(0, 1, 0);
-    float3 right = cross(up, N);
+    float3 up = abs(N.y) < 0.999 ? float3(0, 1, 0) : float3(1, 0, 0);
+    float3 right = normalize(cross(up, N));
     up = cross(N, right); 
 
     float sampleDelta = 0.025f;
@@ -156,13 +160,13 @@ void PrecomputeSpec(uint3 id : SV_DispatchThreadID)
 {
     uint texel = id.x;
 
-    if (texel > _TexelCountsPerFace)
+    if (texel >= _TexelCountsPerFace)
         return;
 
     float3 result = float3(0, 0, 0);
 
-    float u = (texel % _Width) / (float)_Width;
-    float v = ((int)(texel / _Width)) / (float)_Width;
+    float u = ((texel % _Width) + 0.5) / (float)_Width;
+    float v = ((texel / _Width) + 0.5) / (float)_Width;
 
     //get the direction vector
     float3 N = normalize(DirectionFromCubemapTexel(_Face, u, v));
@@ -254,6 +258,9 @@ RWStructuredBuffer<float4> _BRDFLut;
 [numthreads(32, 1, 1)]
 void PrecomputeBRDFLut(uint3 id : SV_DispatchThreadID)
 {
+    if (id.x >= _Width * _Width)
+        return;
+
     float width = id.x % (_Width);
     float height = id.x / float(_Width);
 
@@ -263,3 +270,5 @@ void PrecomputeBRDFLut(uint3 id : SV_DispatchThreadID)
     float2 integratedBRDF = IntegrateBRDF(tx, ty);
     _BRDFLut[id.x] = float4(integratedBRDF, 0, 0);
 }
+
+#include "DynamicSkyIBL.hlsl"

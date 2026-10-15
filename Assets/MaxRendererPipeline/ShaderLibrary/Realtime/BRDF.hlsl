@@ -8,14 +8,14 @@ float DistributionGGX(float3 N, float3 H, float roughness)
 {
     float a      = roughness * roughness;
     float a2     = a * a;
-    float NdotH  = max(dot(N, H), 0.0);
+    float NdotH  = saturate(dot(N, H));
     float NdotH2 = NdotH * NdotH;
 
     float nom   = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    float denom = (1.0 - NdotH2) + NdotH2 * a2;
     denom = PI * denom * denom;
 
-    return nom / denom;
+    return nom / max(denom, 1e-10);
 }
 
 float GeometrySchlickGGX(float NdotV, float roughness)
@@ -26,7 +26,7 @@ float GeometrySchlickGGX(float NdotV, float roughness)
     float nom   = NdotV;
     float denom = NdotV * (1.0 - k) + k;
 
-    return nom / denom;
+    return nom / max(denom, 1e-10);
 }
 float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
 {
@@ -39,7 +39,9 @@ float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
 }
 float3 fresnelSchlick(float cosTheta, float3 F0)
 {
-    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+    float f = 1.0 - saturate(cosTheta);
+    float f2 = f * f;
+    return F0 + (1.0 - F0) * (f2 * f2 * f);
 }
 
 struct Surface
@@ -56,7 +58,12 @@ struct Surface
 
 float3 CookTorranceBRDF(Surface surface)
 {    
-    float3 H = normalize(surface.L + surface.V);
+    float NdotL = saturate(dot(surface.N, surface.L));
+    // Normal-map lobes may face away from V on otherwise visible geometry.
+    // Smith suppresses their specular term; do not hard-cut the diffuse term.
+    if (NdotL <= 0.0) return float3(0.0, 0.0, 0.0);
+    float3 halfVector = surface.L + surface.V;
+    float3 H = halfVector * rsqrt(max(dot(halfVector, halfVector), 1e-10));
 
     // cook-torrance brdf
     float NDF = DistributionGGX(surface.N, H, surface.roughness);        
@@ -69,6 +76,6 @@ float3 CookTorranceBRDF(Surface surface)
     float3 nominator    = NDF * G * F;
     float denominator = 4.0 * max(dot(surface.N, surface.V), 0.0) * max(dot(surface.N, surface.L), 0.0) + 0.001; 
     float3 specular     = nominator / denominator;
-    return kD * surface.albedo / PI + specular * kS; 
+    return kD * surface.albedo / PI + specular;
 }
 #endif
