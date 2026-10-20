@@ -1,0 +1,21 @@
+#pragma kernel AtmosphereReferenceProbes
+#include "UnityCG.cginc"
+#include "../ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl"
+
+StructuredBuffer<float4> _ProbeViews; // xyz direction, w altitude in metres
+StructuredBuffer<float4> _ProbeSuns;
+RWStructuredBuffer<float4> _ProbeSky;
+RWStructuredBuffer<float4> _ProbeTransmittance;
+uint _ProbeCount;
+
+[numthreads(64, 1, 1)]
+void AtmosphereReferenceProbes(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _ProbeCount) return;
+    AtmosphereParameter p = GetAtmosphereParameter();
+    float4 view = _ProbeViews[id.x];
+    float3 eye = AtmosphereCameraPosition(p.SeaLevel + view.w, p.SeaLevel, p.PlanetRadius);
+    float3 sun = normalize(_ProbeSuns[id.x].xyz);
+    _ProbeSky[id.x] = float4(GetSkyView(p, eye, normalize(view.xyz), sun, -1.0), 1.0);
+    _ProbeTransmittance[id.x] = float4(TransmittanceToSun(p, eye, sun), 1.0);
+}

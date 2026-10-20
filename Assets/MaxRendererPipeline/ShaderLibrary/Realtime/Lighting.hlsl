@@ -6,6 +6,9 @@
 #include "GlobalIllumination.hlsl"
 #include "AtomsphereScattering/RayMarching.hlsl"
 
+// Editor comparison camera only. Zero preserves normal rendering.
+float _MaxLightingDiagnosticMode;
+
 float3 GetSurfaceViewDirection(float3 positionWS)
 {
     if (unity_OrthoParams.w > 0.5)
@@ -69,6 +72,8 @@ float3 PBR_IndirectLit(Surface surface)
 
     float3 indirectDiffuse = GetDiffuseIBL(surface.N, NdotV, surface.F0, surface.roughness, surface.albedo, kD);
     float3 indirectSpec = GetSpecularIBL(reflectDir, surface.roughness, NdotV, kS);
+    if (_MaxLightingDiagnosticMode == 3.0) return indirectDiffuse;
+    if (_MaxLightingDiagnosticMode == 4.0) return indirectSpec;
     Lo = Lo + indirectDiffuse + indirectSpec;
     return Lo;
 }
@@ -93,6 +98,9 @@ float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float ro
     float3 c_indirLit = PBR_IndirectLit(surface);
 
     float visibility = UNITY_SAMPLE_TEX2D(_ScreenSpaceShadowMapBlur, uv);
+    if (_MaxLightingDiagnosticMode == 1.0) return c_dirDirLight * visibility + c_dirPointLight;
+    if (_MaxLightingDiagnosticMode == 5.0) return c_dirDirLight + c_dirPointLight;
+    if (_MaxLightingDiagnosticMode >= 2.0 && _MaxLightingDiagnosticMode <= 4.0) return c_indirLit;
     return c_dirDirLight * visibility + c_dirPointLight + c_indirLit;
 }
 #endif

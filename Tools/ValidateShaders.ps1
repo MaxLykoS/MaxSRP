@@ -46,6 +46,9 @@ public static class MaxSrpNativeShaderCheck {
 "@
 $taskDefines="#define SHADER_API_D3D11 1`n#define UNITY_COMPILER_HLSL 1`n#define SHADER_TARGET 50`n#define UNITY_VERSION 202230`n"
 $taskChecks=@(
+ @('Assets/MaxRendererPipeline/Editor/MaxSkyHaloDiagnostics.compute','SkyHaloComparison','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxAtmosphereReferenceProbes.compute','AtmosphereReferenceProbes','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxImportedTextureExport.compute','ExportImportedMip','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeDiffuse','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeSpec','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeBRDFLut','cs_5_0'),

@@ -1,0 +1,15 @@
+#pragma kernel ExportImportedMip
+
+// Editor diagnostics only. Texture.Load decodes the bound BC/sRGB resource;
+// every output pixel is one source texel, with no filtering or mip generation.
+Texture2D<float4> _Source;
+RWTexture2D<float4> _Output;
+int2 _Size;
+int _Mip;
+
+[numthreads(8, 8, 1)]
+void ExportImportedMip(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= (uint2)_Size)) return;
+    _Output[id.xy] = _Source.Load(int3(id.xy, _Mip));
+}

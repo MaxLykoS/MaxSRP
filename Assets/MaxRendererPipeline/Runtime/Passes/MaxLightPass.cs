@@ -7,6 +7,10 @@ namespace MaxSRP
     public sealed class MaxLightPass : IDisposable
     {
         private Material m_material;
+#if UNITY_EDITOR
+        public static Camera DiagnosticCamera;
+        public static float DiagnosticLightingMode;
+#endif
         private readonly MaterialPropertyBlock m_iblBindings = new MaterialPropertyBlock();
 
         public MaxLightPass()
@@ -29,6 +33,8 @@ namespace MaxSRP
                     camera.clearFlags == CameraClearFlags.Depth ? 1 : 0;
                 ibl.SetLightingBindings(m_iblBindings);
 #if UNITY_EDITOR
+                m_iblBindings.SetFloat("_MaxLightingDiagnosticMode",
+                    camera == DiagnosticCamera ? DiagnosticLightingMode : 0.0f);
                 // A loading placeholder must never write scene color/depth.
                 UnityEditor.ShaderUtil.SetAsyncCompilation(cmd, false);
 #endif
