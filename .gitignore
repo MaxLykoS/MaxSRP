@@ -59,3 +59,10 @@ sysinfo.txt
 # Crashlytics generated file
 crashlytics-build.properties
 
+# Reproducible Blender baseline outputs (packed scenes and HDR renders).
+/OfflineBaseline/
+
+# Python diagnostic tool caches.
+__pycache__/
+*.py[cod]
+

@@ -1,12 +1,14 @@
 # MaxSRP 问题检查与修复记录
 
-更新日期：2026-10-15（动态 IBL 闪黑自查：绘制绑定隔离、异常值隔离与编译状态保护）。
+更新日期：2026-10-20（补齐原生 UV baseline、独立大气输运对照与天空 banding 验收）。
 
 范围：实时 SRP、PBR、IBL、大气和级联阴影。待处理章节沿用原编号，便于逐项处理；已完成的项目集中放在文末按日期排列的“已修复”区域。
 
-待处理：**19**，共 1 项；另保留实机光度/色彩对照与未启用的遗留 GI 工具事项。8、10、18 及运行时同步 IBL 烘焙已移入文末动态天空 IBL 修复记录。
+待处理：**19、27、28**，共 3 项；另保留朝下环境过滤漏光、实机光度/色彩对照与未启用的遗留 GI 工具事项。27/28 是独立大气对照发现的条件性精度问题，未修改运行时。8、10、18 及运行时同步 IBL 烘焙已移入文末动态天空 IBL 修复记录。
 
-P1 表示优先修复的正确性问题；P2 表示条件性错误、功能未接通或性能问题。画面症状主要由源码和数值分析推导，尚未在 Unity 中做 GPU 截帧验证。
+P1 表示优先修复的正确性问题；P2 表示条件性错误、精度问题、功能未接通或性能问题。各项具体证据与验证范围分别记录，不能将某一项的 GPU 验证推广到全部管线。
+
+本轮新增已修复：天空输出的 RGB dithering 相关性及硬件 sRGB8 量化阈值偏差。受控 GPU 渐变和同 HDR 回放验证通过，用户于 10 月 20 日确认当前 demo 的 banding 几乎不可见，按当前场景验收关闭。详见 [输出量化对照](Tools/AtmosphereReference/OUTPUT_TRANSFER.md)。
 
 ## 19. [P1] Lighting Shader 没有构建引用，Player 可能无法初始化管线
 
@@ -22,7 +24,24 @@ Lighting 材质完全依赖 Shader.Find("MaxSRP/PBRLitPass")。本轮检查该 S
 
 ## 补充：性能与潜在问题
 
+### 27. [P2] 近太阳单次散射固定 32 步积分偏低
+
+状态：独立参考与实际 GPU 已复现，待处理。位置：`RayMarching.hlsl` 的 `GetAtmosphereSegment`。
+
+当前 2 m、太阳高度 69.811°，沿太阳方向 GPU 单次散射比独立 float64 高精度参考低约 **5.72%**，完整天空仍低约 **4.80%**。独立介质/太阳透射下，仅采用 32 段常系数积分便得到 **0.942606** 的响应比，几乎复现 GPU 的 **0.942782**；64/128/256 段分别为 0.984933/0.996186/0.999044。这支持固定步数对低层 Mie 密度变化的积分误差，不是太阳强度缩放错误。可后续评估分段与步数预算，本轮未修。
+
+### 28. [P2] 黄昏部分方向的多次散射明显偏亮
+
+状态：独立路径追踪与实际 GPU 已复现，待进一步拆分原因。位置：`IntegralMultiScattering`、`GetMultiScattering` 与 32×32 多次散射 LUT。
+
+太阳高度 −3°、2 m 观察者、背阳仰角 1°，两边单次散射均为零；完整亮度 Unity/独立参考约 **1.73955**（比值约 95% 统计半宽 0.0263）。当前项目 RGB 约定下约 **38.32 / 22.03 cd/m²**，差异明显超过噪声。同一黄昏其他方向也有约 7%～16% 偏差。
+
+已定位到本实现的多次散射链路，尚未将 isotropic/local closure 近似、LUT 的高度/太阳角插值、64 方向积分分别量化，不能据此认定 UE 原论文错误。当前白天整体天空照度已与独立参考相符，不宜用整体强度系数追平单个黄昏方向。本轮未修。
+
+27/28 的方法、数据与复测：[独立大气报告](D:/UnityProject/MaxSRP/Tools/AtmosphereReference/README.md)、[数值结果](D:/UnityProject/MaxSRP/OfflineBaseline/AtmosphereReference/atmosphere_comparison.json)、[对照图](D:/UnityProject/MaxSRP/OfflineBaseline/AtmosphereReference/atmosphere_reference_comparison.png)。
+
 - **实机光度与色彩对照**：太阳/天空/IBL 已统一入射能量和 lux 参考，见文末修复记录。当前使用 RGB 大气近似和固定 HDR 缩放，尚未做光谱到 XYZ 的完整标定、目标硬件照度对照或相机 EV100/白平衡系统；不能将 CPU 数值检查等同于真实场景的测量标定。
+- **独立大气数值对照已补齐**：当前白天水平天空照度 GPU **6209.23 lux**，独立参考 **6209.16 ± 7.08 lux**（近似 95% 统计区间，沿用项目 RGB 光度约定）；RGB 分别相差约 −1.38%/−0.17%/+1.68%。整体能量相符不代表各方向/各通道相同，不能把一次均值差当作 0.0012% 的验证精度。当前参数以外和完整光谱/实测标定仍不在本结论内。
 - **PRT/SH 遗留路径未启用**：MaxLightProbeSkybox 未执行 SH 投影，c0..c8 实际上传零；GlobalIllumination.hlsl 的 PRTApprox 绿通道最后一项用 c8.z 而不是 c8.y。当前 PBR 漫反射走 cubemap，不受该 SH 错误直接影响；若恢复 PRT，应单独审查归一化、卷积和系数约定。
 
 ## 后续修复顺序
@@ -30,6 +49,7 @@ Lighting 材质完全依赖 Shader.Find("MaxSRP/PBRLitPass")。本轮检查该 S
 1. 19：保留 Lighting Shader，补足最小 Player 构建验证。
 2. 在 Unity 实测动态天空 IBL 的方向、粗糙度、太阳变化与更新耗时，再决定是否需要分帧更新。
 3. 后续再接入 cluster lighting；当前保留最多 32 个点光的原路径。
+4. 27/28 为独立记录的大气精度事项，按用户后续选择单独处理；本次不混入生产修复。
 
 ## 复查阶段的验证范围（2026-10-15，修复前）
 
@@ -403,3 +423,97 @@ Player/Editor 使用 Unity 2022.3 程序集完成运行时代码与新增 Inspec
 本轮产品代码仅修改 [BRDF.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/BRDF.hlsl)。[ValidatePhysicalLighting.ps1](D:/UnityProject/MaxSRP/Tools/ValidatePhysicalLighting.ps1) 增加 401 个法线跨越 `N·V=0` 的连续样本、背向视线时漫反射解析对照、相同照度方向光/点光一致性，以及纯金属背向镜面保持零的检查。45 项 Shader 独立编译与光照/阴影回归通过。
 
 已确认并修正上述代码回归；本轮仍未取得截图黑斑像素的逐指令 GPU 证据，实际画面恢复程度待 Unity 运行验证。当前 RenderDoc 打开的捕获只有 LightCookies/UberPostProcess 等事件，没有本管线的 Lighting/大气事件，未把它当作本次截图的证明。未访问 Library。
+## 天空 IBL 与 Blender 的实际辐照度对照（2026-10-19）
+
+用户反馈直射亮度接近 Blender，要求比较两边天空辐照度。本轮在 Blender 只保留原 World，使用六向、反射率 1 的 Lambert 卡进行 Cycles 测量；Unity 通过新增 Editor 一次性读回工具，导出运行中管线持有的天空 LUT、环境 Cube 与活动 diffuse Cube。比较均排除太阳盘，在线性 HDR、材质权重与曝光之前完成，并将 E/π 还原为 E。
+
+朝上方向：Blender 6207.94 lux；Unity GPU 天空 LUT 6209.23 lux；环境 Cube 6206.66 lux；diffuse Cube 6233.46 lux。四个水平方向的 diffuse 误差也均小于 1%。当前太阳、大气和环境参考高度匹配；读回数据没有 NaN/Inf，活动 diffuse 与全局绑定一致。这批样本未显示天空源或 diffuse 卷积整体丢失能量，不能据此提高天空强度。
+
+发现两个层面应分开记录：一是朝下源天空只有约 1.8 lux，而 diffuse Cube 约 99 lux，存在 MIP/分辨率引起的地平线漏光；二是在头盔位置排除头盔自身后，Blender 朝下测量面只收天空时为 1.84 lux，加入原场景几何与灯光后为 36726 lux，主要来自受光地面的反弹。当前 Unity 的天空 IBL 缺少这样的地面/场景辐射输入，能够解释部分背光面及朝向地面的反射偏暗；尚不能断定所有暗区的根因，也尚未验证间接光消费者的材质权重与镜面链路。
+
+[复测流程与六向结果](D:/UnityProject/MaxSRP/Tools/BlenderBaseline/README.md)、[原始测量报告](D:/UnityProject/MaxSRP/OfflineBaseline/SkyboxScene/irradiance_comparison/irradiance_comparison.json)。本轮没有调整光照强度、曝光、大气公式或运行时 IBL 算法；新增诊断器通过 Unity 2022.3 Editor/Player API 绑定检查，并已在运行中的 Unity 成功完成一次 GPU 读回。未访问 Library。
+
+## 已修正：直射 Smith-GGX 与头盔 baseline 复测（2026-10-19）
+
+在独立 Unity 预览场景只保留头盔和太阳，关闭点光/雾，分别读回实际 GPU 的曝光前直射、IBL、合成及 GBuffer；Cycles 采用同一相机、贴图和源天空，禁止表面多次反弹。原 Unity 场景和材质未修改。相机矩阵误差小于 4.1e-8，50% coverage 轮廓 IoU 99.994%，法线夹角中位数 0.429°。
+
+直射 BRDF 的几何项已从带 roughness 重映射的 Schlick 近似改为**高度相关 Smith-GGX**，合并计算 `G2/(4*NdotV*NdotL)`，移除人为加在镜面分母上的 `+0.001`。GGX NDF、Fresnel、IBL、太阳/点光强度、曝光及材质保持原值；方向光与点光共用新 BRDF。背向着色法线仍仅让镜面为零，保留有效漫反射，避免先前的整块黑斑回归。
+
+重新执行实际 Unity GPU 六项读回及 Cycles 渲染，统一使用 0° Sun；旧的 2° 太阳结果仅保留为参考，不参与当前通过判定。只保留头盔，排除场景 GI，亮度均在曝光前公共内区统计：
+
+| 项目 | 修复前 Unity/Cycles | 修复后 Unity/Cycles |
+| --- | ---: | ---: |
+| 无阴影直射 | 0.79812 | 0.93438 |
+| 有自身阴影直射 | 0.80027 | 0.93867 |
+| 合成（自身阴影直射 + 无遮挡 IBL） | 0.81834 | 0.94445 |
+| 无遮挡天空 IBL | 1.00323 | 1.00323 |
+
+**±10% 平均亮度筛查通过，非逐像素一致验证。** 新版直射平均值比旧版增加约 17.07%，IBL 不变。无阴影直射的像素亮度比中位数仍约 0.805，相对 L1 误差约 0.829，合成相对 L1 约 0.786；局部高光差异没有随平均值改善而消失。法线/纹理过滤、高光采样与不同 Fresnel/材质分层仍需单独研究，不能把所有剩余差异归给 GI，也没有采用调灯光或曝光的补偿。
+
+验证：从生产 HLSL 抽取可见性/BRDF，180 组参数对照独立双精度 lambda 定义，检查光线/视线互易性、掠射/背面有限值及 401 组法线地平线样本的漫反射下界；实际 BRDF 与独立 Cycles 白金属平面参考匹配。45 项 Shader 独立编译、Unity 2022.3 Editor/Player API 绑定、物理光照、光照/阴影及动态 IBL 回归通过。物理灯光验证器移除对用户可调太阳必须等于 120000 的旧断言，继续验证有效正 lux 及单位迁移；未改动场景灯光。
+
+GI 仍按用户范围暂缓，朝下环境过滤漏光仍是独立未修问题。[新旧/Cycles 三列对照](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/helmet_before_after.png)、[数值报告](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/comparison.json)、[完整方法与历史调查](D:/UnityProject/MaxSRP/Tools/BlenderBaseline/README.md)。旧 GPU 结果归档在 `OfflineBaseline/HelmetOnly/BeforeSmithGGX/`。
+
+### 局部高光调查：主要是法线/粗糙度采样，另有非金属模型差异
+
+将实际 Unity GBuffer 逐像素投射到 Cycles，控制同一 0° Sun、无阴影/雾/场景反弹，分别统一输入和材质模型。以 Unity 亮度总和归一化的局部 L1：原生 Cycles 输入 **88.77%**；只统一法线 **32.40%**；再统一粗糙度 **5.13%**；全部共享输入、Principled 单次 GGX **3.54%**；进一步使用与工程一致的 GGX + Schlick Fresnel + Lambert 诊断材质 **0.807%**。该指标不是平均亮度损失，各项也不可相加。原 baseline 不被诊断材质覆盖。
+
+实际 GPU 变体确认法线导入为 **DXT5**：同为 MIP0/浮点 normal GBuffer，压缩导入与未压缩源图的 XY 重建法线中位角差 **0.449°**；未压缩路径对 Cycles 原生窄过滤法线中位差仅 **0.0109°**。normal GBuffer 的 10 位量化自身中位角差约 **0.0431°**，改变局部亮度但不能解释全部误差。两边无贴图几何法线中位差 **0.00191°**。MIP 与像素过滤也改变高光，但只缩窄 Cycles 像素过滤反而增大局部 L1，不能把禁用过滤作为修复。
+
+共享输入的纯金属对照中，工程公式与 Cycles 的 L1 约 **0.381%**，支持当前 Smith-GGX 核心一致；纯非金属用 Schlick Fresnel 时约 **12.53%**，替换精确介电 Fresnel 后降至 **2.98%**，剩余还涉及 Principled 的漫反射分层权重。这些为离线公式/诊断材质对照，不是新的运行时修改。
+
+本轮修复了诊断工具克隆不可读纹理的错误：改用同格式 GPU 拷贝，未开启 Read/Write。临时法线精度与贴图变体仅作用于预览场景，结束后恢复材质/资源；实际 Unity 导出与 Cycles 测试均完成。生产 BRDF、贴图导入设置、光强/曝光及 GI 均未在本轮改动。下一步优先评估法线压缩和粗糙度采样策略；材质模型剩余差异保留，朝下环境漏光也仍独立待修。
+
+[高光与放大区域对照图](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/HighlightDiagnosis/highlight_comparison.png)、[完整调查报告](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/HighlightDiagnosis/highlight_report.json)、[复现说明](D:/UnityProject/MaxSRP/Tools/BlenderBaseline/README.md)。
+
+### 后续已应用：BC5 法线 / BC7 粗糙度；完整 baseline 仍未闭环
+
+本节为当前状态，上述 Smith 阶段均值“通过”是纹理调整前的结果。已对头盔法线 `04#GLB.jpg` 与共享的 `Cerberus_R.tga` 粗糙度设置 Standalone BC5/BC7、质量 100，保留 2048²、MIP、色彩空间、Read/Write=false 和材质绑定。法线压缩数据量不变；粗糙度含 MIP 约从 2.67 增至 5.33 MiB。源粗糙度仍为 sRGB、头盔仍引用枪械 M/R，作为已有材质问题另行处理；未在本次混改。
+
+同源同分辨率 GPU 对照中，2048² 法线 MIP0 的局部亮度 L1 从 DXT5 的 **47.49%** 降到 BC5 的 **6.84%**；2048² 粗糙度正常 MIP 从 DXT1 的 **6.20%** 降到 BC7 的 **0.81%**。没有关闭 MIP，也没有把实验的全浮点 normal GBuffer 应用到生产。
+
+调查还确认：R/M 源图是 **4096²**，Unity 实际导入 **2048²**，而原生 Blender baseline 使用 **4096²**。因此源采样差异还包含导入缩放和像素足迹，不可全写成压缩误差。矩阵已补同为 2048² 的 codec 对照；4096² BC7 候选未落到正式设置。
+
+正式重新导入后取得实际 GPU 数据：无阴影直射相对原生 Cycles 的局部 L1 从 **0.82943 → 0.56201**，合成 **0.78568 → 0.53306**，但直射平均亮度比 **0.93438 → 0.83204**，合成 **0.94445 → 0.84815**，当前 ±10% 均值门槛不通过。IBL 均值比约 **1.00211**。这是“压缩精度改善、局部分布改善，但整体均值未对齐”，不能宣布 baseline 已通过或通过提高光强补偿。
+
+剩余工作优先统一离线纹理尺寸与像素足迹，检查采样收敛，再单独处理介电 Fresnel/分层模型差异。GI、曝光、光强及运行时 BRDF 均未在本轮修改，朝下环境漏光仍独立待修。旧正式捕获保存在 `BeforeSamplingQuality/`，旧共享输入实验另冻结到 `HighlightDiagnosis/SourceUnityInputs/`。
+
+[正式纹理质量调整前后对照](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/sampling_quality_before_after.png)、[当前 baseline 数值](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/comparison.json)、[同分辨率压缩报告](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/HighlightDiagnosis/sampling_report.json)。
+
+### 直接公式对照：排除模型自身反射（2026-10-19）
+
+改为对照本机 Blender 5.2.2 LTS 构建 `d13f752e3b9c` 的 Cycles 源码与相同输入的无贴图平面。生产 HLSL 抽取为单精度计算，10000 组参数对独立双精度 GGX 方程，D/合并 Smith 可见性最大相对误差约 **2.03e-5 / 1.96e-7**。42 组平面各渲染 GGX/MULTI_GGX，黑 World、单位 delta Sun、无阴影、无二次射线可见性；纯金属单次 GGX 响应最大相对误差 **6.39e-7**。统一 Cycles eval 内含余弦与工程外乘 NdotL 的约定后，没有遗漏余弦或 pi 因子。
+
+仍确认三类材质差异：工程非金属 Schlick 在 60° 的反射率 **0.07**，Cycles 精确介电 Fresnel **0.089187**；工程先混合 F0 再衰减 diffuse，而 Cycles 分配金属/介电 closure 后做下层分层，正面、baseColor=0.8、roughness=0.7、metallic=0.5 时工程响应比 Cycles 单次 GGX 低 **18.46%**；Cycles MULTI_GGX 另有微表面多重散射补偿，同样粗糙度的正面纯金属响应比其单次 GGX 高 **32.53%**。这些均为特定方向的受控案例，不是头盔整图或全半球能量差。
+
+完整光追渲染可能包含模型自身的间接反射，但之前头盔 delta 直射与共享输入诊断已关闭 secondary diffuse/glossy 可见性，本轮单平面也没有其他几何，因此上述公式差异与场景 GI 无关。微表面内部多重散射也需与模型部位之间的反射区分。当前证据不能把平面百分比直接套用为完整头盔约 16.8% 均值差的解释。
+
+本轮只新增对照工具、结果和文档；运行时 BRDF、IBL、光强、曝光和 GI 未修改。公式、复测命令与精确版本源码链接见 [直接公式对照报告](D:/UnityProject/MaxSRP/Tools/BlenderBaseline/FORMULA_COMPARISON.md)，完整数值见 [formula_comparison.json](D:/UnityProject/MaxSRP/OfflineBaseline/FormulaComparison/formula_comparison.json)。现有物理光照回归与新增 D/G、纯金属、Cycles 端点混合断言均通过。
+
+### 当前 16.8% 直射差异的受控闭合：主要来自输入与采样
+
+使用当前 BC5/BC7 的真实 GPU 捕获，独立冻结到 `MatchedInputsBC5BC7/SourceUnityInputs/`；没有混用旧 DXT 共享输入。相同相机/太阳、无 GI/阴影/雾，在原 baseline 相同的 137913 个内部像素统计。新渲染原生 Cycles 的均值与原参考比约 **1.000000011**，复现原 **Unity/Cycles=0.832042**。
+
+把实际 GBuffer 的世界法线、有效粗糙度、金属度与线性颜色通过逐像素 Closest 投射给 Cycles，验证投射误差在约 1e-6 量级，并用窄过滤匹配 Unity 的单次像素采样。统一 N/R 后，Unity/Cycles 从 **0.832042 → 0.983579**；全部输入共享、保留 Cycles 默认 MULTI_GGX 时为 **0.975094**（仍低约 2.49%）；全部输入与 BRDF 一致、2048 samples 时为 **0.998897**（低约 0.11%）。局部 L1 以 Unity 为分母，从原生 **67.55% → 0.283%**；旧 56.20% 使用 Cycles 分母，不能直接与此数值相减。
+
+N/R 完整 2×2 对照、对两种替换顺序取平均：法线输入影响相当于原 Cycles 均值的 **7.149 个百分点**，粗糙度 **10.110 个百分点**，其他项有正负抵消。这是本捕获的输入效应，不是普遍能量损失占比。已知路径仍包含 R/M 原图 4096² 对 Unity 导入 2048²、压缩与两引擎 MIP/过滤差异；本次不能把全部输入效应归给某一个 codec 或缩放步骤。只缩窄原生 Cycles 过滤会把差距扩大到约 18.39%，所以没有将禁用抗锯齿作为生产修复。
+
+共享输入后 MULTI_GGX 相对单次 GGX 仅高 **0.0847%**。同款诊断 BRDF 只换精确介电镜面 Fresnel，均值增加约 **0.783%**；剩余还涉及下层 diffuse 的金属混合与 Principled 分层。512 → 2048 samples，共享输入均值变化约 **0.0084%**，说明上述收敛结果不是约 16.8% 的采样噪声。NumPy 独立像素中心 BRDF 副本对 GPU 均值差约 **0.115%**；最终约 0.11% 残差与个别极窄高光尚未逐像素穷尽，不宣称完全数学等价。
+
+**当前结论：原始 16.8% 大头来自法线/粗糙度输入与采样不一致；没有发现实际 Lighting Pass 另有固定 16.8% 的直射缩放。** 这是诊断闭合，不是原生图像已经自动修复。本轮未修改运行时、导入器、原场景、光强、曝光或 GI。新增分析器验证捕获哈希、投射精度、原参考复现、贡献加和与采样收敛，均通过。
+
+[详细拆解与复测](D:/UnityProject/MaxSRP/Tools/BlenderBaseline/MATCHED_INPUTS.md)、[当前捕获的四列对照图](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/MatchedInputsBC5BC7/matched_inputs_comparison.png)、[完整数值](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/MatchedInputsBC5BC7/matched_inputs_report.json)。旧报告中的“完整 baseline 未闭环”仍描述原生输入对比，本节补齐了相同输入下的受控验证。
+
+### 原生 UV baseline 已补实际导入数据与共同采样约定
+
+已从 Unity GPU 导出 Albedo DXT1、Normal BC5、Roughness BC7、Metallic DXT1 的实际解码数据，均为 2048²、12 级 MIP，共 48 个线性 RGBA EXR，包含当前 sRGB 解码结果。未开启资源 Read/Write，未重建或修改 importer。单独保存新 Blender 场景 `ImportedTextures/HelmetOnly_ImportedTextures_Cycles.blend`，使用原生 UV/切线法线计算，采样 XY 后重建法线 Z，并模拟 GBuffer 量化；没有 Window 投射输入，纹理全部打包。
+
+共同约定为 **MIP0、双线性、aniso=0**。Unity 只在临时预览材质上应用，生产自动 MIP 保持；导出全部 MIP 不代表已在 Cycles 复制 Unity 的隐式 LOD。原场景、灯光、曝光、运行时 BRDF、IBL 与 GI 均未修改。
+
+在相同 137913 个内部像素上，Unity MIP0 直射均值 **0.047084733**。Cycles 原生 UV、默认 Principled 的中心子像素检查均值 **0.048578664**，Cycles/Unity **1.031729**；同款 GGX/Schlick/Lambert **0.047568610**，比值 **1.010277**，局部 L1（Unity 分母）约 **1.792%**。没有将该原生路径残差混作此前共享 GBuffer 的 0.11%。原生输入的有效 R/M MAE 约 **0.000109 / 0.000165**，法线夹角中位数 **0.000723°**。768² 窄过滤的默认 Principled 比值为 **1.035155**；中心子像素检查用于减少采样足迹，不是生产抗锯齿修改。
+
+生产自动 MIP 直射均值仍约 **0.038951826**，比临时 MIP0 对照低 **17.273%**，进一步确认采样路径会显著改变本模型窄高光的均值。此项不构成禁用生产 MIP 的建议，也未将原生 4K 混比的旧 16.8% 报告改名为通过。
+
+新 `.blend` 已重新从磁盘打开验证：四个材质纹理节点均为打包的 2048² 图，原生 UV、Linear 插值、默认 Principled MULTI_GGX，无二次模型可见性/场景 GI；F12 曝光/ACES 最大误差 **1.79e-7**，实际 768² F12 渲染完成。新 Editor compute 独立编译、Editor/Player C# API 绑定及实际 GPU 导出均通过。后续生产采样策略应另行研究法线/粗糙度预过滤和高光稳定性，不用调高光强补偿。
+
+[新 Blender 场景](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/ImportedTextures/HelmetOnly_ImportedTextures_Cycles.blend)、[原生 UV 三列对照](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/ImportedTextures/native_imported_comparison.png)、[完整范围与复现](D:/UnityProject/MaxSRP/Tools/BlenderBaseline/IMPORTED_TEXTURE_BASELINE.md)。

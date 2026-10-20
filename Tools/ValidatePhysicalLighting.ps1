@@ -8,7 +8,7 @@ function Block($source,$signature){
 }
 $taskLighting=ReadSource 'ShaderLibrary/Realtime/Lighting.hlsl';$taskBRDF=ReadSource 'ShaderLibrary/Realtime/BRDF.hlsl'
 $taskFunctions=@()
-foreach($name in @('float DistributionGGX(','float GeometrySchlickGGX(','float GeometrySmith(','float3 fresnelSchlick(','float3 CookTorranceBRDF(')){$taskFunctions+=Block $taskBRDF $name}
+foreach($name in @('float DistributionGGX(','float VisibilitySmithGGXCorrelated(','float3 fresnelSchlick(','float3 CookTorranceBRDF(')){$taskFunctions+=Block $taskBRDF $name}
 $taskFunctions+=Block (ReadSource 'ShaderLibrary/Realtime/LightInput.hlsl') 'float DistanceAtten('
 foreach($name in @('float3 PBR_DirectLitDirectionalLight(','float3 PBR_DirectLitPointLight(')){$taskFunctions+=Block $taskLighting $name}
 $taskFunctions+=Block (ReadSource 'ShaderLibrary/Realtime/IBLValidation.hlsl') 'float3 FiniteIBLColor('
@@ -58,6 +58,7 @@ namespace PhysicalShaderMath {
   static float saturate(float a)=>Math.Clamp(a,0,1);
   static float rcp(float a)=>1/a;
   static float rsqrt(float a)=>1/(float)Math.Sqrt(a);
+  static float sqrt(float a)=>(float)Math.Sqrt(a);
   static Vector3 SurfaceSunTransmittance(Vector3 p,Vector3 l)=>Vector3.One;
   __FUNCTIONS__
   public static void Run(){
@@ -77,18 +78,39 @@ namespace PhysicalShaderMath {
    }
    float peak=DistributionGGX(s.N,s.N,.05f);
    Require(Math.Abs(peak-1/(Math.PI*Math.Pow(.05,4)))/peak<2e-6,"GGX minimum material roughness changed");
+   // Independent double-precision lambda definition, not the shader's combined expression.
+   foreach(float r in new[]{.05f,.1f,.3f,.6f,1f})
+    foreach(float nv in new[]{.0001f,.01f,.3f,.5f,.8f,1f})
+     foreach(float nl in new[]{.0001f,.01f,.3f,.5f,.8f,1f}){
+      double a2=Math.Pow(r,4);
+      double lv=(Math.Sqrt(1+a2*(1/(nv*(double)nv)-1))-1)/2;
+      double ll=(Math.Sqrt(1+a2*(1/(nl*(double)nl)-1))-1)/2;
+      double expected=1/(4*nv*(double)nl*(1+lv+ll));
+      float actual=VisibilitySmithGGXCorrelated(nv,nl,r);
+      Require(float.IsFinite(actual)&&Math.Abs(actual/expected-1)<2e-6,"Correlated Smith-GGX visibility differs from lambda reference");
+      Require(actual==VisibilitySmithGGXCorrelated(nl,nv,r),"Smith-GGX light/view reciprocity");
+     }
+   foreach(float c in new[]{-1f,0f})
+    Require(VisibilitySmithGGXCorrelated(c,.5f,.3f)==0&&VisibilitySmithGGXCorrelated(.5f,c,.3f)==0,"Back-facing specular must remain zero");
+   // Measured independent Cycles white-metal card, N.L=N.V=.5 and roughness=.3.
+   var card=new Surface{N=Vector3.UnitY,L=Vector3.Normalize(new Vector3(-.8660254038f,.5f,0)),
+    V=Vector3.Normalize(new Vector3(.8660254038f,.5f,0)),roughness=.3f,metalness=1,F0=Vector3.One,albedo=Vector3.One};
+   float cardValue=CookTorranceBRDF(card).X*.5f;
+   Require(Math.Abs(cardValue/19.41429138-1)<2e-5,"Direct GGX differs from independent Cycles single-scatter card");
    var opposite=s;opposite.L=-opposite.V;
    Require(CookTorranceBRDF(opposite)==Vector3.Zero,"Opposite light/view normalizes a zero half vector");
    // A normal-map lobe can turn away from V while the visible geometric plane faces V.
    // Crossing N.V=0 must not discard all of the directly lit diffuse term.
    var tilted=s;tilted.V=Vector3.Normalize(new Vector3(0,.3f,1));
-   float previous=0;
+   var horizonHalf=Vector3.Normalize(tilted.V+Vector3.UnitY);
+   var horizonDiffuse=(Vector3.One-fresnelSchlick(Vector3.Dot(horizonHalf,tilted.V),tilted.F0))*tilted.albedo/(float)Math.PI;
    for(int i=0;i<=400;i++){
     tilted.N=Vector3.Normalize(new Vector3(0,1,-.35f+i*.00025f));
     var lit=PBR_DirectLitDirectionalLight(tilted);
     Require(float.IsFinite(lit.X)&&lit.X>0,"Normal-map N.V horizon discards directly lit diffuse");
-    if(i>0)Require(Math.Abs(lit.X-previous)<previous*.05f,"Normal-map horizon creates a discontinuous black cutout");
-    previous=lit.X;
+    // Exact Smith visibility has a nonzero grazing limit on the front side.
+    // The regression concerns losing diffuse, not continuity of total specular at N.V=0.
+    Require(lit.X>=horizonDiffuse.X*.01f*tilted.N.Y*.9999f,"Normal-map horizon discards the Lambert diffuse floor");
    }
    tilted.N=Vector3.Normalize(new Vector3(0,1,-.35f));
    var tiltedHalf=Vector3.Normalize(tilted.V+Vector3.UnitY);
@@ -174,10 +196,14 @@ Add-Type -TypeDefinition ("#pragma warning disable CS0649`n"+$taskHost+"`n"+($ta
 $taskOutput=ReadSource 'Runtime/Passes/MaxColorOutputPass.cs'
 if(-not $taskOutput.Contains('settings.GetExposureMultiplier()')){throw 'Final output bypasses physical exposure'}
 $taskScene=[IO.File]::ReadAllText((Join-Path $taskRoot 'Assets/Scenes/SkyboxScene.unity'))
-$taskExpected=@{'2138677392'=120000;'44756188'=7500;'922907208'=15000;'2144985078'=1500}
+$taskExpected=@{'2138677392'=$null;'44756188'=7500;'922907208'=15000;'2144985078'=1500}
 foreach($id in $taskExpected.Keys){
  $block=[regex]::Match($taskScene,"(?ms)--- !u!108 &$id\r?\nLight:.*?(?=^---|\z)").Value
- if(-not $block.Contains('  m_Intensity: '+$taskExpected[$id])){throw "Scene intensity $id"}
+ if($null -eq $taskExpected[$id]){
+  # The user can adjust solar illuminance without invalidating unit migration.
+  $value=[double]::Parse([regex]::Match($block,'(?m)^  m_Intensity: ([^\r\n]+)').Groups[1].Value,[Globalization.CultureInfo]::InvariantCulture)
+  if(-not [double]::IsFinite($value) -or $value -le 0){throw "Invalid scene solar lux $value"}
+ } elseif(-not $block.Contains('  m_Intensity: '+$taskExpected[$id])){throw "Scene intensity $id"}
 }
 if(([regex]::Matches($taskScene,'guid: 62f4526ec59b428eae6bff439f557bf3')).Count -ne 4){throw 'Missing explicit scene light units'}
 $taskIds=[regex]::Matches($taskScene,'(?m)^--- !u!\d+ &(\d+)') | ForEach-Object {$_.Groups[1].Value}

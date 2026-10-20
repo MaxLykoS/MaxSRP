@@ -1,0 +1,89 @@
+#pragma kernel SkyHaloComparison
+
+// Reuse the production disk, 32-step transport, tone mapping and dithering.
+#include "../Shaders/Realtime/ColorOutputPass.hlsl"
+// Color output uses UnityCG's built-in camera declarations; do not redeclare
+// the same variables through the SRP's alternative CommonInput header.
+#define COMMON_INPUT_INCLUDE
+float4x4 unity_MatrixInvVP;
+#include "../Shaders/Realtime/AtmosphereScattering/SkyboxProceduralPass.hlsl"
+
+RWTexture2D<float4> _HaloRaw;
+RWTexture2D<float4> _HaloMapped;
+RWTexture2D<float4> _HaloDisplay;
+float3 _HaloForward, _HaloRight, _HaloUp;
+float _HaloCameraY, _HaloTanHalfFov;
+uint _HaloSize, _HaloRow, _HaloMode;
+
+// Diagnostic-only counterpart of GetAtmosphereSegment: the same medium,
+// source terms and constant-cell analytic integral, changing only the cells.
+float3 HaloIntegrate128(AtmosphereParameter param, float3 eye, float3 view, float3 sun, bool quadratic)
+{
+    float entry, exit;
+    if (!AtmosphereRayInterval(param.PlanetRadius + param.AtmosphereHeight, eye, view, entry, exit)) return 0.0;
+    float ground = RayIntersectGroundSphere(param.PlanetRadius, eye, view);
+    if (ground >= 0.0) exit = min(exit, ground);
+    float distance = exit - entry;
+    if (distance <= 0.0) return 0.0;
+    float ds = distance / 128.0;
+    float3 pos = eye + view * (entry + ds * 0.5);
+    float3 opticalDepth = 0.0, color = 0.0;
+    [loop] for (uint i = 0; i < 128; ++i)
+    {
+        if (quadratic)
+        {
+            float a = float(i) / 128.0, b = float(i + 1) / 128.0;
+            float start = entry + distance * a * a;
+            float end = entry + distance * b * b;
+            ds = end - start;
+            pos = eye + view * (0.5 * (start + end));
+        }
+        float h = max(0.0, length(pos) - param.PlanetRadius);
+        float3 extinction = RayleighCoefficient(param, h) + MieCoefficient(param, h)
+            + OzoneAbsorption(param, h) + MieAbsorption(param, h);
+        float3 weight = exp(-opticalDepth) * AtmosphereStepIntegral(extinction, ds);
+        color += TransmittanceToSun(param, pos, sun) * Scattering(param, pos, sun, view) * weight * param.SolarIrradiance;
+        color += GetMultiScattering(param, pos, sun) * weight * param.SolarIrradiance;
+        opticalDepth += extinction * ds;
+        if (!quadratic) pos += view * ds;
+    }
+    return color;
+}
+
+float3 HaloEncodeSRGB(float3 c)
+{
+    return float3(
+        c.r <= 0.0031308 ? 12.92 * c.r : 1.055 * pow(c.r, 1.0 / 2.4) - 0.055,
+        c.g <= 0.0031308 ? 12.92 * c.g : 1.055 * pow(c.g, 1.0 / 2.4) - 0.055,
+        c.b <= 0.0031308 ? 12.92 * c.b : 1.055 * pow(c.b, 1.0 / 2.4) - 0.055);
+}
+
+[numthreads(8, 8, 1)]
+void SkyHaloComparison(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel = uint2(id.x, id.y + _HaloRow);
+    if (any(pixel >= _HaloSize)) return;
+    float2 ndc = ((float2(pixel) + 0.5) / float(_HaloSize)) * 2.0 - 1.0;
+    float3 view = normalize(_HaloForward + _HaloTanHalfFov * (ndc.x * _HaloRight + ndc.y * _HaloUp));
+    AtmosphereParameter param = GetAtmosphereParameter();
+    float3 eye = AtmosphereCameraPosition(_HaloCameraY, param.SeaLevel, param.PlanetRadius);
+    float3 sun = normalize(_AtmosphereSunDirection);
+    float3 sky;
+    if (_HaloMode == 0)
+        sky = UNITY_SAMPLE_TEX2D_LOD(_SkyviewLUT, ViewDirToUV(view), 0.0).rgb;
+    else if (_HaloMode == 1)
+        sky = GetSkyView(param, eye, view, sun, -1.0);
+    else
+        sky = HaloIntegrate128(param, eye, view, sun, _HaloMode == 3);
+    _HaloRaw[pixel] = float4(sky, 1.0); // Sky only, no disk or quantization.
+
+    // Match the production FP16 scene buffer before exposure/tone mapping.
+    float3 scene = f16tof32(f32tof16(sky + GetSunDisk(param, eye, view, sun)));
+    float3 color = max(scene, 0.0) * _ColorOutputParameters.x;
+    if (_ColorOutputParameters.y > 0.5) color = ToneMapACES(color);
+    _HaloMapped[pixel] = float4(HaloEncodeSRGB(saturate(color)), 1.0);
+    // UAV writes do not apply sRGB encoding; encode explicitly for the UNorm target.
+    // Flip only noise Y so PNG's top-left rows use raster-screen pixel coordinates.
+    color = DitherColorOutput(color, float2(pixel.x + 0.5, _HaloSize - pixel.y - 0.5));
+    _HaloDisplay[pixel] = float4(HaloEncodeSRGB(saturate(color)), 1.0);
+}

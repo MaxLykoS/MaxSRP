@@ -18,24 +18,16 @@ float DistributionGGX(float3 N, float3 H, float roughness)
     return nom / max(denom, 1e-10);
 }
 
-float GeometrySchlickGGX(float NdotV, float roughness)
+// Height-correlated Smith-GGX visibility: G2 / (4 * NdotV * NdotL).
+// Evaluate the combined expression to avoid dividing by grazing cosines twice.
+float VisibilitySmithGGXCorrelated(float NdotV, float NdotL, float roughness)
 {
-    float r = (roughness + 1.0); 
-    float k = (r * r) / 8.0;
-
-    float nom   = NdotV;
-    float denom = NdotV * (1.0 - k) + k;
-
-    return nom / max(denom, 1e-10);
-}
-float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
-{
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    float ggx2  = GeometrySchlickGGX(NdotV, roughness);
-    float ggx1  = GeometrySchlickGGX(NdotL, roughness);
-
-    return ggx1 * ggx2;
+    if (NdotV <= 0.0 || NdotL <= 0.0) return 0.0;
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float lambdaV = NdotL * sqrt(a2 + (1.0 - a2) * NdotV * NdotV);
+    float lambdaL = NdotV * sqrt(a2 + (1.0 - a2) * NdotL * NdotL);
+    return 0.5 / max(lambdaV + lambdaL, 1e-10);
 }
 float3 fresnelSchlick(float cosTheta, float3 F0)
 {
@@ -67,15 +59,13 @@ float3 CookTorranceBRDF(Surface surface)
 
     // cook-torrance brdf
     float NDF = DistributionGGX(surface.N, H, surface.roughness);        
-    float G   = GeometrySmith(surface.N, surface.V, surface.L, surface.roughness);      
+    float visibility = VisibilitySmithGGXCorrelated(saturate(dot(surface.N, surface.V)), NdotL, surface.roughness);
     float3 F    = fresnelSchlick(max(dot(H, surface.V), 0.0), surface.F0);       
 
     float3 kS = F;
     float3 kD = (float3(1.0, 1.0, 1.0) - kS) * (1.0 - surface.metalness);   
 
-    float3 nominator    = NDF * G * F;
-    float denominator = 4.0 * max(dot(surface.N, surface.V), 0.0) * max(dot(surface.N, surface.L), 0.0) + 0.001; 
-    float3 specular     = nominator / denominator;
+    float3 specular = NDF * visibility * F;
     return kD * surface.albedo / PI + specular;
 }
 #endif
