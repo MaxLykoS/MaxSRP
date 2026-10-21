@@ -107,7 +107,7 @@ namespace MaxSRP
         private static RenderTexture CreateLut(int width, int height, string name)
         {
             var target = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear)
-            { name = name, wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            { name = name, hideFlags = HideFlags.HideAndDontSave, wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
             if (!target.Create())
             {
                 MaxRenderResources.Destroy(ref target);
@@ -116,17 +116,32 @@ namespace MaxSRP
             return target;
         }
 
+        private static bool EnsureLut(ref RenderTexture target, int width, int height, string name)
+        {
+            // Unity's destroyed native object compares equal to null even while its
+            // managed wrapper remains. Never call IsCreated/Create on that wrapper.
+            if (target == null)
+            {
+                MaxRenderResources.Destroy(ref target);
+                target = CreateLut(width, height, name);
+                return true;
+            }
+            if (target.IsCreated()) return false;
+            if (!target.Create()) throw new InvalidOperationException("Cannot recreate " + name);
+            return true;
+        }
+
         public MaxProceduralSkyboxPass(AtmosphereSettings setting)
         {
             m_setting = setting;
             try
             {
-                m_skyboxMat = new Material(setting.ProceduralSkyboxShader);
-                m_transmittanceMat = new Material(setting.TransmittanceShader);
-                m_multiscatteringMat = new Material(setting.MultiscatteringShader);
-                m_skyviewMat = new Material(setting.SkyviewShader);
-                m_environmentSkyviewMat = new Material(setting.SkyviewShader);
-                m_aerialPerspectiveLUTMat = new Material(setting.AerialPerspectiveLUTShader);
+                m_skyboxMat = new Material(setting.ProceduralSkyboxShader) { hideFlags = HideFlags.HideAndDontSave };
+                m_transmittanceMat = new Material(setting.TransmittanceShader) { hideFlags = HideFlags.HideAndDontSave };
+                m_multiscatteringMat = new Material(setting.MultiscatteringShader) { hideFlags = HideFlags.HideAndDontSave };
+                m_skyviewMat = new Material(setting.SkyviewShader) { hideFlags = HideFlags.HideAndDontSave };
+                m_environmentSkyviewMat = new Material(setting.SkyviewShader) { hideFlags = HideFlags.HideAndDontSave };
+                m_aerialPerspectiveLUTMat = new Material(setting.AerialPerspectiveLUTShader) { hideFlags = HideFlags.HideAndDontSave };
                 m_transmittanceLUT = CreateLut(256, 64, "TransmittanceLUT");
                 m_multiscatteringLUT = CreateLut(32, 32, "MultiscatteringLUT");
 #if UNITY_EDITOR
@@ -169,20 +184,18 @@ namespace MaxSRP
         private void Update(CommandBuffer cmd, Camera camera, Vector4 lightDirection, bool skyEnabled, bool fogEnabled, float environmentHeight)
         {
             var medium = new MediumKey(m_setting);
-            bool transmittanceDirty = !m_transmittanceValid || !medium.Equals(m_mediumKey) || !m_transmittanceLUT.IsCreated();
+            bool transmittanceRestored = EnsureLut(ref m_transmittanceLUT, 256, 64, "TransmittanceLUT");
+            bool multiscatteringRestored = EnsureLut(ref m_multiscatteringLUT, 32, 32, "MultiscatteringLUT");
+            bool transmittanceDirty = transmittanceRestored || !m_transmittanceValid || !medium.Equals(m_mediumKey);
             if (transmittanceDirty)
             {
-                if (!m_transmittanceLUT.IsCreated() && !m_transmittanceLUT.Create())
-                    throw new InvalidOperationException("Cannot recreate TransmittanceLUT");
                 BakeTransmittanceLUT(cmd);
                 m_mediumKey = medium;
                 m_transmittanceValid = true;
             }
-            if (transmittanceDirty || !m_multiscatteringValid ||
-                !m_mieAnisotropy.Equals(m_setting._MieAnisotropy) || !m_multiscatteringLUT.IsCreated())
+            if (transmittanceDirty || multiscatteringRestored || !m_multiscatteringValid ||
+                !m_mieAnisotropy.Equals(m_setting._MieAnisotropy))
             {
-                if (!m_multiscatteringLUT.IsCreated() && !m_multiscatteringLUT.Create())
-                    throw new InvalidOperationException("Cannot recreate MultiscatteringLUT");
                 BakeMultiscatteringLUT(cmd);
                 m_mieAnisotropy = m_setting._MieAnisotropy;
                 m_multiscatteringValid = true;

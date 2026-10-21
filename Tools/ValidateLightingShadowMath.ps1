@@ -43,6 +43,8 @@ $taskFunctions=@(
     (Get-TaskFunction $taskShadow 'float ShadowDistanceFromNear('),
     (Get-TaskFunction $taskShadow 'float BiasedShadowDepth('),
     (Get-TaskFunction $taskShadow 'float PCSSFilterRadius('),
+    (Get-TaskFunction $taskShadow 'float ShadowCascadeBlendWeight('),
+    (Get-TaskFunction $taskShadow 'float ShadowDistanceFadeWeight('),
     (Get-TaskFunction $taskPacking 'float3 DecodeNormalFromTexture('),
     (Get-TaskFunction $taskLighting 'float3 GetSurfaceViewDirection('),
     (Get-TaskFunction $taskScattering 'float3 MieCoefficient('),
@@ -92,13 +94,34 @@ $taskBody=@'
    float biased=BiasedShadowDepth(d,bias,range*.5f);
    Check(Math.Abs((ShadowDistanceFromNear(d,range)-ShadowDistanceFromNear(biased,range))-bias)<.002,"World-space bias varies with range/Z");
    float caster=(float)random.NextDouble();Check(IsShadowOccluded(d,caster)==(reverse?caster>d:caster<d),"Reversed/ordinary shadow sign");
-   float radius=PCSSFilterRadius((float)random.NextDouble()*range,i%3==0?0:(float)random.NextDouble()*range,range,10,100);
+   float angle=.017455065f,cap=.75f,width=100;
+   float receiverDistance=(float)random.NextDouble()*range;
+   float blockerDistance=i%3==0?0:(float)random.NextDouble()*range;
+   float radius=PCSSFilterRadius(receiverDistance,blockerDistance,angle,cap,width);
    Check(!float.IsNaN(radius)&&!float.IsInfinity(radius)&&radius>=0&&radius<=1,"PCSS radius is not finite/bounded");
+   Check(radius<=cap/width+1e-7,"PCSS exceeds world-space search cap");
+   Check(Math.Abs(radius-PCSSFilterRadius(receiverDistance+100,blockerDistance+100,angle,cap,width))<1e-6,"Shadow camera translation changes penumbra");
+   Check(Math.Abs(radius*width-PCSSFilterRadius(receiverDistance,blockerDistance,angle,cap,width*3)*width*3)<1e-6,"Cascade width changes world-space penumbra");
+   float searchRadius=PCSSFilterRadius(range,0,angle,cap,width);
+   Check(radius<=searchRadius+1e-7,"Blocker search cannot cover resulting penumbra");
   }
   Check(!IsShadowOccluded(.5f,.5f),"Equal depth self-shadows");
   float receiver=reverse?.8f:.2f,casterNear=reverse?1:0;
   Check(IsShadowOccluded(receiver,casterNear),"Near-plane blocker is ignored");
-  Check(PCSSFilterRadius(200,0,1000,10,100)==1,"Near-plane penumbra cap");
+  Check(Math.Abs(PCSSFilterRadius(20,10,.017455065f,.75f,100)-.0017455065f)<1e-8,"Directional angular radius formula");
+  Check(Math.Abs(PCSSFilterRadius(10,0,.017455065f,.75f,100)-.0017455065f)<1e-8,"Near-plane blocker changed penumbra");
+  Check(PCSSFilterRadius(1000,0,.017455065f,.75f,100)==.0075f,"World-space penumbra cap");
+  Check(PCSSFilterRadius(10,10,.017455065f,.75f,100)==0,"Contact shadow did not harden");
+  Check(PCSSFilterRadius(20,10,0,.75f,100)==0 && PCSSFilterRadius(20,10,.017455065f,0,100)==0,"Zero angle/cap did not select hard shadow");
+  foreach(float boundary in new float[]{.07f,.2f,.45f}) {
+   const float width=.007f;
+   Check(ShadowCascadeBlendWeight(boundary-width,boundary,width)<1e-6,"Cascade blend starts early");
+   Check(Math.Abs(ShadowCascadeBlendWeight(boundary-width*.5f,boundary,width)-.5f)<1e-5,"Cascade midpoint blend");
+   Check(Math.Abs(ShadowCascadeBlendWeight(boundary,boundary,width)-1)<1e-5,"Cascade boundary is discontinuous");
+   Check(ShadowCascadeBlendWeight(boundary,boundary,0)==0,"Zero-width blend is invalid");
+  }
+  Check(ShadowDistanceFadeWeight(400,470,500)==0 && ShadowDistanceFadeWeight(500,470,500)==1,"Distance fade endpoints");
+  Check(Math.Abs(ShadowDistanceFadeWeight(485,470,500)-.5f)<1e-6,"Distance fade midpoint");
   Check(IsShadowOccluded(reverse?.5f:.5f,reverse?.500001f:.499999f),"Zero bias should retain blocker");
   Check(!IsShadowOccluded(BiasedShadowDepth(.5f,.01f,500),reverse?.500001f:.499999f),"Configured bias has no effect");
   foreach(float scale in new float[]{0,1,2})foreach(float height in new float[]{0,1200,10000}){
@@ -142,7 +165,7 @@ foreach($taskVariant in @('ReversedAG','OrdinaryGLBC5','OrdinaryRGB','ReversedAS
 $taskPoint=Get-TaskFunction $taskLighting 'float3 PBR_DirectLitPointLight('
 if($taskPoint.Contains('surface.V =')){throw 'Point lights override the camera view direction'}
 Write-Output 'PASS: point lights retain the shared camera-dependent view direction.'
-$taskScreen=[IO.File]::ReadAllText((Join-Path (Split-Path -Parent $PSScriptRoot) 'Assets/MaxRendererPipeline/Shaders/Realtime/ScreenSpaceShadowMapPass.hlsl'))
+$taskScreen=$taskShadow
 foreach($taskCascade in 0..3){if(-not $taskScreen.Contains("_DepthNormalBias$taskCascade * biasScale")){throw "Cascade $taskCascade has no receiver bias"}}
 foreach($taskShader in @('PBRGBuffer','PBRLitPass')) {
     $taskPath=Join-Path (Split-Path -Parent $PSScriptRoot) "Assets/MaxRendererPipeline/Shaders/Realtime/$taskShader.shader"

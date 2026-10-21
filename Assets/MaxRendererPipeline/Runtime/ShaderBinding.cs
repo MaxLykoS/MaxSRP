@@ -74,14 +74,15 @@ namespace MaxSRP
             }
         }
 
-        public static void SetPerCameraShaderVariables(ScriptableRenderContext context, Camera camera, bool renderIntoTexture = true)
+        public static void SetPerCameraShaderVariables(ScriptableRenderContext context, Camera camera, bool renderIntoTexture = true,
+            Matrix4x4? gpuProjectionOverride = null)
         {
             Vector2Int renderSize = CameraViewport.GetRenderSize(camera);
             float cameraWidth = renderSize.x;
             float cameraHeight = renderSize.y;
 
             Matrix4x4 cameraProjection = CameraViewport.GetProjection(camera);
-            Matrix4x4 projMatrix = GL.GetGPUProjectionMatrix(cameraProjection, renderIntoTexture);
+            Matrix4x4 projMatrix = gpuProjectionOverride ?? GL.GetGPUProjectionMatrix(cameraProjection, renderIntoTexture);
             Matrix4x4 viewMatrix = camera.worldToCameraMatrix;
             Matrix4x4 viewProjMatrix = projMatrix * viewMatrix;
 

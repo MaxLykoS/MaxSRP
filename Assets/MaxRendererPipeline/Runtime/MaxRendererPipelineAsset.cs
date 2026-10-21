@@ -9,9 +9,18 @@ namespace MaxSRP
     [CreateAssetMenu(menuName = "MaxSRP/MaxRendererPipelineAsset")]
     public class MaxRendererPipelineAsset : RenderPipelineAsset
     {
+        [SerializeField, Tooltip("Required deferred lighting shader. The asset reference keeps it in Player builds.")]
+        private Shader m_lightingShader;
+        public Shader LightingShader => m_lightingShader;
+
         [SerializeField]
         private ColorOutputSettings m_colorOutputSettings = new ColorOutputSettings();
         public ColorOutputSettings ColorOutput => m_colorOutputSettings;
+
+        [SerializeField] private TemporalAASettings m_temporalAASettings = new TemporalAASettings();
+        public TemporalAASettings TemporalAA => m_temporalAASettings;
+        [SerializeField] private Shader m_temporalShader;
+        public Shader TemporalShader => m_temporalShader;
 
         [SerializeField]
         private CascadeSettings m_cascadeSettings = new CascadeSettings();
@@ -39,16 +48,6 @@ namespace MaxSRP
             get
             {
                 return m_iblCS;
-            }
-        }
-
-        [SerializeField]
-        private Shader m_ssShadowMapShader;
-        public Shader SSShadowMapShader
-        {
-            get
-            {
-                return m_ssShadowMapShader;
             }
         }
 

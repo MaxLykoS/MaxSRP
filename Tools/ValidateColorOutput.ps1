@@ -73,6 +73,7 @@ public static class ColorOutputChecks {
  class Host {
   private readonly Dictionary<long,OutputResources> m_outputResources=new Dictionary<long,OutputResources>();
   private readonly Dictionary<long,Vector2Int> m_outputSizes=new Dictionary<long,Vector2Int>();
+  private readonly Dictionary<long,int> m_outputCameraCounts=new Dictionary<long,int>();
   private readonly List<long> m_unusedOutputs=new List<long>();
 __METHODS__
   static void Check(bool ok,string name){if(!ok)throw new Exception(name);}
@@ -113,10 +114,12 @@ __METHODS__
    RenderTexture.failNextCreate=true;
    try {output.EnsureSize(a,257,129);throw new Exception("Creation failure not reported");}
    catch(InvalidOperationException){Check(output.Color==null&&output.Depth==null,"Failed allocation leaves no owned buffers");}
-   a.targetTexture=null;PrepareOutputSizes(new[]{a});m_outputResources[gameKey]=new OutputResources();
+   a.targetTexture=null;PrepareOutputSizes(new[]{a});m_outputResources[gameKey]=new OutputResources();m_outputResources[gameKey].EnsureSize(a,1920,1080);
    var unused=new OutputResources();unused.EnsureSize(scene,300,200);color=unused.Color;
    m_outputResources[GetOutputKey(scene)]=unused;PruneOutputResources(new[]{a});
-   Check(m_outputResources.Count==1&&color.destroyCount==1,"Inactive output resources are pruned");
+      Check(m_outputResources.Count==2&&color.destroyCount==0,"Live output survives another camera render invocation");
+   unused.LastCamera=null;PruneOutputResources(new[]{a});
+   Check(m_outputResources.Count==1&&color.destroyCount==1,"Destroyed output owner is pruned");
    Console.WriteLine("PASS: actual output grouping/layout/resource methods: stacking, separate views/displays, split/offset/fractional viewports, resize, MSAA/depth changes, allocation failure and disposal.");
   }
  }
@@ -155,7 +158,7 @@ $taskHost = $taskHost.Replace('__METHODS__', ($taskMethods -join "`n")).Replace(
 Add-Type -TypeDefinition $taskHost
 [ColorOutputChecks]::Run()
 
-if (-not $taskPipeline.Contains('m_LightPass.Execute(context, camera, output.Color, output.Depth, viewport, m_iblGIPass)') -or
+if (-not $taskPipeline.Contains('m_LightPass.Execute(context, camera, output.Color, output.Depth, viewport, m_iblGIPass, hasShadows)') -or
     -not $taskPipeline.Contains('DrawSkybox(context, camera, cmd, output.Color, output.Depth, viewport)')) {
     throw 'Lighting and sky must render into the shared HDR color/depth targets.'
 }

@@ -1,0 +1,40 @@
+// Actual GPU validation of the production quad filter, with analytic receiver fixtures.
+var shader=UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Shader>("Assets/MaxRendererPipeline/Editor/MaxPcssReuseFixture.shader");
+if(shader==null || !shader.isSupported) throw new System.InvalidOperationException("Reuse fixture unavailable.");
+var material=new UnityEngine.Material(shader){hideFlags=UnityEngine.HideFlags.HideAndDontSave};
+var rt=new UnityEngine.RenderTexture(16,16,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear){hideFlags=UnityEngine.HideFlags.HideAndDontSave};
+var pixels=new UnityEngine.Texture2D(16,16,UnityEngine.TextureFormat.RGBAFloat,false,true);
+var cmd=new UnityEngine.Rendering.CommandBuffer();
+var previous=UnityEngine.RenderTexture.active;
+var report=new System.Collections.Generic.List<object>();
+try{
+    if(!rt.Create())throw new System.InvalidOperationException("Fixture target allocation failed.");
+    for(int mode=0;mode<9;mode++){
+        cmd.Clear();cmd.SetRenderTarget(rt);cmd.SetViewport(new UnityEngine.Rect(0,0,16,16));
+        var properties=new UnityEngine.MaterialPropertyBlock();
+        properties.SetFloat("_PcssFixtureCase",mode);
+        properties.SetFloat("_ShadowTexelResolution",1024);
+        properties.SetMatrix("_ShadowNoiseWorldToLight",UnityEngine.Matrix4x4.identity);
+        UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);
+        cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,material,0,UnityEngine.MeshTopology.Triangles,3,1,properties);
+        UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);
+        UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
+        UnityEngine.RenderTexture.active=rt;pixels.ReadPixels(new UnityEngine.Rect(0,0,16,16),0,0,false);pixels.Apply(false,false);
+        var data=pixels.GetPixels();float left=0,right=0,maxError=0;
+        for(int y=0;y<16;y++)for(int x=0;x<16;x++){
+            var v=data[y*16+x];if(float.IsNaN(v.r))throw new System.Exception("Non-finite GPU quad result.");
+            if((x&1)==0)left+=v.r;else right+=v.r;
+            if(mode!=0)maxError=UnityEngine.Mathf.Max(maxError,UnityEngine.Mathf.Abs(v.r-v.g));
+        }
+        left/=128;right/=128;
+        if(mode==0 && !(left>.35 && left<.39 && right>.61 && right<.65))throw new System.Exception("Coplanar GPU reuse failed: "+left+", "+right);
+        if(mode!=0 && maxError>0.00001)throw new System.Exception("Cross-surface/cascade/footprint GPU leakage: mode="+mode+", error="+maxError);
+        report.Add(new {mode=mode,left=left,right=right,maxError=maxError});
+    }
+    System.IO.Directory.CreateDirectory("OfflineBaseline/ShadowSamplingReview");
+    System.IO.File.WriteAllText("OfflineBaseline/ShadowSamplingReview/gpu_reuse_fixtures.txt",UnityEngine.JsonUtility.ToJson(new UnityEngine.Vector4(9,16,16,0))+"\n"+string.Join("\n",report));
+    return report;
+}finally{
+    UnityEngine.RenderTexture.active=previous;cmd.Release();
+    UnityEngine.Object.DestroyImmediate(pixels);UnityEngine.Object.DestroyImmediate(rt);UnityEngine.Object.DestroyImmediate(material);
+}

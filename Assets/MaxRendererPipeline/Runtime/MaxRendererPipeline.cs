@@ -18,6 +18,8 @@ namespace MaxSRP
         private readonly Dictionary<long, OutputResources> m_outputResources = new Dictionary<long, OutputResources>();
         private readonly List<long> m_unusedOutputs = new List<long>();
         private readonly Dictionary<long, Vector2Int> m_outputSizes = new Dictionary<long, Vector2Int>();
+        private readonly Dictionary<long, int> m_outputCameraCounts = new Dictionary<long, int>();
+        private MaxTemporalAAPass m_temporalAA;
         private MaxLightPass m_LightPass;
         private MaxColorOutputPass m_colorOutputPass;
         private MaxIBLGIPass m_iblGIPass;
@@ -25,15 +27,19 @@ namespace MaxSRP
         private MaxProceduralSkyboxPass m_proceduralSkyboxPass;
         private readonly MaxRendererPipelineAsset m_setting;
 
+        // Call on explicit camera cuts/teleports or discontinuous scene changes.
+        public void ResetTemporalHistory(Camera camera) { m_temporalAA?.ResetHistory(camera); }
+
         public MaxRenderPipeline(MaxRendererPipelineAsset setting)
         {
             GraphicsSettings.useScriptableRenderPipelineBatching = true;
             m_setting = setting;
             try
             {
-                m_LightPass = new MaxLightPass();
+                m_LightPass = new MaxLightPass(setting.LightingShader);
                 m_colorOutputPass = new MaxColorOutputPass(setting.ColorOutput);
-                m_shadowCastPass = new MaxShadowCasterPass(setting.CascadeSetting);
+                m_temporalAA = new MaxTemporalAAPass(setting.TemporalShader);
+                m_shadowCastPass = new MaxShadowCasterPass(setting.CascadeSetting, setting.AtmosphereScatteringSetting);
                 m_proceduralSkyboxPass = new MaxProceduralSkyboxPass(setting.AtmosphereScatteringSetting);
                 m_iblGIPass = new MaxIBLGIPass(setting.IBLCS);
             }
@@ -47,6 +53,7 @@ namespace MaxSRP
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
         {
             m_proceduralSkyboxPass.PruneDestroyedCameras();
+            m_temporalAA.PruneDestroyedCameras();
             PruneCameraResources(cameras);
             PrepareOutputSizes(cameras);
             PruneOutputResources(cameras);
@@ -64,6 +71,11 @@ namespace MaxSRP
                 {
                     RenderCamera(context, camera, sun);
                 }
+                catch
+                {
+                    m_temporalAA.ResetHistory(camera);
+                    throw;
+                }
                 finally
                 {
                     // Finish this camera before another camera changes shared material/state.
@@ -74,13 +86,23 @@ namespace MaxSRP
 
         private void RenderCamera(ScriptableRenderContext context, Camera camera, SunLightData sun)
         {
+            MaxTemporalAAPass.CameraHistory temporal = m_temporalAA.Begin(camera, m_setting.TemporalAA,
+                m_outputCameraCounts[GetOutputKey(camera)] == 1, sun);
             context.SetupCameraProperties(camera);
             if (!camera.TryGetCullingParameters(out var cullingParams))
                 return;
-            // Culling must use the same viewport-dependent projection as rasterization.
-            if (camera.cameraType == CameraType.Game)
+            // Culling and CSM use the unjittered frustum. Expand raster culling by one
+            // pixel so temporal jitter cannot expose a culled silhouette at the border.
+            if (camera.cameraType == CameraType.Game || temporal != null)
             {
-                Matrix4x4 cullingMatrix = CameraViewport.GetProjection(camera) * camera.worldToCameraMatrix;
+                Matrix4x4 projection = CameraViewport.GetProjection(camera);
+                Vector2Int cullSize = CameraViewport.GetRenderSize(camera);
+                if (temporal != null)
+                {
+                    projection.SetRow(0, projection.GetRow(0) * (cullSize.x / (cullSize.x + 2f)));
+                    projection.SetRow(1, projection.GetRow(1) * (cullSize.y / (cullSize.y + 2f)));
+                }
+                Matrix4x4 cullingMatrix = projection * camera.worldToCameraMatrix;
                 cullingParams.cullingMatrix = cullingMatrix;
                 GeometryUtility.CalculateFrustumPlanes(cullingMatrix, m_cameraCullingPlanes);
                 cullingParams.cullingPlaneCount = m_cameraCullingPlanes.Length;
@@ -94,14 +116,14 @@ namespace MaxSRP
             bool hasShadows = m_shadowCastPass.Execute(context, camera, sun);
 
             context.SetupCameraProperties(camera);
-            ShaderBindings.SetPerCameraShaderVariables(context, camera, true);
+            MaxTemporalAAPass.Bind(context, camera, temporal);
             Rect viewport = CameraViewport.GetViewport(camera);
             Vector2Int renderSize = CameraViewport.GetRenderSize(camera);
             int width = renderSize.x, height = renderSize.y;
             int cameraId = camera.GetInstanceID();
             if (!m_cameraResources.TryGetValue(cameraId, out CameraResources resources))
             {
-                resources = new CameraResources(camera, m_setting.SSShadowMapShader);
+                resources = new CameraResources(camera);
                 m_cameraResources.Add(cameraId, resources);
             }
             resources.EnsureSize(width, height);
@@ -139,10 +161,10 @@ namespace MaxSRP
                 CommandBufferPool.Release(cmd);
             }
             m_opaquePass.Execute(context, camera, ref cullingResults);
-            resources.Shadows.Execute(context, camera, hasShadows);
-            // Utility Blits may alter built-in camera matrices. Restore the offscreen scene convention.
+            m_temporalAA.DrawMotion(context, camera, temporal, resources.Depth, ref cullingResults);
+            // Restore the offscreen scene convention before atmosphere and direct lighting.
             context.SetupCameraProperties(camera);
-            ShaderBindings.SetPerCameraShaderVariables(context, camera, true);
+            MaxTemporalAAPass.Bind(context, camera, temporal);
 
             RenderTargetIdentifier target = camera.targetTexture != null
                 ? new RenderTargetIdentifier(camera.targetTexture)
@@ -153,9 +175,12 @@ namespace MaxSRP
             // never read a previously tone-mapped image as their scene background.
             // Fog LUTs must be generated for this camera before Lighting consumes them.
             m_proceduralSkyboxPass.PrepareAtmosphere(context, camera, sun, m_setting.SkyIBL.ReferenceHeight);
+            // LUT generation intentionally uses an unjittered projection; restore the
+            // raster matrices before reconstructing depth and drawing the procedural sky.
+            MaxTemporalAAPass.Bind(context, camera, temporal);
             m_iblGIPass.Execute(context, m_proceduralSkyboxPass.EnvironmentSky,
                 m_proceduralSkyboxPass.EnvironmentRevision, m_setting.SkyIBL);
-            m_LightPass.Execute(context, camera, output.Color, output.Depth, viewport, m_iblGIPass);
+            m_LightPass.Execute(context, camera, output.Color, output.Depth, viewport, m_iblGIPass, hasShadows);
 
             if (camera.clearFlags == CameraClearFlags.Skybox)
             {
@@ -169,9 +194,20 @@ namespace MaxSRP
                     CommandBufferPool.Release(cmd);
                 }
             }
+            m_temporalAA.Resolve(context, camera, temporal, output.Color, resources.Depth, m_setting.TemporalAA);
 #if UNITY_EDITOR
             if (Handles.ShouldRenderGizmos())
             {
+                context.SetupCameraProperties(camera);
+                ShaderBindings.SetPerCameraShaderVariables(context, camera, true);
+                cmd = CommandBufferPool.Get("Gizmos After Temporal AA");
+                try
+                {
+                    cmd.SetRenderTarget(output.Color, output.Depth);
+                    cmd.SetViewport(viewport);
+                    context.ExecuteCommandBuffer(cmd);
+                }
+                finally { CommandBufferPool.Release(cmd); }
                 context.DrawGizmos(camera, GizmoSubset.PreImageEffects);
             }
 #endif
@@ -226,10 +262,13 @@ namespace MaxSRP
         private void PrepareOutputSizes(Camera[] cameras)
         {
             m_outputSizes.Clear();
+            m_outputCameraCounts.Clear();
             foreach (Camera camera in cameras)
             {
                 if (camera == null || camera.pixelWidth <= 0 || camera.pixelHeight <= 0) continue;
                 long key = GetOutputKey(camera);
+                m_outputCameraCounts.TryGetValue(key, out int count);
+                m_outputCameraCounts[key] = count + 1;
                 GetOutputSize(camera, out int width, out int height);
                 if (m_outputSizes.TryGetValue(key, out Vector2Int previous))
                 {
@@ -245,7 +284,8 @@ namespace MaxSRP
             m_unusedOutputs.Clear();
             foreach (var entry in m_outputResources)
             {
-                if (!m_outputSizes.ContainsKey(entry.Key)) m_unusedOutputs.Add(entry.Key);
+                if (!m_outputSizes.ContainsKey(entry.Key) && (entry.Value.LastCamera == null ||
+                    GetOutputKey(entry.Value.LastCamera) != entry.Key)) m_unusedOutputs.Add(entry.Key);
             }
             foreach (long key in m_unusedOutputs)
             {
@@ -259,10 +299,9 @@ namespace MaxSRP
             m_unusedCameras.Clear();
             foreach (var entry in m_cameraResources)
             {
-                bool active = false;
-                foreach (Camera camera in cameras)
-                    if (camera != null && camera == entry.Value.Camera) { active = true; break; }
-                if (!active)
+                // Render() can be called separately for Game, Scene and previews.
+                // Absence from this invocation does not mean a live camera is gone.
+                if (entry.Value.Camera == null)
                     m_unusedCameras.Add(entry.Key);
             }
             foreach (int id in m_unusedCameras)
@@ -282,6 +321,7 @@ namespace MaxSRP
             m_outputResources.Clear();
             m_outputSizes.Clear();
             m_colorOutputPass?.Dispose();
+            m_temporalAA?.Dispose();
             m_LightPass?.Dispose();
             m_iblGIPass?.Dispose();
             m_shadowCastPass?.Dispose();
@@ -295,12 +335,9 @@ namespace MaxSRP
             public RenderTexture Depth;
             public readonly RenderTexture[] Buffers = new RenderTexture[4];
             public readonly RenderTargetIdentifier[] BufferIDs = new RenderTargetIdentifier[4];
-            public readonly MaxScreenSpaceShadowMapPass Shadows;
-
-            public CameraResources(Camera camera, Shader shadowShader)
+            public CameraResources(Camera camera)
             {
                 Camera = camera;
-                Shadows = new MaxScreenSpaceShadowMapPass(shadowShader);
             }
 
             public void EnsureSize(int width, int height)
@@ -309,7 +346,6 @@ namespace MaxSRP
                 height = Mathf.Max(1, height);
                 if (Depth != null && Depth.width == width && Depth.height == height && Depth.IsCreated())
                 {
-                    Shadows.EnsureSize(width, height);
                     return;
                 }
                 ReleaseBuffers();
@@ -323,7 +359,6 @@ namespace MaxSRP
                         Buffers[i] = CreateTarget(width, height, 0, formats[i], "GBuffer" + i);
                         BufferIDs[i] = Buffers[i];
                     }
-                    Shadows.EnsureSize(width, height);
                 }
                 catch
                 {
@@ -347,7 +382,6 @@ namespace MaxSRP
             public void Dispose()
             {
                 ReleaseBuffers();
-                Shadows.Dispose();
             }
         }
 
@@ -366,6 +400,7 @@ namespace MaxSRP
 
         private sealed class OutputResources : IDisposable
         {
+            public Camera LastCamera;
             public RenderTexture Color;
             public RenderTexture Depth;
             public RenderTexture OutputDepth;
@@ -373,6 +408,7 @@ namespace MaxSRP
 
             public void EnsureSize(Camera camera, int width, int height)
             {
+                LastCamera = camera;
                 if (Color == null || Depth == null || !Color.IsCreated() || !Depth.IsCreated() ||
                     Color.width != width || Color.height != height)
                 {

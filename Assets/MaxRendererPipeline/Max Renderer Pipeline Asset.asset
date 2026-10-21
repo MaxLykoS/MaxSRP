@@ -12,6 +12,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9912806b99c4e854492bc7539254453e, type: 3}
   m_Name: Max Renderer Pipeline Asset
   m_EditorClassIdentifier: 
+  m_lightingShader: {fileID: 4800000, guid: b7b56707e539de6499dfad1cb0cf1464, type: 3}
+  m_temporalAASettings:
+    Enabled: 1
+    HistoryWeight: 0.94
+    VarianceGamma: 1.25
+  m_temporalShader: {fileID: 4800000, guid: 8b10c09f5fe848258543d41a9f0544e8, type: 3}
   m_colorOutputSettings:
     CameraEV100: 15
     ExposureEV: 0
@@ -19,26 +25,26 @@ MonoBehaviour:
     m_colorOutputShader: {fileID: 4800000, guid: 4db87be5f55045a09e9518602db95fe6, type: 3}
   m_cascadeSettings:
     ShadowDistance: 500
+    BlockerSamples: 16
+    FilterSamples: 32
+    CascadeBlendFraction: 0.1
+    DistanceFadeFraction: 0.1
     Cascade0:
       ShadingPointNormalBias: 0.1
       DepthNormalBias: 0.005
-      PcssSearchRadius: 0.75
-      PcssFilterRadius: 10
+      MaxPenumbraRadius: 0.75
     Cascade1:
       ShadingPointNormalBias: 0.1
       DepthNormalBias: 0.005
-      PcssSearchRadius: 0.75
-      PcssFilterRadius: 10
+      MaxPenumbraRadius: 0.75
     Cascade2:
       ShadingPointNormalBias: 0.1
       DepthNormalBias: 0.005
-      PcssSearchRadius: 0.75
-      PcssFilterRadius: 10
+      MaxPenumbraRadius: 0.75
     Cascade3:
       ShadingPointNormalBias: 0.1
       DepthNormalBias: 0.005
-      PcssSearchRadius: 1
-      PcssFilterRadius: 7
+      MaxPenumbraRadius: 1
     BlueNoiseTexture: {fileID: 2800000, guid: 7b6c5d0a0f3f87f46978fba30cbbb168, type: 3}
   m_skyIBLSettings:
     ReferenceHeight: 2
@@ -46,7 +52,6 @@ MonoBehaviour:
     DiffuseSamples: 128
     SpecularSamples: 128
   m_iblCS: {fileID: 7200000, guid: e2b8bb07b144234449da79ec0190d9c9, type: 3}
-  m_ssShadowMapShader: {fileID: 4800000, guid: 70af75b221c839346b8ee9ad94878350, type: 3}
   m_atmosphereScatteringSetting:
     _SeaLevel: 0
     _PlanetRadius: 6360000

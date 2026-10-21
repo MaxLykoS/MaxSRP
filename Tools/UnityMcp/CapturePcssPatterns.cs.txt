@@ -1,0 +1,77 @@
+// Execute via Unity MCP execute_code. Same-frame, Scene-camera shadow visibility only.
+// GPU probe reuses production PCSS and current maps; it does not alter source cameras/assets.
+var shader=UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Shader>("Assets/MaxRendererPipeline/Editor/MaxPcssPatternProbe.shader");
+if(shader==null || !shader.isSupported) throw new System.InvalidOperationException("Pattern probe shader unavailable.");
+var output=System.IO.Path.GetFullPath("OfflineBaseline/ShadowSamplingReview");
+System.IO.Directory.CreateDirectory(output);
+var labels=new[]{"legacy16","legacy32","sobol16raw","sobol32raw","sobol32quad","sobol32fineRaw","sobol32fineQuad","sobol64quad"};
+var noise=UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Texture2D>("Assets/MaxRendererPipeline/Res/128x128-blue-noise-texture-tiled-4x4-1.png");
+var targets=new System.Collections.Generic.List<UnityEngine.RenderTexture>();
+var materials=new System.Collections.Generic.List<UnityEngine.Material>();
+System.Action<UnityEngine.Rendering.CommandBuffer,UnityEngine.Camera,UnityEngine.RenderTexture,UnityEngine.RenderTexture,UnityEngine.Vector4> capture=null;
+UnityEditor.EditorApplication.CallbackFunction timeout=null;
+double started=UnityEditor.EditorApplication.timeSinceStartup;
+capture=(cmd,camera,hdr,depth,parameters)=>{
+    if(camera.cameraType!=UnityEngine.CameraType.SceneView || camera.targetTexture==null || camera.targetTexture.depth==0) return;
+    MaxSRP.MaxColorOutputPass.EditorOutputCapture-=capture;
+    UnityEditor.EditorApplication.update-=timeout;
+    float step=UnityEngine.Shader.GetGlobalFloat("_ShadowNoiseWorldTexelSize");
+    float coarseStep=UnityEngine.Shader.GetGlobalFloat("_OrthoWidth0")/MaxSRP.MaxShadowCasterPass.SHADOWMAP_RESOLUTION;
+    System.IO.File.WriteAllText(System.IO.Path.Combine(output,"capture.txt"),"UTC="+System.DateTime.UtcNow.ToString("O")+" camera="+camera.name+" size="+hdr.width+"x"+hdr.height+" currentStep="+step+" coarseStep="+coarseStep+" fineStep="+(coarseStep/16)+" boundNoise="+(UnityEngine.Shader.GetGlobalTexture("_NoiseTexture")!=null)+" noiseSize="+UnityEngine.Shader.GetGlobalVector("_ShadowNoiseTextureSize")+" cameraPosition="+camera.transform.position+" cameraRotation="+camera.transform.rotation+" light="+UnityEngine.Shader.GetGlobalVector("_DirectionalLightDirection"));
+    int previousBlocker=UnityEngine.Shader.GetGlobalInteger("_PcssBlockerSamples"),previousFilter=UnityEngine.Shader.GetGlobalInteger("_PcssFilterSamples");
+    UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);
+    for(int i=0;i<labels.Length;i++){
+        var material=new UnityEngine.Material(shader){hideFlags=UnityEngine.HideFlags.HideAndDontSave};
+        if(i<2) material.EnableKeyword("MAX_PCSS_LEGACY_VOGEL");
+        materials.Add(material);
+        var target=new UnityEngine.RenderTexture(hdr.width,hdr.height,0,UnityEngine.RenderTextureFormat.ARGB32,UnityEngine.RenderTextureReadWrite.Linear){hideFlags=UnityEngine.HideFlags.HideAndDontSave};
+        target.Create();targets.Add(target);
+        var properties=new UnityEngine.MaterialPropertyBlock();
+        properties.SetFloat("_MainLightShadowsAvailable",1);
+        properties.SetMatrix("_ShadowReceiverView",camera.worldToCameraMatrix);
+        properties.SetFloat("_ShadowNoiseWorldTexelSize",i<5?coarseStep/16:step);
+        properties.SetVector("_ShadowNoiseTextureSize",new UnityEngine.Vector4(noise.width,noise.height,0,0));properties.SetTexture("_NoiseTexture",noise);
+        cmd.SetGlobalInteger("_PcssBlockerSamples",i==7?64:16);
+        cmd.SetGlobalInteger("_PcssFilterSamples",i==0 || i==2?16:i==7?64:32);
+        properties.SetFloat("_ShadowTexelResolution",MaxSRP.MaxShadowCasterPass.SHADOWMAP_RESOLUTION);
+        cmd.SetRenderTarget(target);cmd.SetViewport(new UnityEngine.Rect(0,0,target.width,target.height));
+        cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,material,i<4 || i==5?0:1,UnityEngine.MeshTopology.Triangles,3,1,properties);
+    }
+    cmd.SetGlobalInteger("_PcssBlockerSamples",previousBlocker);cmd.SetGlobalInteger("_PcssFilterSamples",previousFilter);
+    UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);
+    cmd.SetRenderTarget(camera.targetTexture);
+    cmd.SetViewport(new UnityEngine.Rect(0,0,camera.targetTexture.width,camera.targetTexture.height));
+    // update runs without Editor focus; delayCall can remain pending in a hidden window.
+    double submitted=UnityEditor.EditorApplication.timeSinceStartup;
+    UnityEditor.EditorApplication.CallbackFunction finish=null;
+    finish=()=>{
+        if(UnityEditor.EditorApplication.timeSinceStartup-submitted<.25) return;
+        UnityEditor.EditorApplication.update-=finish;
+        var previous=UnityEngine.RenderTexture.active;
+        try{
+            for(int i=0;i<targets.Count;i++){
+                var rt=targets[i];UnityEngine.RenderTexture.active=rt;
+                var pixels=new UnityEngine.Texture2D(rt.width,rt.height,UnityEngine.TextureFormat.RGBA32,false,true);
+                try{pixels.ReadPixels(new UnityEngine.Rect(0,0,rt.width,rt.height),0,0,false);pixels.Apply(false,false);
+                    System.IO.File.WriteAllBytes(System.IO.Path.Combine(output,labels[i]+".png"),UnityEngine.ImageConversion.EncodeToPNG(pixels));}
+                finally{UnityEngine.Object.DestroyImmediate(pixels);}
+            }
+        } finally{
+            UnityEngine.RenderTexture.active=previous;
+            foreach(var rt in targets) UnityEngine.Object.DestroyImmediate(rt);
+            foreach(var material in materials) UnityEngine.Object.DestroyImmediate(material);
+        }
+    };
+    UnityEditor.EditorApplication.update+=finish;
+};
+timeout=()=>{
+    if(UnityEditor.EditorApplication.timeSinceStartup-started<20) return;
+    UnityEditor.EditorApplication.update-=timeout;
+    MaxSRP.MaxColorOutputPass.EditorOutputCapture-=capture;
+    foreach(var material in materials) UnityEngine.Object.DestroyImmediate(material);
+    System.IO.File.WriteAllText(System.IO.Path.Combine(output,"error.txt"),"No Scene target with depth within 20 seconds.");
+};
+MaxSRP.MaxColorOutputPass.EditorOutputCapture+=capture;
+UnityEditor.EditorApplication.update+=timeout;
+UnityEditor.SceneView.RepaintAll();UnityEditor.EditorApplication.QueuePlayerLoopUpdate();
+return "Queued same-frame Scene PCSS variants in "+output;

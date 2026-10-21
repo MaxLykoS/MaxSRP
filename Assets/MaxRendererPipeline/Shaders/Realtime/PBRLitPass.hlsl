@@ -25,6 +25,7 @@ UNITY_DECLARE_TEX2D(_GBuffer1);
 UNITY_DECLARE_TEX2D(_GBuffer2);
 UNITY_DECLARE_TEX2D(_GBuffer3);
 
+float4 _MaxTaaJitter;
 float4 _CameraBackgroundColor;
 int _CameraClearFlags;
 
@@ -53,12 +54,6 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 #else
     bool isBackground = GDepth >= 1.0;
 #endif
-    if (isBackground)
-    {
-        if (_CameraClearFlags == 4) discard; // Nothing: preserve previous color/depth.
-        if (_CameraClearFlags == 3) return float4(0, 0, 0, 0); // Depth only.
-        return _CameraBackgroundColor;
-    }
 
 	// gb0
 	float4 albedo = GBuffer0;
@@ -88,12 +83,24 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 	float4 pW = mul(unity_MatrixInvVP, pNDC);
 	pW = pW / pW.w;
 
-	float3 c = PBR_Shading(pW, normal, albedo.rgb, metalness, roughness, o.uv);
+	float3 receiverDx, receiverDy;
+    ShadowReceiverDerivatives(pW.xyz, receiverDx, receiverDy);
+    float visibility = 1.0;
+    if (isBackground)
+    {
+        if (_CameraClearFlags == 4) discard; // Nothing: preserve previous color/depth.
+        if (_CameraClearFlags == 3) return float4(0, 0, 0, 0); // Depth only.
+        return _CameraBackgroundColor;
+    }
+
+    if (_MaxLightingDiagnosticMode < 2.0 || _MaxLightingDiagnosticMode > 5.0)
+        visibility = MainLightShadow(pW.xyz, normal, receiverDx, receiverDy);
+    float3 c = PBR_Shading(pW.xyz, normal, albedo.rgb, metalness, roughness, o.uv, visibility);
 
 	// Perspective LUT depth is ray length; orthographic rays start on the camera plane.
     float atmosphereDistance = unity_OrthoParams.w > 0.5
         ? max(0.0, -mul(unity_MatrixV, pW).z) : length(pW.xyz - _WorldSpaceCameraPos);
-    c = ApplyAerialPerspective(c, o.uv, atmosphereDistance);
+    c = ApplyAerialPerspective(c, o.uv - _MaxTaaJitter.xy, atmosphereDistance);
     return float4(c, 1.0);
 }
 

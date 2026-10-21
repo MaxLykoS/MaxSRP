@@ -10,7 +10,14 @@ using System.Reflection;
 using UnityEngine;
 using UnityEngine.Rendering;
 namespace UnityEngine {
- public class Object {public bool destroyed;}
+ public enum HideFlags {None=0,HideAndDontSave=61}
+ public class Object {
+  public bool destroyed;public HideFlags hideFlags;
+  public static bool operator==(Object a,Object b){bool an=ReferenceEquals(a,null)||a.destroyed,bn=ReferenceEquals(b,null)||b.destroyed;return an||bn?an&&bn:ReferenceEquals(a,b);}
+  public static bool operator!=(Object a,Object b)=>!(a==b);
+  public override bool Equals(object other)=>ReferenceEquals(this,other);
+  public override int GetHashCode()=>System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
+ }
  public class Shader:Object {static readonly Dictionary<string,int> ids=new Dictionary<string,int>();public static int PropertyToID(string n){if(!ids.ContainsKey(n))ids[n]=ids.Count;return ids[n];}}
  public class Texture:Object {}
  public enum RenderTextureFormat{ARGBFloat}
@@ -31,8 +38,9 @@ namespace UnityEngine {
  public class RenderTexture:Texture {
   public static int alive;public static bool failNext;public bool created;public int width,height;public string name;public FilterMode filterMode;public TextureWrapMode wrapMode,wrapModeU;
   public RenderTexture(int w,int h,int d,RenderTextureFormat f,RenderTextureReadWrite r){width=w;height=h;alive++;}
-  public bool IsCreated()=>created;
-  public bool Create(){if(failNext){failNext=false;return false;}return created=true;}
+  public bool IsCreated(){if(destroyed)throw new InvalidOperationException("MissingReference: IsCreated on destroyed RenderTexture");return created;}
+  public bool Create(){if(destroyed)throw new InvalidOperationException("MissingReference: Create on destroyed RenderTexture");if(failNext){failNext=false;return false;}return created=true;}
+  public void DestroyNative(){if(!destroyed){destroyed=true;created=false;alive--;}}
  }
  public class Material:Object {public Material(Shader s){}public void SetTexture(int n,Texture t){}public void SetFloat(int n,float v){}public void SetFloat(string n,float v){}public void SetColor(int n,Color c){}public void SetMatrix(int n,Matrix4x4 m){}public void SetVector(int n,Vector4 v){}}
  public class SerializeField:Attribute{}
@@ -110,6 +118,22 @@ namespace MaxSRP {
    ((RenderTexture)aFog).created=false;Expect(p,c,a,sun,"Aerial");Check(aFog.destroyed,"Lost aerial RT not released");
    var trans=(RenderTexture)typeof(MaxProceduralSkyboxPass).GetField("m_transmittanceLUT",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(p);
    trans.created=false;Expect(p,c,a,sun,"TransmittanceLUT,MultiscatteringLUT,EnvironmentSkyviewLUT,SkyviewLUT,Aerial");
+   int beforeLoss=p.EnvironmentRevision;trans.DestroyNative();
+   Expect(p,c,a,sun,"TransmittanceLUT,MultiscatteringLUT,EnvironmentSkyviewLUT,SkyviewLUT,Aerial");
+   var recovered=(RenderTexture)typeof(MaxProceduralSkyboxPass).GetField("m_transmittanceLUT",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(p);
+   Check(!ReferenceEquals(trans,recovered)&&recovered.IsCreated()&&p.EnvironmentRevision>beforeLoss,"Native-destroyed transmittance did not recover/invalidate IBL");
+   Check(recovered.hideFlags==HideFlags.HideAndDontSave,"Recovered LUT lacks explicit lifetime flags");
+   Expect(p,c,a,sun,"");Expect(p,c,b,sun,"SkyviewLUT,Aerial");
+   var multi=(RenderTexture)typeof(MaxProceduralSkyboxPass).GetField("m_multiscatteringLUT",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(p);
+   multi.DestroyNative();Expect(p,c,a,sun,"MultiscatteringLUT,EnvironmentSkyviewLUT,SkyviewLUT,Aerial");
+   Expect(p,c,a,sun,"");Expect(p,c,b,sun,"SkyviewLUT,Aerial");
+   p.EnvironmentSky.DestroyNative();beforeLoss=p.EnvironmentRevision;Expect(p,c,a,sun,"EnvironmentSkyviewLUT");
+   Check(p.EnvironmentRevision>beforeLoss,"Native-destroyed IBL source did not advance revision");
+   var currentTrans=(RenderTexture)typeof(MaxProceduralSkyboxPass).GetField("m_transmittanceLUT",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(p);
+   int aliveBeforeFailure=RenderTexture.alive;currentTrans.DestroyNative();RenderTexture.failNext=true;
+   bool restoreFailed=false;try{p.PrepareAtmosphere(c,a,Sun(sun),environmentHeight);}catch{restoreFailed=true;}
+   Check(restoreFailed&&CommandBufferPool.outstanding==0&&RenderTexture.alive==aliveBeforeFailure-1,"Native-loss allocation failure leaked resources/command buffer");
+   Expect(p,c,a,sun,"TransmittanceLUT,MultiscatteringLUT,EnvironmentSkyviewLUT,SkyviewLUT,Aerial");
    UnityEditor.EditorApplication.Changed();Expect(p,c,a,sun,"TransmittanceLUT,MultiscatteringLUT,EnvironmentSkyviewLUT,SkyviewLUT,Aerial");
    environmentHeight=8;int previousEnvironment=p.EnvironmentRevision;Expect(p,c,a,sun,"EnvironmentSkyviewLUT");Check(p.EnvironmentRevision>previousEnvironment,"Reference height does not update environment");
    sunColor=new Color{r=.5f,g=1,b=1,a=1};Expect(p,c,a,sun,"EnvironmentSkyviewLUT,SkyviewLUT,Aerial");
@@ -122,7 +146,7 @@ namespace MaxSRP {
    Check(failed&&RenderTexture.alive==6,"Allocation failure leaks texture");
    Expect(p,c,a,sun,"TransmittanceLUT,MultiscatteringLUT,EnvironmentSkyviewLUT,SkyviewLUT,Aerial");
    p.Dispose();p.Dispose();Check(RenderTexture.alive==0&&UnityEditor.EditorApplication.Listeners==0,"Dispose leaks LUT/event ownership");
-   return "PASS: complete production atmosphere cache; 100 frozen frames, alternating cameras/rebinding, sun/medium/phase/height/view/projection/distance/toggles, RT loss, Editor invalidation, failed recording/allocation, pruning and disposal.";
+   return "PASS: complete production atmosphere cache; Unity fake-null/destroyed native objects, dependent LUT/IBL recovery, 100 frozen frames, alternating cameras/rebinding, sun/medium/phase/height/view/projection/distance/toggles, GPU RT loss, Editor invalidation, failed recording/allocation, pruning and disposal.";
   }
  }
 }

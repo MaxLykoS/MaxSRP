@@ -1,0 +1,39 @@
+var shader=UnityEngine.Shader.Find("Hidden/MaxSRP/PcssConvergenceProbe");
+if(shader==null||!shader.isSupported)throw new System.Exception("Missing receiver plane probe");
+const int n=256;
+var depth=new UnityEngine.Texture2D(n,n,UnityEngine.TextureFormat.RGBAFloat,false,true);
+var material=new UnityEngine.Material(shader);
+var target=new UnityEngine.RenderTexture(8,8,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);
+var read=new UnityEngine.Texture2D(8,8,UnityEngine.TextureFormat.RGBAFloat,false,true);
+var active=UnityEngine.RenderTexture.active;var rows=new System.Collections.Generic.List<string>();
+try{
+    var pixels=new UnityEngine.Color[n*n];
+    for(int y=0;y<n;++y)for(int x=0;x<n;++x)pixels[y*n+x]=new UnityEngine.Color(.5f+.4f*((x+.5f)/n-.5f)+.2f*((y+.5f)/n-.5f),0,0,0);
+    depth.SetPixels(pixels);depth.Apply();depth.filterMode=UnityEngine.FilterMode.Point;
+    target.Create();
+    int previousCount=UnityEngine.Shader.GetGlobalInteger("_PcssBlockerSamples");
+    var projection=UnityEngine.Matrix4x4.identity;projection.m20=.2f;projection.m21=-.1f;
+    foreach(int count in new[]{16,32,64})foreach(float scale in new[]{.000001f,1,10000}){
+        var cmd=new UnityEngine.Rendering.CommandBuffer();
+        var bindings=new UnityEngine.MaterialPropertyBlock();
+        bindings.SetTexture("_MainShadowMap0",depth);cmd.SetGlobalInteger("_PcssBlockerSamples",count);
+        bindings.SetMatrix("_ShadowVPMatrix0",projection);
+        bindings.SetVector("_PcssProbe",new UnityEngine.Vector4(.51f,.15f,.4f,.2f));
+        bindings.SetVector("_PcssPlaneDx",new UnityEngine.Vector4(scale,0,0,0));
+        bindings.SetVector("_PcssPlaneDy",new UnityEngine.Vector4(0,scale,0,0));
+        cmd.SetRenderTarget(target);cmd.SetViewport(new UnityEngine.Rect(0,0,8,8));
+        UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);
+        cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,material,2,UnityEngine.MeshTopology.Triangles,3,1,bindings);
+        UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);
+        cmd.SetGlobalInteger("_PcssBlockerSamples",previousCount);
+        UnityEngine.Graphics.ExecuteCommandBuffer(cmd);cmd.Release();
+        UnityEngine.RenderTexture.active=target;read.ReadPixels(new UnityEngine.Rect(0,0,8,8),0,0);read.Apply();
+        var value=read.GetPixel(4,4);
+        if(value.r!=0 || value.g<1 || UnityEngine.Mathf.Abs(value.b-.4f)>.00001f || UnityEngine.Mathf.Abs(value.a-.2f)>.00001f)
+            throw new System.Exception("Receiver plane failed: "+value);
+        rows.Add("samples="+count+" derivativeScale="+scale+" correctedFalseBlockers="+value.r+" oldFalseBlockers="+value.g+" gradient="+value.b+","+value.a);
+    }
+}finally{UnityEngine.RenderTexture.active=active;UnityEngine.Object.DestroyImmediate(depth);UnityEngine.Object.DestroyImmediate(material);UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(read);UnityEditor.SceneView.RepaintAll();}
+System.IO.Directory.CreateDirectory("D:/UnityProject/MaxSRP/OfflineBaseline/PcssConvergence");
+System.IO.File.WriteAllLines("D:/UnityProject/MaxSRP/OfflineBaseline/PcssConvergence/receiver_plane_gpu.txt",rows.ToArray());
+return rows.ToArray();

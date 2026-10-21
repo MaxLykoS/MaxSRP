@@ -102,6 +102,19 @@ float4x4 unity_ObjectToWorld;
 float4x4 unity_WorldToObject;
 float4 unity_LODFade; // x is the fade value ranging within [0,1]. y is x quantized into 16 levels
 float4 unity_WorldTransformParams; // w is usually 1.0, or -1.0 for odd-negative scale transforms
+// Engine feature blocks must retain Unity's SRP Batcher order.
+float4 unity_RenderingLayer;
+float4 unity_LightData;
+float4 unity_LightIndices[2];
+float4 unity_ProbesOcclusion;
+float4 unity_SpecCube0_HDR, unity_SpecCube1_HDR;
+float4 unity_SpecCube0_BoxMax, unity_SpecCube0_BoxMin, unity_SpecCube0_ProbePosition;
+float4 unity_SpecCube1_BoxMax, unity_SpecCube1_BoxMin, unity_SpecCube1_ProbePosition;
+float4 unity_LightmapST, unity_DynamicLightmapST;
+float4 unity_SHAr, unity_SHAg, unity_SHAb, unity_SHBr, unity_SHBg, unity_SHBb, unity_SHC;
+float4 unity_RendererBounds_Min, unity_RendererBounds_Max;
+float4x4 unity_MatrixPreviousM, unity_MatrixPreviousMI;
+float4 unity_MotionVectorsParams;
 CBUFFER_END
 
 

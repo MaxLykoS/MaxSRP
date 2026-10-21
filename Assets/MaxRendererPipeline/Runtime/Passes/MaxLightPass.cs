@@ -13,13 +13,15 @@ namespace MaxSRP
 #endif
         private readonly MaterialPropertyBlock m_iblBindings = new MaterialPropertyBlock();
 
-        public MaxLightPass()
+        public MaxLightPass(Shader shader)
         {
-            m_material = new Material(Shader.Find("MaxSRP/PBRLitPass"));
+            if (shader == null || !shader.isSupported)
+                throw new InvalidOperationException("MaxSRP requires a supported Lighting Shader reference on its pipeline asset (MaxSRP/PBRLitPass).");
+            m_material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
         }
 
         public void Execute(ScriptableRenderContext context, Camera camera, RenderTargetIdentifier target,
-            RenderTargetIdentifier depth, Rect viewport, MaxIBLGIPass ibl)
+            RenderTargetIdentifier depth, Rect viewport, MaxIBLGIPass ibl, bool hasShadows)
         {
             CommandBuffer cmd = CommandBufferPool.Get("LightPass");
             try
@@ -32,6 +34,9 @@ namespace MaxSRP
                 int pass = camera.clearFlags == CameraClearFlags.Nothing ? 2 :
                     camera.clearFlags == CameraClearFlags.Depth ? 1 : 0;
                 ibl.SetLightingBindings(m_iblBindings);
+                // Bind camera-local availability explicitly; other views may have left global maps.
+                m_iblBindings.SetFloat("_MainLightShadowsAvailable", hasShadows ? 1.0f : 0.0f);
+                m_iblBindings.SetMatrix("_ShadowReceiverView", camera.worldToCameraMatrix);
 #if UNITY_EDITOR
                 m_iblBindings.SetFloat("_MaxLightingDiagnosticMode",
                     camera == DiagnosticCamera ? DiagnosticLightingMode : 0.0f);
