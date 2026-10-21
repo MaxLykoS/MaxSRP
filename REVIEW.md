@@ -1,26 +1,38 @@
 # MaxSRP 问题检查与修复记录
 
-更新日期：2026-10-20（补齐原生 UV baseline、独立大气输运对照与天空 banding 验收）。
+更新日期：2026-10-21（原生分辨率全画面 TAA、时间渲染契约及多相机资源生命周期）。
 
 范围：实时 SRP、PBR、IBL、大气和级联阴影。待处理章节沿用原编号，便于逐项处理；已完成的项目集中放在文末按日期排列的“已修复”区域。
 
-待处理：**19、27、28**，共 3 项；另保留朝下环境过滤漏光、实机光度/色彩对照与未启用的遗留 GI 工具事项。27/28 是独立大气对照发现的条件性精度问题，未修改运行时。8、10、18 及运行时同步 IBL 烘焙已移入文末动态天空 IBL 修复记录。
+当前 TAA 契约与接入边界见 [Documentation/TemporalAA.md](Documentation/TemporalAA.md)，AGENTS.md 已要求相关模块遵守该契约。
+
+待处理：**27、28、32**，共 3 项。33 在接入独立相机历史时一并修复，见文末。19、29 已分别修复；30 的屏幕阴影过滤路径已按用户选择移除，31 已补齐四级 PCSS、投影重叠及过渡，记录见文末。shadow cache 暂不实现。27/28 为独立大气对照发现的条件性精度事项；cluster lighting、场景 GI 继续延期。
 
 P1 表示优先修复的正确性问题；P2 表示条件性错误、精度问题、功能未接通或性能问题。各项具体证据与验证范围分别记录，不能将某一项的 GPU 验证推广到全部管线。
 
 本轮新增已修复：天空输出的 RGB dithering 相关性及硬件 sRGB8 量化阈值偏差。受控 GPU 渐变和同 HDR 回放验证通过，用户于 10 月 20 日确认当前 demo 的 banding 几乎不可见，按当前场景验收关闭。详见 [输出量化对照](Tools/AtmosphereReference/OUTPUT_TRANSFER.md)。
 
-## 19. [P1] Lighting Shader 没有构建引用，Player 可能无法初始化管线
+## 32. [P2] 灯光阴影强度与 Hard/Soft 选择没有接入
 
-状态：**待修复，本轮新增**。
+状态：**本轮新增，设置消费路径确认；不是光照能量公式问题**。
 
-位置：[MaxLightPass.cs:13](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxLightPass.cs:13)。
+位置：[SunLightData.cs](Assets/MaxRendererPipeline/Runtime/SunLightData.cs)、[Lighting.hlsl](Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Lighting.hlsl)、[Shadow.hlsl](Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Shadow.hlsl)。
 
-Lighting 材质完全依赖 Shader.Find("MaxSRP/PBRLitPass")。本轮检查该 Shader 的 GUID b7b56707e539de6499dfad1cb0cf1464，未发现 Assets/ProjectSettings 中的材质、场景、prefab 或资产引用，也不在 Resources 或 Always Included Shaders 中。ColorOutput 已有的序列化保留机制没有覆盖 Lighting。
+只把 `Light.shadows != None` 转为布尔开关。`Light.shadowStrength` 没有上传或混合，Lighting 直接乘以原始可见度；因此把阴影强度设为 0 仍不会使阴影全亮。Hard 与 Soft 也进入相同路径；10 月 21 日更新后均走四级 PCSS，尚未接通灯光模式选择。当前 demo 的强度若为 1，不影响已验收的照明，但 Inspector 控制语义不完整。
 
-触发：按当前资源依赖构建使用这条管线的 Player。编辑器能找到工程内的 Shader，并不保证构建包含它；若被剥离，材质创建或后续 Lighting 绘制会失败。目前 Build Settings 场景列表为空，本轮没有执行构建，不能声称已经复现 Player 黑屏。依据：[Unity 2022.3 Shader.Find](https://docs.unity3d.com/2022.3/Documentation/ScriptReference/Shader.Find.html)。
+处理建议：接入阴影强度（例如 `lerp(1,visibility,strength)`），并明确 Hard/Soft 是否为支持的选择，或在自定义 Inspector 清楚说明仅使用管线阴影设置。参考 [Unity 2022.3 Light.shadowStrength](https://docs.unity3d.com/2022.3/Documentation/ScriptReference/Light-shadowStrength.html)。
 
-修复：在管线资产中序列化引用 Lighting Shader，并像 ColorOutput 一样检查 null/isSupported；用实际 Player 构建验证保留情况。
+## 本轮验证范围与功能边界（2026-10-20）
+
+- `Tools/ReviewShadowContracts.ps1` 提取真实 PCSS 半径函数及两段资源清理函数执行数值/生命周期反例，；旧版曾读取真实模糊权重，10 月 21 日移除屏幕阴影后改为检查路径已删除。它是问题诊断，不是 GPU 测试，也不是“通过代表所有阴影正确”的回归脚本。
+- 既有 `ValidateSceneShadows`、`ValidateShadowCameraIsolation`、`ValidateCameraViewport`、`ValidateColorOutput` 均通过。这些证明已有覆盖的投影、包围盒、源相机隔离、视窗和输出逻辑没有在此复查中失败，不覆盖新增反例。
+- 本轮 Unity MCP 返回没有注册的编辑器实例；进程存在且标题为 MaxSRP/Untitled。故未采集当前场景 GPU 图像、未实测阴影投射开关、未做 Player 构建。不把共享 Editor.log 中其他 Unity 工程的内容当成 MaxSRP 的运行证据。
+- **待核实而非已确认错误**：通过普通 `DrawRenderers` 绘制 `ShadowCaster` 时，`ShadowCastingMode.Off / ShadowsOnly / TwoSided` 在当前调用中的实际行为，需独立几何场景 GPU A/B；本轮不直接判错。
+- **功能未实现，不混作新回归**：透明物体没有前向透明 Pass，当前只绘制 opaque 队列；Alpha Clip 没有 `_Cutoff/clip` 路径；GBuffer 自发光、AO、运动向量通道尚未接入；没有完整的抗锯齿路径。按需扩展即可，不在本轮擅自增加。
+- **逐物体接受阴影属于扩展项**：GBuffer 未保存该标志，但不能仅据 `Renderer.receiveShadows` 无效判定渲染错误；[Unity 2022.3 文档](https://docs.unity3d.com/2022.3/Documentation/ScriptReference/Renderer-receiveShadows.html) 也说明内置 Deferred 路径不使用该标志。若项目需要，应明确设计材质/对象标志与 GBuffer 编码。
+- 按既定范围继续保留单方向光和现有点光路径，cluster lighting、场景 GI 不作为本轮回归问题。
+
+上述复查只更新诊断脚本和文档；后续按用户指定分别修复 19、29，10 月 21 日改为直采样 PCSS 并关闭 30/31，见文末记录，32 尚未修复；33 后续在 TAA 基础设施接入中修复。
 
 ## 补充：性能与潜在问题
 
@@ -46,10 +58,11 @@ Lighting 材质完全依赖 Shader.Find("MaxSRP/PBRLitPass")。本轮检查该 S
 
 ## 后续修复顺序
 
-1. 19：保留 Lighting Shader，补足最小 Player 构建验证。
-2. 在 Unity 实测动态天空 IBL 的方向、粗糙度、太阳变化与更新耗时，再决定是否需要分帧更新。
-3. 后续再接入 cluster lighting；当前保留最多 32 个点光的原路径。
-4. 27/28 为独立记录的大气精度事项，按用户后续选择单独处理；本次不混入生产修复。
+1. 29/30/31 已改为 Lighting 直采样四级 PCSS；实际 GPU 观感、移动稳定性及真机成本待验收。
+2. 32：接入灯光阴影强度和 Hard/Soft 控制语义。
+3. 33：避免多视图的 RT 往返重建，然后测量实际分配量与耗时。
+4. 19 已补齐构建引用；发布前仍需最小 Player 构建及运行验收。
+5. 27/28 为独立记录的大气条件性精度事项，按用户后续选择单独处理；cluster lighting 和场景 GI 继续按既定计划延期。
 
 ## 复查阶段的验证范围（2026-10-15，修复前）
 
@@ -236,7 +249,7 @@ Game 相机直接使用实际 pixelRect；有 targetTexture 时使用其完整�
 
 ## 已修复（2026-10-15，20～26 与大气 LUT 缓存）
 
-本轮按用户指定处理 20、21、22、23、24、25、26，并优化大气 LUT 更新。以上七项已从待处理区移除；当时剩余的 8、10、18 已由下方动态天空 IBL 记录解决，19 仍待处理。
+本轮按用户指定处理 20、21、22、23、24、25、26，并优化大气 LUT 更新。以上七项已从待处理区移除；当时剩余的 8、10、18 已由下方动态天空 IBL 记录解决，19 后于 10 月 20 日单独修复。
 
 | 原编号 | 修复结果 | 代码位置 |
 | --- | --- | --- |
@@ -297,7 +310,7 @@ Mie 基准来自 [Hillaire 作者公开的 SetupEarthAtmosphere](https://github.
 
 GPU 路径要求 Compute Shader、2D Array 与不同纹理类型间 CopyTexture 支持；不满足时明确报错。当前仍是一次完成更新，太阳连续运动时每帧更新环境卷积，尚未采用跨帧摊销；实际耗时需要在目标硬件量测。点光保留原有最多 32 盏路径，cluster lighting 留待后续。
 
-旧 Runtime/GI 的手动/离线 probe 工具保留，仍含同步回读和 RGBA32 输出；它们已不参与这条实时天空 IBL 路径。问题 8 的关闭范围是当前实时管线，不能解读为这些遗留工具也已改为 HDR。问题 19 的 Lighting Shader 构建引用仍未处理。
+旧 Runtime/GI 的手动/离线 probe 工具保留，仍含同步回读和 RGBA32 输出；它们已不参与这条实时天空 IBL 路径。问题 8 的关闭范围是当前实时管线，不能解读为这些遗留工具也已改为 HDR。问题 19 的 Lighting Shader 构建引用后于 10 月 20 日单独修复。
 
 代码：[SunLightData.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/SunLightData.cs)、[MaxUpdateGIPass.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxUpdateGIPass.cs)、[DynamicSkyIBL.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/DynamicSkyIBL.hlsl)、[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs)、[MaxRendererPipeline.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs)、[MaxLightConfigurator.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxLightConfigurator.cs)。
 
@@ -517,3 +530,166 @@ N/R 完整 2×2 对照、对两种替换顺序取平均：法线输入影响相�
 新 `.blend` 已重新从磁盘打开验证：四个材质纹理节点均为打包的 2048² 图，原生 UV、Linear 插值、默认 Principled MULTI_GGX，无二次模型可见性/场景 GI；F12 曝光/ACES 最大误差 **1.79e-7**，实际 768² F12 渲染完成。新 Editor compute 独立编译、Editor/Player C# API 绑定及实际 GPU 导出均通过。后续生产采样策略应另行研究法线/粗糙度预过滤和高光稳定性，不用调高光强补偿。
 
 [新 Blender 场景](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/ImportedTextures/HelmetOnly_ImportedTextures_Cycles.blend)、[原生 UV 三列对照](D:/UnityProject/MaxSRP/OfflineBaseline/HelmetOnly/ImportedTextures/native_imported_comparison.png)、[完整范围与复现](D:/UnityProject/MaxSRP/Tools/BlenderBaseline/IMPORTED_TEXTURE_BASELINE.md)。
+
+## 已修复（2026-10-20，19：Lighting Shader 构建引用）
+
+原问题：Lighting 仅通过 `Shader.Find("MaxSRP/PBRLitPass")` 创建材质，缺少序列化资源依赖，存在编辑器正常而 Player 构建剥离 Shader 的风险。此前未实际复现 Player 黑屏。
+
+`MaxRendererPipelineAsset` 已新增序列化 `LightingShader`，现有管线资产及脚本导入器的新建资产默认引用均指向 `PBRLitPass.shader`。管线将该引用传给 `MaxLightPass`，不再依赖名称查找；初始化检查 null/isSupported，材质继续按管线生命周期释放。
+
+新增 `MaxLightingShaderBuildValidator`，构建前检查 Graphics 默认管线及全部 Quality 管线覆盖，去重后验证 Shader 为持久化的 `MaxSRP/PBRLitPass` 资产；缺失或错配时中止构建并报告资产路径。构建回调不使用 Editor GPU 的 isSupported 判断目标平台支持，设备支持仍由运行时检查。
+
+验证：`Tools/ValidateLightingShaderRetention.ps1` 检查实际 Shader GUID、现有全部 MaxSRP 管线资产和新建资产默认引用，并将实际 Runtime 源码及新增构建回调分别按 Player/Editor 条件绑定本机 Unity 2022.3 API 编译，均通过。仅未改动的 SRP Core `CommandBufferPool/CoreUtils` 使用声明替身，未访问 Library；该检查不是完整 Unity 导入或 Player 构建。
+
+修复 19 时 MCP 返回 0 个编辑器实例，Build Settings 场景列表为空；未执行真实 Player 构建及 GPU 运行验收，发布前仍需补这一项。问题 19 的资源引用缺口已修复并从待处理列表移出；随后按用户指定修复 29，见下一节。
+
+## 已修复（2026-10-20，29：方向光 PCSS 角半径与世界距离）
+
+原公式使用到阴影近平面的距离比 `(receiver-blocker)/blocker`，使方向光半影依赖任意的阴影相机原点；保持 receiver/blocker 相距 10 m，仅将距离从 `(20,10)` 改为 `(120,110)`，旧 UV 半径由 0.1 变成 0.00909091，相差 11 倍。有限面光源、以光源为中心的透视 PCSS 距离比不能直接套用当前跟随相机的正交近平面。参考 [NVIDIA PCSS 示例](https://developer.download.nvidia.com/SDK/10.5/direct3d/Source/PercentageCloserSoftShadows/doc/PercentageCloserSoftShadows.pdf)。
+
+现在使用方向光近似 `rWorld = min(max(receiver-blocker,0) * tan(solarAngularRadius), maxPenumbraRadius)`，再除以当前级联正交宽度转为 UV。太阳角半径每次阴影渲染从天空 `_SunDiskAngle`（度，当前 1°）更新；阴影侧将输入限制在 0.001°～89°以保持 tan 有限。Depth bias 仅参与遮挡比较，不再缩减用于半影估计的接收点几何距离。
+
+原 `PcssSearchRadius` 以 `FormerlySerializedAs` 迁移为 `MaxPenumbraRadius`，明确为世界空间搜索/半影半径上限；现有资产数值保持 0.75/0.75/1/1 m。该参数是有限采样的质量限制，超过上限会截断物理半影，不能宣称任意距离精确面积光阴影。旧 `PcssFilterRadius` 倍率及未使用的 `_LightSize` 已移除。搜索核按完整 caster 深度范围的最大可能半影推导，再应用同一上限；过滤核不会超过搜索核。搜索总次数仍为 64，其中一次固定中心射线以保留薄遮挡物的中心样本；无 blocker 保持全亮，上限为 0 时退化为单次深度比较。
+
+各级联的投影 XY 包围盒增加最大世界过滤半径和法线偏移余量，再执行 texel snapping，避免合法接收点在过滤时越出贴图。保持原有阴影分辨率、四分之一宽高的屏幕阴影、蓝噪声、两遍高斯模糊和前两级 PCSS/后两级硬阴影选择；30、31、32 未顺带修复。
+
+验证：提取实际函数后，1°、10 m 间距、100 m 正交宽度、0.75 m 上限，两种近平面原点下 UV 半径均为 **0.0017455065**，世界半径约 **0.17455065 m**。`ValidateLightingShadowMath` 在四种深度/法线分支各 10000 组中验证原点平移不变、级联世界尺度一致、搜索覆盖过滤、接触收紧及零角/零上限边界；`ValidateSceneShadows` 通过含过滤边界的 1536 组光空间覆盖检查；`ValidateShadowCameraIsolation` 验证太阳角编辑后实时上传；`ReviewShadowContracts` 仍独立报告未修的 30/33 反例。48 项 HLSL 编译和 Runtime Player/Editor 条件的 Unity API 绑定检查均通过。
+
+修复 29 时 MCP 返回 0 个编辑器实例，未取得实际 GPU 图像或 Unity Editor 完整导入结果。以上是当时源码数值、API 及 HLSL 编译验证；10 月 21 日的直采样变更见下一节。
+
+
+## 已修复／路径替换（2026-10-21，30、31：Lighting 直接评估四级 PCSS）
+
+按用户选择保留 PCSS，暂不做 shadow cache。现在 Lighting 用当前 GBuffer 的世界位置与法线直接查询 CSM，删除屏幕阴影 Pass、三张 1/4 宽高的 R32 阴影 RT、两次高斯模糊、相关 Shader/HLSL 和管线资产引用。30 的跨接收面模糊污染随这条路径的移除关闭，未用新模糊掩盖。GBuffer、HDR、曝光、大气和 IBL 处理保持原有规则。
+
+四级统一采用问题 29 的角半径 PCSS。搜索/过滤可独立选择 **16、32、64** 次，当前资产默认 **16+16**；每档拥有覆盖完整圆盘的采样分布，不截取旧表前缀。搜索使用独立 point-clamp 原始深度采样，过滤使用 bilinear comparison sampler（硬件 PCF）；点数指采样指令数，比较采样内部可涉及多 texel。中心 blocker 样本、无 blocker 提前返回全亮、零半径退化单次比较采样、静态蓝噪声旋转均保留，未加入时间累积。低采样有颗粒风险，可分别提高搜索/过滤档位；不宣称当前档位已满足所有移动 GPU。
+
+31 的三个边界各采用相邻较小深度区间 **10%** 的过渡带，可调 0～30%。CPU 把下一级的近端投影向前扩展到过渡起点，世界过滤核和法线偏移还另有 XY/Z 余量；Shader 只在带内评估相邻两级并平滑混合。四级不再切换软硬算法。最后一级区间的末 **10%** 平滑淡出到全亮，可调 0～50%。默认 near=.3、far=500、ShadowDistance=500 时，级联边界仍约 35.279/100.24/225.165/500 m，混合宽度约 3.4979/6.4961/12.4925 m，末端淡出从约 472.5165 m 开始。带内最多两次 PCSS 评估，属于额外成本。
+
+相机当前视图矩阵、像素尺寸及本次 ShadowCaster 是否成功绘制，通过 Lighting 的 MaterialPropertyBlock 绑定；无太阳、None、裁剪失败或无有效阴影区间时返回全亮，不读取上一相机留下的阴影。仅太阳直射项乘阴影，点光、IBL 和天空辐射量未改。问题 32 的 shadowStrength/Hard/Soft 灯光控制仍待单独处理；33 的多视图资源回收问题也未顺带修改。
+
+验证：`ValidateDirectPcss` 提取实际 PCSS、blocker 搜索和点分布，以 point-depth/bilinear-comparison API 夹具执行普通/反向 Z 各 9 组搜索×过滤预算，验证全亮、全遮挡、半影、接触收紧、原点平移、无 blocker 提前退出及完整圆盘覆盖。`ValidateSceneShadows` 提取真实 CPU 级联更新与投影方法，覆盖 384 组视锥角点、1536 组基本投影覆盖、3456 组相邻级联混合区/核覆盖、24 组相机深度重建；标量测试验证平滑混合与距离淡出端点。既有相机隔离、视窗、HDR 输出及物理光照检查通过，40 项 HLSL 编译及 Runtime Player/Editor 条件 API 编译通过。测试脚本已移除旧屏幕 Pass 断言。
+
+以上没有替代真实 GPU 验收：本轮 MCP 返回 0 个实例，未得到 Unity 导入、Scene/Game 画面或目标手机计时。全分辨率直接 PCSS 的总成本受阴影覆盖率、提前退出和混合区影响；删除模糊不等于一定更快。后续需检查贴地/悬空物体、细杆/斜面、级联穿越、无太阳及多视图，并在真机比较 16/32/64 档。
+
+## 已修复（2026-10-21，大气 LUT 被 Destroy 后的 MissingReferenceException）
+
+用户报告 `MaxProceduralSkyboxPass.Update` 原 172/175 行在调用 `RenderTexture.IsCreated()` 时抛出 MissingReferenceException。旧代码只覆盖 RenderTexture 原生对象仍存活、GPU 存储被 Release 的情况，没有先检查 Unity fake-null；原生对象已被 Destroy、托管包装仍留在字段中时会持续访问失效对象。现有证据定位了恢复缺口，尚未确定最初由哪次 Editor 清理或外部操作销毁了对象。
+
+新增 `EnsureLut`：先用 Unity 对象空判断识别已销毁包装并新建纹理；原生对象仍在但 GPU 存储丢失时重新 Create。透射率恢复会重烘焙多次散射；多次散射恢复会推进介质版本，按依赖重烘焙天空、雾和环境源，再触发动态 IBL 更新。资源正常时继续命中缓存。所有本 Pass 拥有的 LUT 与材质增加 HideAndDontSave，明确由 Pass.Dispose 回收并防止作为未使用临时资源自动卸载，未禁用资源释放或改成逐帧烘焙。
+
+回归夹具新增 Unity fake-null 与销毁后 IsCreated/Create 抛错语义，修改前能重现同类异常，修改后通过。覆盖透射率、多次散射和环境源的 native-destroy、Release 丢失、恢复时分配失败及重试、依赖版本更新、多相机复用、100 个静止帧与最终清理；Runtime Player/Editor 条件 API 编译通过。
+
+本次 Unity MCP 已重新连接 MaxSRP。已直接刷新并确认新 EnsureLut 编译进入活动管线，在实际 Direct3D11 Editor 中分别 DestroyImmediate 当前透射率 LUT（旧 ID -3032）及多次散射 LUT（旧 ID -3034），由正常 Scene 重绘自动恢复为新对象（-3106/-3110）。两张基础 LUT 与环境 LUT 均 IsCreated=true，EnvironmentRevision 由 1→2→3，动态 IBL 的已使用环境版本同步为 3；复查控制台返回 0 条 error，未清空控制台。测试只销毁可再生的运行时缓存，不修改场景、材质资产或大气参数。这验证了实际资源恢复，不等于已完成移动端性能或全部 PCSS 视觉验收。
+
+## 已修复／待观感验收（2026-10-21，旋转视角时的阴影爬动）
+
+用户反馈整条阴影边缘在视角旋转时爬动。此前替换路径移除了低分辨率屏幕阴影及两遍高斯模糊，并将 PCSS 默认从 64+64 降为 16+16，缺少投影稳定化，构成实际的视觉回退；原有滤波提供的稳定性收益不能仅归为“掩盖旧问题”。底层紧光空间 AABB 在旋转时伸缩、中心对齐的 texel 步长也随之变化。实际 Scene 相机视锥的纯旋转诊断中，第一级宽度从 0° 的 74.8212 m 变为 1° 的 75.4845 m、5° 的 77.9112 m。此诊断未旋转用户相机或修改场景。
+
+改为 Stable CSM：在相机空间求包含每级完整重叠视锥的包围球，半径由投影和分段决定；仅将球心转换到世界空间，再按固定尺寸在光空间对齐中心。XY 过滤核/法线偏移余量和深度余量保留，四级 PCSS、级联过渡和距离淡出保留。纯刚体旋转/平移不会改变投影宽度；FOV、横纵比、分段和阴影距离变化仍会重新计算覆盖。相较紧 AABB 会降低部分贴图利用率，不额外增加贴图分辨率。
+
+同时把 PCSS 蓝噪声旋转从屏幕像素改为光源/世界坐标锚定，尺度采用当前相机第一级的固定世界 texel 尺寸；固定世界点不会在相机旋转时换随机方向。移除不再需要的 receiver screen-size 输入。采样档位仍为 16+16，没有恢复高斯模糊、增加时间累积或引入 shadow cache。
+
+验证：CPU 提取真实级联/包围球/配置函数，384 组旋转和平移测试确认投影宽度相同、固定世界点只有整数 texel 位移；既有 1536 组基本覆盖、3456 组相邻级联/过滤核覆盖及正交、偏心投影、负 near 测试通过。PCSS 算术、相机隔离、40 项 HLSL 和 Editor/Player 条件 API 编译通过。
+
+通过 MCP 在实际 Unity 临时预览场景中复制当前 Scene 相机的投影，并分别旋转 0/.1/1/5/45/90°，调用真实 Cascade.UpdateCascade/ConfigCameraToShadowSpace 与 Unity GPU 投影。四级宽度各自恒定为约 92.06728 / 248.93265 / 551.8214 / 1223.283 m；固定世界点跨姿态的最大非整数 texel 偏差约 **0.00001526 texel**，噪声世界步长恒定约 **0.08990946 m**。临时场景已关闭，源相机及场景不变，正常重绘恢复当前全局参数。MCP 刷新后控制台返回 0 条 error。该检查确认实际矩阵/网格稳定，不替代逐帧画面观感及目标手机耗时验收。
+
+## 已调整／待观感验收（2026-10-21，PCSS 边缘指纹状纹路）
+
+用户确认旋转时阴影不再抖动，但边缘出现指纹/等高线状 pattern。MCP 检查实际蓝噪声纹理为 512²、DXT1、Bilinear、sRGB、10 个 MIP；世界空间连续 UV 经双线性插值后成为相关的旋转角度，低采样 PCSS 可能把这些角度变化显现为结构纹路。压缩和 sRGB 也改变了随机数分布。尚未通过同视角图像对照确认各因素的独立贡献。
+
+将该纹理改为 Point、Repeat、线性、无压缩、关闭 MIP；Shadow.hlsl 使用显式 `sampler_PointRepeat` 和 LOD0，避免替换纹理的过滤设置再次插值随机角度。世界空间锚定、噪声尺度、Stable CSM、阴影分辨率及 16+16 PCSS 预算均保持不变，便于观察本轮修正的效果。无压缩 RGB24 的该纹理约占 768 KiB，不含额外 MIP；未改其他光照或大气资源。
+
+通过 MCP 完成重导入、刷新和 Scene 重绘，实际纹理已确认为 RGB24/Point/sRGB=false/1 MIP。40 项 HLSL 编译及普通/反向 Z 的 PCSS 算术检查通过；实际 Lighting Shader supported=true、无编译 error，但 ShaderUtil 仍报告若干 potentially-uninitialized 警告，未在本轮扩大修改范围。控制台返回 0 条 error，未清空控制台。本轮没有保存同视角前后图像，尚不能宣称图中 pattern 已完全消失；后续根据实际观感决定是否调整噪声密度或采样预算。
+
+## 已修复／待最终画面验收（2026-10-21，PCSS 噪声绑定、类型与尺度）
+
+用户随后反馈 pattern 仍存在但变为块状，因此上一节的纹理导入修正没有解决完整问题。本轮用 Editor 专用 `MaxPcssPatternProbe.shader` 复用真实 PCSS，在同一帧、同一 Scene 相机/GBuffer/ShadowMap 上输出六组可见度遮罩，不修改原相机或场景。发现三个因素：
+
+- 噪声只在 ShadowCaster 构造时绑定；上次重导入后实际 `Shader.GetGlobalTexture("_NoiseTexture")` 为 null，运行时没有逐相机恢复绑定。固定圆盘的低采样结构因此直接显现。
+- `_NoiseTextureResolution` 在 HLSL 中为 float，CPU 却使用 `SetGlobalInteger`；实际浮点全局值为 0、整数全局值为 512。随机方向的坐标缩放没有获得正确的浮点分辨率。
+- 显式恢复纹理绑定和正确浮点参数后，以一个第一级 shadow texel 对应一个随机格子的设计仍然过粗；当前视角该设计值约 0.08990946 m。Point 采样使每个大格子使用同一旋转角，产生新的块状 pattern。上一轮口头描述的“每格约 9 厘米”是设计尺度，不能作为当时缺失绑定/错误参数状态下的实际 GPU 尺度。
+
+现在 `CascadeSettings.Set()` 随每次有效相机级联更新重新绑定当前噪声纹理，并以匹配 HLSL float4 的 SetGlobalVector 上传新参数 `_ShadowNoiseTextureSize`（宽、高）；缺失纹理使用灰色常量纹理兜底，也支持非正方形替换纹理。构造函数不再独占这些输入的初始化。最初直接将旧同名整数槽改为 float，在热重载中留下两条 property-sheet 类型冲突日志，已改用新向量参数名避免 Editor 保留旧全局槽的冲突；没有要求重启编辑器，也未清空控制台。无消费者的旧 `_ShadowMapResolution` 声明及上传一并移除。将世界随机格子细分为原来的 1/16（当前约 **0.005619341 m**），保留光源/世界空间锚定、Stable CSM 及 **16+16** 采样预算。Point/线性/无压缩/LOD0 规则继续保留，没有恢复屏幕模糊或加入时间累积。
+
+同帧 GPU 对照可见：正确绑定但使用粗格子的 `bound16.png` 仍有明显块状；`fine16.png` 中的大块结构被打散为细颗粒；64+64 的 fine64 更平滑，但未应用到默认预算。修正后再次 ForceUpdate 重导入噪声，经正常 Scene 重绘仍确认绑定有效。最终向量参数复测尺寸为 (512,512)，世界格子约 5.62 mm，采样数 16+16。同帧遮罩 `current16.png` 与显式指定 fine16 的图片 SHA256 完全一致（D677E20C42AF87E2F9351FB1007B21378FA939CCA9C1204FA3BAF33CF997F225），确认实际运行时输入与对照使用的修正输入相同。
+
+输出位于 `OfflineBaseline/ShadowPatterns/`（已被 gitignore 排除）；`before_fix16.png` 保留本轮修复前结果。复现：把 `Tools/UnityMcp/CapturePcssPatterns.cs.txt` 内容作为 Unity MCP execute_code 的 code 参数，等待下一次 Scene 重绘及 Editor update 导出。探针仅评估阴影可见度，未对最终曝光、材质或天空进行重新标定。最终源码的 40 项 HLSL 编译、既有级联覆盖/旋转稳定性、Runtime Player/Editor 条件 API 编译检查通过；最终刷新后 MCP 查询返回 0 条 error，未主动清空控制台。静态遮罩验证不等于所有距离、掠射面及相机运动下都无噪点；16 次过滤仍有可见采样颗粒，等待用户最终画面与运动观感验收。
+
+## 已实现／待画面验收（2026-10-21，PCSS 低差异采样与受约束邻域复用）
+
+上一版仍有明显颗粒，用户要求参照 UE。已直接读取本机 UE **5.3.2** 的 `ShadowPercentageCloserFiltering.ush`、`ShadowProjectionPixelShader.usf`、`PixelQuadMessagePassing.ush` 及 `ShadowRendering.cpp`。该版本传统 Shadow Map 默认 Uniform PCF，PCSS 标为 experimental；PCSS 的搜索/过滤预算为 16+32，使用屏幕像素/帧序号 Sobol 采样，带有条件的 2×2 搜索统计/过滤共享、接收面逐样本 bias 和遮挡统计驱动的椭圆核。它并非只旋转少量固定圆盘点就输出；VSM/SMRT 另属一条实现。以下是适配当前管线的空间重建子集，没有宣称完整复刻 UE。
+
+默认档改为 **16 次 blocker 搜索＋32 次过滤**，保留 16/32/64 可选档。运行时圆盘改为带数字移位的二维 Sobol 网格，经同心方形到圆盘映射采样；两组世界锚定的蓝噪声数值分别移位两维，避免只旋转固定点表。未引入随帧变化的种子，因此不依赖尚不存在的历史累积。旧 Vogel 点表只在 Editor 对照宏启用时编译，不进入生产默认分支。当前方向光角半径 PCSS、四级投影和过渡均保留。
+
+增加 Lighting 内的 2×2 可见度复用，不分配阴影遮罩 RT 或增加高斯模糊 Pass。只向通过有效性、法线相似性、双向接收平面距离及相同级联/混合带状态检查的邻居借用结果；当屏幕像素在光空间的足迹接近/超过 shadow texel 时减弱/禁用复用。强度上限 0.75，保留中心像素贡献。它复用最终可见度，没有共享 blocker 搜索统计，也没有移植 UE 的椭圆核或逐样本 receiver-plane bias。没有 primitive ID，不能保证区分所有极近且共面的不同物体；零间隙共面接收面本就具有连续的阴影场。
+
+把阴影评估从 PBR_Shading 内移到全屏 Fragment，在背景 return/discard 之前调用。PCSS 内部的有效性/级联分支先收敛，再执行所有四个 lane 的 ddx_fine/ddy_fine 邻居读取；不能在背景 lane 提前退出后再借邻居。已经重建的 visibility 作为参数传入 PBR_Shading，仅作用于太阳直射。既有诊断模式 2～5 用 draw-wide uniform 条件跳过阴影处理。
+
+原随机格子为第一级 shadow texel 的 1/16，在当前近景横跨数个屏幕像素，使邻居高度相关。现改为 **1/128**，当前格宽约 **0.00070241763 m**，仍固定于光源/世界坐标。调整只改变随机采样密度，不改变 Stable CSM 的投影宽度或中心对齐。FOV/投影改变仍会更新尺度；无时间重建时，移动相机下的细噪声仍需用户验收。
+
+GPU 同帧对照：在当前 Scene 相机 1397×780 输出八组遮罩，区分旧 Vogel 16/32、Sobol 16/32、粗/细随机格子，以及有无 quad 复用。输出位于 `OfflineBaseline/ShadowSamplingReview/`（忽略的生成物），复现入口仍为 `Tools/UnityMcp/CapturePcssPatterns.cs.txt`。探针把 raw/quad 拆为独立 Pass，修正了最初合并分支版本触发的 Unity ShaderCompiler IPC 错误；最终生产 Lighting 和两个诊断 Shader supported=true，ShaderUtil 无 error，控制台查询 0 条 error，未主动清空控制台。
+
+以下指标由 `Tools/AnalyzePcssPatterns.py` 从 **8-bit 线性可见度 PNG** 计算：以 64+64/quad 遮罩的 0.1～0.9 区域选择半影，sigma=2 像素高通 RMS 仅用作高频起伏代理，不是渲染中的滤波，也不是光追真值误差。64+64 对照本身未收敛。当前同帧结果：
+
+| 方案 | 半影高通 RMS | 相对 64+64/quad 的 RMSE |
+| --- | --- | --- |
+| 旧 Vogel 16+16、旧格子 | 0.019610 | 0.024605 |
+| 旧 Vogel 16+32、旧格子 | 0.015629 | 0.020236 |
+| Sobol 16+32 raw、旧格子 | 0.016623 | 0.021832 |
+| Sobol 16+32 quad、旧格子 | 0.013644 | 0.019064 |
+| Sobol 16+32 raw、细格子 | 0.020851 | 0.020747 |
+| **当前 Sobol 16+32 quad、细格子** | **0.012407** | **0.012655** |
+| 64+64 quad、细格子（仅对照） | 0.004726 | 0 |
+
+当前相较旧 16+16 的高频起伏代理约下降 **36.7%**。结果说明细格子必须配合邻域复用；单独换 Sobol 或缩小格子没有消灭噪声。实际图像仍有细颗粒，不能以这个指标声称已经达到 UE 最终画面质量。
+
+验证：`ValidateDirectPcss.ps1` 执行提取的真实采样/PCSS 函数，在普通/反向 Z 各九组预算验证接触收紧、深度原点平移、全亮/全暗、零半径和提前退出；补充 Sobol 二维分层、移位后的圆盘矩统计、接收面/法线/背景/级联拒绝。`Tools/UnityMcp/ValidatePcssReuse.cs.txt` 在实际 D3D11 GPU 上调用生产 quad 函数：同面复用得到 0.37116/0.62884；平行错开、背景、法线突变、跨级联、跨混合带和大足迹六种拒绝条件均保持 0/1；全暗/全亮保持不变，共九项、最大拒绝误差为 0。43 项 HLSL 编译、Runtime Player/Editor 条件 API 编译、CSM 覆盖/旋转稳定性、相机隔离及 HDR 输出检查通过。最终活动管线读到搜索 16、过滤 32、阴影图分辨率 1024。
+
+本轮新增了过滤采样、Sobol 映射/噪声读取和导数计算成本，尚未取得目标手机 GPU 计时或 Player 构建验收。没有增加 GI、shadow cache、VSM、TAA 或阴影历史缓冲；当前不是无噪声完成态，剩余画面和运动质量继续单独评估。
+
+
+## 已修复问题 33. [P2] 分开渲染的活动相机会反复释放彼此的 GBuffer 与输出目标
+
+状态：**2026-10-21 接入 TAA 时修复。以下为原始问题描述，修复及复测见下节。**
+
+位置：[MaxRendererPipeline.cs:50](Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs:50)、[MaxRendererPipeline.cs:243](Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs:243)、[MaxRendererPipeline.cs:257](Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs:257)。
+
+`PruneCameraResources` 将不在本次 `Render(cameras)` 数组中的相机释放，`PruneOutputResources` 同样只保留本次输出键。Scene、Game、材质预览等可能来自不同 Render 调用；缺席一次调用不等于相机销毁。后一次调用再为仍存活的相机分配资源，形成往返重建。天空 LUT 的 `PruneDestroyedCameras` 已经按存活状态处理，但 GBuffer/输出缓存尚未采用相同原则。
+
+复现：执行提取的真实清理函数，传入仍存活的 A/B 两个相机及不同输出键，本次只渲染 A，B 的相机资源与输出都被 Dispose；A 被保留。B 下次渲染会重新分配。1920×1080 下仅四张 GBuffer 彩色纹理的逻辑存储就约 **63.28 MiB/相机**，尚未计深度、HDR 和阴影目标。
+
+处理建议：按相机销毁、输出对象销毁或带宽限的最后使用时间回收，不以一次调用的摄像机列表判定全局失效。用同屏 Scene/Game 和预览交替的真实资源实例 ID、分配量及帧时间做复测。
+
+
+## 已实现／待动态画面与真机验收（2026-10-21，原生分辨率全画面 TAA）
+
+按基础设施定位接入原生分辨率 TAA，不实现超分。采用成熟的 Salvi 方差裁剪、YCoCg 颜色体积和 Catmull–Rom 历史重建；参数与工程适配由本管线持有，不引入独立阴影时间历史。完整跨模块约定见 `Documentation/TemporalAA.md`，已加入 AGENTS.md。
+
+- 每相机无 jitter/有 jitter 矩阵、8 点 Halton、独立历史与显式 cut API；剔除和 Stable CSM 保持无 jitter，剔除边界保守扩展一像素。大气 LUT 仍为无 jitter 方向，Lighting 查询减去 jitter，生成 LUT 后恢复相机栅格矩阵。
+- 新增 MotionVectors Pass：Unity 原生上一物体矩阵和蒙皮旧顶点约定；有符号 UV 速度、上一眼空间深度及有效性独立保存，GBuffer1.a 声明材质的时间契约。Unity 省略 Camera-only 物体绘制时采用相机重投影，ForceNoMotion 拒绝历史；未声明支持的几何体不能静默冒充有效零速度。
+- Lighting、雾与天空统一进入 HDR TAA，然后输出曝光、tone mapping 和 dithering。Editor gizmos 在解析后绘制；天空方向重投影忽略平移，正交天空转动时不复用旧方向。
+- 正式运行路径删除 PCSS 2×2 邻域平均，旧 quad 仅由 Editor 诊断宏包含。TAA 启用时 PCSS 推进独立 R2 相位，关闭时保持世界固定相位。半影公式、太阳角、光照能量约定未修改。
+- 相机 cut、投影/尺寸/视窗/目标变化、RT 丢失或销毁、长时间不渲染时重置。Scene 初始以及相机/太阳变化后主动推进收敛帧。多相机共享输出的同次 Render、Depth/Nothing 叠加、XR、反射和 Preview 旁路，不承诺多投影堆叠已支持。
+- **问题 33 修复**：不再以本次 Render 数组释放其他活动相机的 GBuffer/HDR 输出；按销毁及输出迁移清理。提取真实清理函数的反例现返回 OtherLiveCameraResourcesDisposed=false、OtherLiveOutputDisposed=false；真实 Unity TAA 双相机生命周期夹具也保留另一相机历史。
+
+验证：54 项 HLSL SM5 检查（包括普通 Z、上下纹理原点的模拟分支）及 Runtime Player/Editor 条件的 Unity API 编译通过。阴影稳定拟合、PCSS、相机隔离、视窗与 HDR 输出既有检查通过；这不是 Android Shader 编译或 Player 构建。
+
+Unity MCP 实测生产 Shader 的 12 项 GPU 夹具通过：常量、合成噪声、硬阶跃、深度拒绝、越界、ForceNoMotion、历史重置、天空、横向/纵向速度、Camera-only 回退及不支持材质拒绝。合成 ±0.05 噪声在给定有效历史下 RMS 约 0.00294；该数字不代表实际 PCSS 降噪比例。硬阶跃在该静止夹具中的最大误差约 0.000195（FP16 量化量级），不代表运动边缘无模糊。
+
+11 项真实 Unity 矩阵/资源生命周期检查通过，包括不修改相机投影、双相机隔离、显式 cut、Release 与 DestroyImmediate 恢复、旁路及 depthTextureMode 恢复。隔离 Game 相机实际 DrawRenderers 复测：刚体水平平移 0.3 m、前表面深度 4.5 m 的平均 UV 速度为 0.04327393，与投影参考 0.04330127 相符；Camera-only 省略物体 Pass 后仍有有效历史计数 3；ForceNoMotion 的 529 个几何像素拒绝历史，计数回到 1。初测发现的模式位方向错误已在正式源码修正后重测。
+
+当前 Scene 同帧 HDR 输入/解析输出及运动纹理已导出，非有限值均为 0。图像和报告位于忽略目录 `OfflineBaseline/TemporalAA`。移动阴影拖影、蒙皮动画、透明反应性、Player 构建及手机 GPU 带宽/功耗尚未完整验收。新增持久 RT 约 40 字节/像素，1080p 约 79.1 MiB/启用相机；这版是正确性基线，不能当作移动性能优化已完成。
+## 已修复／当前视角复测通过（2026-10-21，PCSS 接收平面比较深度）
+
+用户反馈全画面 TAA 接入后仍有固定的斜线/阶梯 pattern。本次通过当前 Scene 相机的纯阴影可见度对照定位：原算法即使对 64 blocker + 64 PCF、32 组相位取平均，固定条纹仍存在；把 normal map 换为平面法线也不消失。它是偏移采样的比较深度错误，不能靠增加 TAA 历史消除。
+
+旧 PCSS 把中心像素比较深度用于整个搜索/过滤核；斜面上各偏移位置对应的接收深度不同，造成错误自遮挡、blocker 统计污染和固定条纹。现在每次采样按接收几何平面计算 device-depth 偏移；搜索时先用偏移后的接收深度分类，再把 blocker 深度换回中心参考后求均值；PCF 也使用各采样位置的接收深度。算法依据见 [Microsoft CSM：Per-Texel Depth Bias](https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps#calculating-a-per-texel-depth-bias-with-ddx-and-ddy-for-large-pcfs)。
+
+世界位置导数在背景返回与级联分支前计算，不使用法线贴图拟合几何。每级通过 shadow VP 的方向变换求 device-depth/UV 梯度，统一 UV Y 与普通/反向 Z；归一化导数避免近距离微小像素足迹造成阈值退化，避免直接相减大投影深度的消减误差。深度轮廓突变、退化/非有限导数回退原有 bias。原有 bias、角半径、世界半影上限、Stable CSM、采样预算和 TAA 参数未调整，也未增加可见度空间平均。
+
+验证：`ValidatePcssReceiverPlane.cs.txt` 直接调用生产 Shader。倾斜平面在 16/32/64 次搜索下旧逻辑分别得到 7/13/26 个假 blocker，校正后均为 0；导数尺度 1e-6、1、1e4 三档的梯度均为 (0.4,0.2)，共 9 项 GPU 检查通过。普通/反向 Z 的实际 PCSS CPU 夹具、9 组采样预算、接触硬化、全亮/全暗、近原点平移与早退均通过；56 项 HLSL 检查通过；几何导数计算顺序已加入 `ValidateSceneShadows` 回归。
+
+当前相机的同帧 A/B 位于忽略目录 `OfflineBaseline/PcssConvergence`：oldMean64 与 correctedMean64、oldMean32 与 correctedMean32；固定斜向阶梯在校正组消退。`FinalColor/resolved.png` 为正式 Lighting + TAA 输出，颜色/运动读回均无 NaN/Inf；仍有有限采样的细噪声，不把此次修复宣称为所有角度或移动阴影都已验收。
+
+诊断修正：Unity 的旧 SetInt/SetGlobalInt 浮点上传接口不能用于当前 HLSL int 预算；本次诊断与旧 `CapturePcssPatterns` 已改为 SetGlobalInteger，并在绘制后恢复预算。**前面“PCSS 低差异采样/受约束邻域复用”记录中的 GPU 16/32/64 预算对照没有可靠覆盖整数参数，相关预算间误差与降噪百分比不能继续作为定量结论**；本节使用修正后的上传与实际采样结果复测。斜面夹具纹理/矩阵改为绘制局部绑定，避免改变运行管线全局阴影纹理。Editor 隐藏时诊断脚本显式渲染 Scene 相机，避免把过期文件或超时输出当作新结果。

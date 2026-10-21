@@ -1,0 +1,54 @@
+var folder="D:/UnityProject/MaxSRP/OfflineBaseline/PcssConvergence";System.IO.Directory.CreateDirectory(folder);
+var shader=UnityEngine.Shader.Find("Hidden/MaxSRP/PcssConvergenceProbe");
+if(shader==null || !shader.isSupported)throw new System.Exception("Missing convergence probe");
+System.Action<UnityEngine.Rendering.CommandBuffer,UnityEngine.Camera,UnityEngine.RenderTexture,UnityEngine.RenderTexture,UnityEngine.RenderTexture> capture=null;
+double started=UnityEditor.EditorApplication.timeSinceStartup;
+UnityEditor.EditorApplication.CallbackFunction timeout=null;
+capture=(cmd,camera,source,resolved,motion)=>{
+    if(camera.cameraType!=UnityEngine.CameraType.SceneView)return;
+    MaxSRP.MaxTemporalAAPass.EditorResolveCapture-=capture;UnityEditor.EditorApplication.update-=timeout;
+    var targets=new System.Collections.Generic.List<UnityEngine.RenderTexture>();
+    var materials=new System.Collections.Generic.List<UnityEngine.Material>();
+    var labels=new[]{"oldRaw32","correctedRaw32","oldMean64","correctedMean64","correctedFlatMean64","oldFlatMean64","correctedMean32","oldMean32"};
+    int previousBlocker=UnityEngine.Shader.GetGlobalInteger("_PcssBlockerSamples"),previousFilter=UnityEngine.Shader.GetGlobalInteger("_PcssFilterSamples");
+    UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);
+    for(int v=0;v<labels.Length;++v){
+        var rt=new UnityEngine.RenderTexture(700,356,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);
+        rt.Create();targets.Add(rt);
+        var mat=new UnityEngine.Material(shader);materials.Add(mat);
+        cmd.SetRenderTarget(rt);cmd.SetViewport(new UnityEngine.Rect(0,0,rt.width,rt.height));cmd.ClearRenderTarget(false,true,UnityEngine.Color.clear);
+        int count=v>=2 ? 32 : 1;
+        for(int f=0;f<count;++f){
+            var block=new UnityEngine.MaterialPropertyBlock();
+            block.SetFloat("_MainLightShadowsAvailable",1);block.SetMatrix("_ShadowReceiverView",camera.worldToCameraMatrix);
+            cmd.SetGlobalInteger("_PcssBlockerSamples",v<2 || v>=6 ? 16 : 64);cmd.SetGlobalInteger("_PcssFilterSamples",v<2 || v>=6 ? 32 : 64);
+            block.SetVector("_PcssProbe",new UnityEngine.Vector4(1f/count,v==4 || v==5 ? 1 : 0,v==1 || v==3 || v==4 || v==6 ? 1 : 0,0));
+            if(count>1)block.SetVector("_MaxTemporalPhase",new UnityEngine.Vector4(1,UnityEngine.Mathf.Repeat((f+.5f)*.754877666f,1),UnityEngine.Mathf.Repeat((f+.5f)*.569840296f,1),0));
+            cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,mat,count>1 ? 1 : 0,UnityEngine.MeshTopology.Triangles,3,1,block);
+        }
+    }
+    cmd.SetGlobalInteger("_PcssBlockerSamples",previousBlocker);cmd.SetGlobalInteger("_PcssFilterSamples",previousFilter);
+    UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);
+    double due=UnityEditor.EditorApplication.timeSinceStartup+.3;
+    UnityEditor.EditorApplication.CallbackFunction finish=null;
+    finish=()=>{
+        if(UnityEditor.EditorApplication.timeSinceStartup<due)return;
+        UnityEditor.EditorApplication.update-=finish;var active=UnityEngine.RenderTexture.active;
+        try{for(int i=0;i<targets.Count;++i){
+            var rt=targets[i];var tex=new UnityEngine.Texture2D(rt.width,rt.height,UnityEngine.TextureFormat.RGBAFloat,false,true);
+            try{UnityEngine.RenderTexture.active=rt;tex.ReadPixels(new UnityEngine.Rect(0,0,rt.width,rt.height),0,0);tex.Apply();
+                System.IO.File.WriteAllBytes(folder+"/"+labels[i]+".exr",tex.EncodeToEXR(UnityEngine.Texture2D.EXRFlags.OutputAsFloat));
+                var colors=tex.GetPixels();var floats=new float[colors.Length];for(int k=0;k<colors.Length;++k)floats[k]=colors[k].r;
+                var bytes=new byte[floats.Length*4];System.Buffer.BlockCopy(floats,0,bytes,0,bytes.Length);System.IO.File.WriteAllBytes(folder+"/"+labels[i]+".f32",bytes);
+                var png=new UnityEngine.Texture2D(rt.width,rt.height,UnityEngine.TextureFormat.RGBA32,false,true);
+                try{png.SetPixels(colors);png.Apply();System.IO.File.WriteAllBytes(folder+"/"+labels[i]+".png",png.EncodeToPNG());}finally{UnityEngine.Object.DestroyImmediate(png);}
+            }finally{UnityEngine.Object.DestroyImmediate(tex);}
+        }}finally{UnityEngine.RenderTexture.active=active;foreach(var rt in targets)UnityEngine.Object.DestroyImmediate(rt);foreach(var mat in materials)UnityEngine.Object.DestroyImmediate(mat);}
+    };UnityEditor.EditorApplication.update+=finish;
+};
+timeout=()=>{if(UnityEditor.EditorApplication.timeSinceStartup-started<20)return;MaxSRP.MaxTemporalAAPass.EditorResolveCapture-=capture;UnityEditor.EditorApplication.update-=timeout;};
+MaxSRP.MaxTemporalAAPass.EditorResolveCapture+=capture;UnityEditor.EditorApplication.update+=timeout;
+UnityEditor.SceneView.RepaintAll();UnityEditor.EditorApplication.QueuePlayerLoopUpdate();
+// Explicit rendering also works when an unfocused/hidden Editor does not repaint.
+if(UnityEditor.SceneView.lastActiveSceneView!=null)UnityEditor.SceneView.lastActiveSceneView.camera.Render();
+return "Queued PCSS visibility convergence variants";

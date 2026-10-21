@@ -32,6 +32,21 @@ Shader "Unlit/PBRGBuffer"
 
         Pass
         {
+            Name "MotionVectors"
+            Tags { "LightMode" = "MotionVectors" }
+            ZWrite Off
+            ZTest Equal
+            Cull Back
+            HLSLPROGRAM
+            #pragma target 5.0
+            #pragma vertex MaxMotionVertex
+            #pragma fragment MaxMotionFragment
+            #include "MotionVectorsPass.hlsl"
+            ENDHLSL
+        }
+
+        Pass
+        {
             Name "ShadowCaster"
             Tags{"LightMode" = "ShadowCaster"}
 

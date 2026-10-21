@@ -1,0 +1,51 @@
+// Isolated real DrawRenderers/MotionVectors path; no scene asset is changed.
+var utility=new UnityEditor.PreviewRenderUtility();bool open=false;
+var material=new UnityEngine.Material(UnityEngine.Shader.Find("Unlit/PBRGBuffer"));
+var reports=new System.Collections.Generic.List<string>();
+var active=UnityEngine.RenderTexture.active;
+try{
+    var cube=UnityEngine.GameObject.CreatePrimitive(UnityEngine.PrimitiveType.Cube);
+    cube.hideFlags=UnityEngine.HideFlags.HideAndDontSave;utility.AddSingleGO(cube);
+    var renderer=cube.GetComponent<UnityEngine.Renderer>();renderer.sharedMaterial=material;renderer.motionVectorGenerationMode=UnityEngine.MotionVectorGenerationMode.Object;
+    var camera=utility.camera;camera.cameraType=UnityEngine.CameraType.Game;
+    camera.transform.position=new UnityEngine.Vector3(0,0,-5);camera.transform.rotation=UnityEngine.Quaternion.identity;
+    camera.depthTextureMode=UnityEngine.DepthTextureMode.Depth|UnityEngine.DepthTextureMode.MotionVectors;camera.nearClipPlane=.1f;camera.farClipPlane=50;camera.fieldOfView=60;
+    camera.clearFlags=UnityEngine.CameraClearFlags.SolidColor;
+    utility.BeginPreview(new UnityEngine.Rect(0,0,160,120),UnityEngine.GUIStyle.none);open=true;
+    var pipeline=UnityEngine.Rendering.RenderPipelineManager.currentPipeline;
+    var taa=pipeline.GetType().GetField("m_temporalAA",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance).GetValue(pipeline);
+    var states=(System.Collections.IDictionary)taa.GetType().GetField("m_histories",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance).GetValue(taa);
+    for(int step=0;step<4;++step){
+        if(step==1)cube.transform.position=new UnityEngine.Vector3(.3f,0,0);
+        if(step==2){renderer.motionVectorGenerationMode=UnityEngine.MotionVectorGenerationMode.Camera;camera.transform.position+=new UnityEngine.Vector3(.2f,0,0);}
+        if(step==3){renderer.motionVectorGenerationMode=UnityEngine.MotionVectorGenerationMode.ForceNoMotion;cube.transform.position+=new UnityEngine.Vector3(.1f,0,0);}
+        utility.Render(true,false);
+        if(!states.Contains(camera.GetInstanceID()))throw new System.Exception("Preview did not enter the Game-camera TAA path");
+        var state=(MaxSRP.MaxTemporalAAPass.CameraHistory)states[camera.GetInstanceID()];
+        var read=new UnityEngine.Texture2D(state.Width,state.Height,UnityEngine.TextureFormat.RGBAFloat,false,true);
+        try{
+            UnityEngine.RenderTexture.active=state.Motion;read.ReadPixels(new UnityEngine.Rect(0,0,state.Width,state.Height),0,0);read.Apply();
+            var pixels=read.GetPixels();double x=0,z=0;int count=0;
+            foreach(var p in pixels)if(p.a>.5f){x+=p.r;z+=p.b;++count;}
+            x/=System.Math.Max(1,count);z/=System.Math.Max(1,count);
+            if(step<2&&count<100)throw new System.Exception("No object motion coverage");
+            if(step==1 && System.Math.Abs(x-.04330127)>.0002)throw new System.Exception("Rigid object translation did not produce positive UV velocity: "+x);
+
+            int rejected=0;foreach(var p in pixels)if(p.a<-.5f)++rejected;
+            if(step==2 && count!=0) throw new System.Exception("Expected native Camera-only fallback");
+            if(step==3 && rejected<100) throw new System.Exception("ForceNoMotion did not reject object history");
+                        UnityEngine.RenderTexture.active=state.Depths[state.Index];read.ReadPixels(new UnityEngine.Rect(0,0,state.Width,state.Height),0,0);read.Apply();
+            float maximumCount=0;foreach(var p in read.GetPixels())if(p.r>0)maximumCount=UnityEngine.Mathf.Max(maximumCount,p.g);
+            if(step==2 && maximumCount<=1)throw new System.Exception("Camera-only fallback did not retain any valid history");
+            if(step==3 && maximumCount>1.01f)throw new System.Exception("ForceNoMotion retained object history");
+            reports.Add("maxHistory="+maximumCount+" step="+step+" covered="+count+" rejected="+rejected+" meanMotionX="+x+" previousEyeDepth="+z);
+        }finally{UnityEngine.Object.DestroyImmediate(read);}
+    }
+}finally{
+    UnityEngine.RenderTexture.active=active;
+    if(open)utility.EndPreview();utility.Cleanup();UnityEngine.Object.DestroyImmediate(material);
+    UnityEditor.SceneView.RepaintAll();
+}
+System.IO.Directory.CreateDirectory("D:/UnityProject/MaxSRP/OfflineBaseline/TemporalAA");
+System.IO.File.WriteAllLines("D:/UnityProject/MaxSRP/OfflineBaseline/TemporalAA/motion.txt",reports.ToArray());
+return reports.ToArray();

@@ -46,6 +46,13 @@ public static class MaxSrpNativeShaderCheck {
 "@
 $taskDefines="#define SHADER_API_D3D11 1`n#define UNITY_COMPILER_HLSL 1`n#define SHADER_TARGET 50`n#define UNITY_VERSION 202230`n"
 $taskChecks=@(
+ @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','ConvergenceFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','PlaneFixtureFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaVertex','vs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaResolve','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaCopy','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionVertex','vs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionFragment','ps_5_0'),
  @('Assets/MaxRendererPipeline/Editor/MaxSkyHaloDiagnostics.compute','SkyHaloComparison','cs_5_0'),
  @('Assets/MaxRendererPipeline/Editor/MaxAtmosphereReferenceProbes.compute','AtmosphereReferenceProbes','cs_5_0'),
  @('Assets/MaxRendererPipeline/Editor/MaxImportedTextureExport.compute','ExportImportedMip','cs_5_0'),
@@ -58,13 +65,11 @@ $taskChecks=@(
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','BuildDynamicBRDF','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRLitPass.hlsl','PBRVertex','vs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRLitPass.hlsl','PBRFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxPcssPatternProbe.hlsl','PatternRawFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxPcssPatternProbe.hlsl','PatternFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxPcssReuseFixture.hlsl','ReuseFixtureFragment','ps_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferVertex','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/ScreenSpaceShadowMapPass.hlsl','vert','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/ScreenSpaceShadowMapPass.hlsl','frag','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/ScreenSpaceShadowMapPass.hlsl','vert_v','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/ScreenSpaceShadowMapPass.hlsl','vert_h','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/ScreenSpaceShadowMapPass.hlsl','fragBlur','ps_5_0')
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferFragment','ps_5_0')
 )
 foreach($name in @('TransmittanceLUT','MultiscatteringLUT','SkyviewLUT','AerialPerspectiveLUT','SkyboxProcedural')){
  $path='Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/'+$name+'Pass.hlsl'
@@ -87,7 +92,6 @@ foreach($variant in @('OrdinaryGLDepth','RGBNormal','ASTCNormal')) {
  foreach($check in @(
   @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRLitPass.hlsl','PBRFragment'),
   @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferFragment'),
-  @('Assets/MaxRendererPipeline/Shaders/Realtime/ScreenSpaceShadowMapPass.hlsl','frag'),
   @('Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUTPass.hlsl','frag'),
   @('Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/SkyboxProceduralPass.hlsl','frag')
  )) {
@@ -96,6 +100,20 @@ foreach($variant in @('OrdinaryGLDepth','RGBNormal','ASTCNormal')) {
   elseif($variant -eq 'RGBNormal'){$source="#define UNITY_NO_DXT5nm 1`n"+$source}
   else{$source="#define UNITY_ASTC_NORMALMAP_ENCODING 1`n"+$source}
   [MaxSrpNativeShaderCheck]::Compile($source,$check[0],$check[1],'ps_5_0')
+  Write-Output ('PASS: '+$variant+' '+$check[1])
+ }
+}
+
+foreach($variant in @('OrdinaryGLDepth','BottomOrigin')) {
+ foreach($check in @(
+  @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaResolve','ps_5_0'),
+  @('Assets/MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionVertex','vs_5_0'),
+  @('Assets/MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionFragment','ps_5_0')
+ )) {
+  $source=$taskDefines+(Expand-TaskShader (Join-Path $taskRoot $check[0]))
+  if($variant -eq 'OrdinaryGLDepth'){$source=[regex]::Replace($source,'(?m)^#define UNITY_REVERSED_Z 1\r?$','// Ordinary depth emulation')}
+  else{$source=[regex]::Replace($source,'(?m)^#define UNITY_UV_STARTS_AT_TOP 1\r?$','#define UNITY_UV_STARTS_AT_TOP 0')}
+  [MaxSrpNativeShaderCheck]::Compile($source,$check[0],$check[1],$check[2])
   Write-Output ('PASS: '+$variant+' '+$check[1])
  }
 }

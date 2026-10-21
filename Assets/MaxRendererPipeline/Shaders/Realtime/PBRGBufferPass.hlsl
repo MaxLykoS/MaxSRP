@@ -66,7 +66,9 @@ void PBRGBufferFragment(
     bump = normalize(mul(bump, TBN));
 
     GBuffer0 = albedo;
-    GBuffer1 = float4(bump * 0.5 + 0.5, 0);
+    // Alpha declares this material's temporal contract. Unity can omit object
+    // MotionVectors draws for Camera-only renderers; camera reprojection is valid.
+    GBuffer1 = float4(bump * 0.5 + 0.5, 1);
     GBuffer2 = float4(0, 0, roughness, metalness);
     GBuffer3 = float4(0, 0, 0, 0);
 }

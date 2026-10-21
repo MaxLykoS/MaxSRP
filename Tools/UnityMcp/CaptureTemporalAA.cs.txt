@@ -1,0 +1,68 @@
+// Capture actual same-frame inputs/output after eight Scene-view resolves.
+var output="D:/UnityProject/MaxSRP/OfflineBaseline/TemporalAA";
+System.IO.Directory.CreateDirectory(output);
+int frames=0;
+double start=UnityEditor.EditorApplication.timeSinceStartup;
+System.Action<UnityEngine.Rendering.CommandBuffer,UnityEngine.Camera,UnityEngine.RenderTexture,UnityEngine.RenderTexture,UnityEngine.RenderTexture> capture=null;
+UnityEditor.EditorApplication.CallbackFunction timeout=null;
+capture=(cmd,camera,source,resolved,motion)=>{
+    if(camera.cameraType!=UnityEngine.CameraType.SceneView || ++frames<8) return;
+    MaxSRP.MaxTemporalAAPass.EditorResolveCapture-=capture;
+    UnityEditor.EditorApplication.update-=timeout;
+    var inputs=new[]{source,resolved,motion};
+    var labels=new[]{"current","resolved","motion"};
+    var copies=new UnityEngine.RenderTexture[3];
+    for(int i=0;i<3;++i){
+        copies[i]=new UnityEngine.RenderTexture(inputs[i].width,inputs[i].height,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);
+        copies[i].Create();cmd.Blit(inputs[i],copies[i]);
+    }
+    var setting=((MaxSRP.MaxRendererPipelineAsset)UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline).ColorOutput;
+    float exposure=setting.GetExposureMultiplier();
+    double due=UnityEditor.EditorApplication.timeSinceStartup+.25;
+    UnityEditor.EditorApplication.CallbackFunction finish=null;
+    finish=()=>{
+        if(UnityEditor.EditorApplication.timeSinceStartup<due)return;
+        UnityEditor.EditorApplication.update-=finish;
+        var previous=UnityEngine.RenderTexture.active;
+        var rows=new System.Collections.Generic.List<string>();
+        try{
+            for(int i=0;i<3;++i){
+                var rt=copies[i];var pixels=new UnityEngine.Texture2D(rt.width,rt.height,UnityEngine.TextureFormat.RGBAFloat,false,true);
+                UnityEngine.RenderTexture.active=rt;pixels.ReadPixels(new UnityEngine.Rect(0,0,rt.width,rt.height),0,0);pixels.Apply();
+                try{
+                    System.IO.File.WriteAllBytes(output+"/"+labels[i]+".exr",pixels.EncodeToEXR(UnityEngine.Texture2D.EXRFlags.OutputAsFloat));
+                    var colors=pixels.GetPixels();int invalid=0,valid=0;
+                    for(int k=0;k<colors.Length;++k){
+                        var c=colors[k];if(float.IsNaN(c.r)||float.IsInfinity(c.r)||float.IsNaN(c.g)||float.IsInfinity(c.g)||float.IsNaN(c.b)||float.IsInfinity(c.b))++invalid;
+                        if(c.a>.5f)++valid;
+                        if(i<2){
+                            for(int channel=0;channel<3;++channel){
+                                float v=UnityEngine.Mathf.Max(0,c[channel])*exposure;
+                                if(setting.ToneMapping==MaxSRP.ToneMappingMode.ACES) v=UnityEngine.Mathf.Clamp01((v*(2.51f*v+.03f))/(v*(2.43f*v+.59f)+.14f));
+                                c[channel]=UnityEngine.Mathf.LinearToGammaSpace(v);
+                            }c.a=1;colors[k]=c;
+                        }
+                    }
+                    rows.Add(labels[i]+" size="+rt.width+"x"+rt.height+" nonfinite="+invalid+" positiveAlpha="+valid);
+                    if(i<2){var png=new UnityEngine.Texture2D(rt.width,rt.height,UnityEngine.TextureFormat.RGBA32,false,true);try{png.SetPixels(colors);png.Apply();System.IO.File.WriteAllBytes(output+"/"+labels[i]+".png",png.EncodeToPNG());}finally{UnityEngine.Object.DestroyImmediate(png);}}
+                }finally{UnityEngine.Object.DestroyImmediate(pixels);}
+            }
+            System.IO.File.WriteAllLines(output+"/scene_capture.txt",rows.ToArray());
+        }finally{UnityEngine.RenderTexture.active=previous;foreach(var rt in copies)UnityEngine.Object.DestroyImmediate(rt);}
+    };
+    UnityEditor.EditorApplication.update+=finish;
+};
+timeout=()=>{
+    if(UnityEditor.EditorApplication.timeSinceStartup-start<20)return;
+    MaxSRP.MaxTemporalAAPass.EditorResolveCapture-=capture;UnityEditor.EditorApplication.update-=timeout;
+    System.IO.File.WriteAllText(output+"/capture_error.txt","No eight Scene-view resolves within 20 seconds");
+};
+MaxSRP.MaxTemporalAAPass.EditorResolveCapture+=capture;
+UnityEditor.EditorApplication.update+=timeout;
+var active=UnityEditor.SceneView.lastActiveSceneView;
+if(active!=null)((MaxSRP.MaxRenderPipeline)UnityEngine.Rendering.RenderPipelineManager.currentPipeline).ResetTemporalHistory(active.camera);
+UnityEditor.SceneView.RepaintAll();UnityEditor.EditorApplication.QueuePlayerLoopUpdate();
+// Editor repaint requests may stall while the app is hidden. This static-scene
+// diagnostic can explicitly render its eight samples without requiring focus.
+if(active!=null && !UnityEngine.Application.isPlaying)for(int i=0;i<8;++i)active.camera.Render();
+return "Queued same-frame TAA capture";

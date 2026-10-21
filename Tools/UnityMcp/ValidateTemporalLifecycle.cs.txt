@@ -1,0 +1,44 @@
+var shader=UnityEngine.Shader.Find("Hidden/MaxSRP/TemporalAA");
+var taa=new MaxSRP.MaxTemporalAAPass(shader);
+var scene=UnityEditor.SceneManagement.EditorSceneManager.NewPreviewScene();
+var owned=new System.Collections.Generic.List<UnityEngine.Object>();
+var reports=new System.Collections.Generic.List<string>();
+System.Action<bool,string> require=(ok,label)=>{if(!ok)throw new System.Exception(label);reports.Add("PASS "+label);};
+try{
+    var go=new UnityEngine.GameObject("Temporal contract fixture");UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(go,scene);
+    var camera=go.AddComponent<UnityEngine.Camera>();camera.enabled=false;
+    var rt=new UnityEngine.RenderTexture(80,60,0);rt.Create();owned.Add(rt);camera.targetTexture=rt;
+    camera.depthTextureMode=UnityEngine.DepthTextureMode.Depth;
+    var original=camera.projectionMatrix;
+    var settings=new MaxSRP.TemporalAASettings();
+    var h=taa.Begin(camera,settings,true);
+    require(h!=null&&!h.Valid&&h.Width==80&&h.Height==60,"new history begins invalid at native resolution");
+    float matrixError=0;for(int i=0;i<16;++i)matrixError=UnityEngine.Mathf.Max(matrixError,UnityEngine.Mathf.Abs(original[i]-camera.projectionMatrix[i]));
+    require(matrixError==0,"camera projection property is not mutated");
+    var point=new UnityEngine.Vector4(0,0,5,1);
+    var unjittered=h.ViewProjection*point;var jittered=h.Projection*camera.worldToCameraMatrix*point;
+    float dx=.5f*(jittered.x/jittered.w-unjittered.x/unjittered.w);
+    float dy=.5f*(jittered.y/jittered.w-unjittered.y/unjittered.w);if(UnityEngine.SystemInfo.graphicsUVStartsAtTop)dy=-dy;
+    require(UnityEngine.Mathf.Abs(dx-h.Jitter.x)<1e-6f&&UnityEngine.Mathf.Abs(dy-h.Jitter.y)<1e-6f,"raster clip displacement matches texture UV jitter");
+    h.Valid=true;h.Sample=5;h.PreviousProjection=camera.projectionMatrix;h.LastRenderTime=UnityEngine.Time.realtimeSinceStartupAsDouble;h.Rotation=camera.transform.rotation;
+    var go2=new UnityEngine.GameObject("Other temporal camera");UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(go2,scene);
+    var camera2=go2.AddComponent<UnityEngine.Camera>();camera2.enabled=false;camera2.targetTexture=rt;
+    taa.Begin(camera2,settings,true);taa.PruneDestroyedCameras();
+    require(h.Valid&&h.Sample==5&&h.Colors[0].IsCreated(),"other live camera does not evict history");
+    taa.ResetHistory(camera);require(!h.Valid,"explicit camera cut invalidates history");
+    h.Colors[0].Release();var rebuilt=taa.Begin(camera,settings,true);
+    require(!rebuilt.Valid&&rebuilt.Colors[0].IsCreated(),"lost native texture is recreated without history reuse");
+    UnityEngine.Object.DestroyImmediate(rebuilt.Colors[1]);rebuilt=taa.Begin(camera,settings,true);
+    require(!rebuilt.Valid&&rebuilt.Colors[1]!=null&&rebuilt.Colors[1].IsCreated(),"destroyed Unity wrapper recovers safely");
+    require(taa.Begin(camera,settings,false)==null,"shared-output camera stack bypasses TAA");
+    require(camera.depthTextureMode==UnityEngine.DepthTextureMode.Depth,"bypass releases owned motion request and preserves pre-existing depth request");
+    settings.Enabled=false;require(taa.Begin(camera2,settings,true)==null,"disabled TAA bypasses and releases history");
+    settings.Enabled=true;camera.cameraType=UnityEngine.CameraType.Preview;
+    require(taa.Begin(camera,settings,true)==null,"preview diagnostic camera remains deterministic");
+}finally{
+    taa.Dispose();foreach(var o in owned)UnityEngine.Object.DestroyImmediate(o);
+    UnityEditor.SceneManagement.EditorSceneManager.ClosePreviewScene(scene);
+}
+System.IO.Directory.CreateDirectory("D:/UnityProject/MaxSRP/OfflineBaseline/TemporalAA");
+System.IO.File.WriteAllLines("D:/UnityProject/MaxSRP/OfflineBaseline/TemporalAA/lifecycle.txt",reports.ToArray());
+return reports.ToArray();

@@ -51,7 +51,7 @@ namespace MaxSRP {
 "@
 Add-Type -TypeDefinition ($taskHost.Replace('__ORTHO_CODE__',$taskOrthoCode)+"`n"+$taskSource.Replace('using UnityEngine;',''))
 [MaxSRP.CameraViewportChecks]::Run()
-$taskPaths=@('Runtime/MaxRendererPipeline.cs','Runtime/ShaderBinding.cs','Runtime/Passes/MaxSceenSpaceShadowMapPass.cs','Runtime/Passes/MaxShadowCasterPass.cs','Runtime/Passes/MaxProceduralSkybox.cs')
+$taskPaths=@('Runtime/MaxRendererPipeline.cs','Runtime/ShaderBinding.cs','Runtime/Passes/MaxShadowCasterPass.cs','Runtime/Passes/MaxProceduralSkybox.cs')
 foreach($taskPath in $taskPaths){$taskText=[IO.File]::ReadAllText((Join-Path $taskRoot ('Assets/MaxRendererPipeline/'+$taskPath)));if(-not $taskText.Contains('CameraViewport.GetProjection(camera)')){throw ('Projection consumer mismatch: '+$taskPath)}}
 $taskPipeline=[IO.File]::ReadAllText((Join-Path $taskRoot 'Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs'))
 $taskBindings=[IO.File]::ReadAllText((Join-Path $taskRoot 'Assets/MaxRendererPipeline/Runtime/ShaderBinding.cs'))

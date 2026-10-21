@@ -54,6 +54,5 @@ float DistanceAtten(float distanceSqr, float rangeSqr)
     return factor * rcp(max(distanceSqr, 0.001));
 }
 
-UNITY_DECLARE_TEX2D(_ScreenSpaceShadowMapBlur);  // 采一次就行
 
 #endif

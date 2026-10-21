@@ -23,6 +23,13 @@ public class ShadowCameraChecks {
     const int SHADOWMAP_RESOLUTION=1024;
     Camera m_shadowCamera;
     Cascade m_cascade=new Cascade();
+    class AtmosphereSettings {public float _SunDiskAngle=1;}
+    AtmosphereSettings m_atmosphereSettings=new AtmosphereSettings();
+    static class Mathf {
+        public const float Deg2Rad=(float)(Math.PI/180);
+        public static float Clamp(float value,float a,float b){return Math.Max(a,Math.Min(b,value));}
+        public static float Tan(float angle){return (float)Math.Tan(angle);}
+    }
     RenderTexture[] m_shadowTexture={new RenderTexture(),new RenderTexture(),new RenderTexture(),new RenderTexture()};
     ShaderTagId m_shaderTagID=new ShaderTagId();
     enum HideFlags { HideAndDontSave }
@@ -61,7 +68,11 @@ public class ShadowCameraChecks {
     class Light {public Transform transform=new Transform();}
     static class RenderSettings {public static Light sun=new Light();}
     static class GL {public static Matrix4x4 GetGPUProjectionMatrix(Matrix4x4 p,bool texture){return p;}}
-    static class Shader {public static void SetGlobalMatrix(string name,Matrix4x4 value){} public static void SetGlobalFloat(string name,float value){}}
+    static class Shader {
+        public static float sunTan;
+        public static void SetGlobalMatrix(string name,Matrix4x4 value){}
+        public static void SetGlobalFloat(string name,float value){if(name=="_ShadowLightTanAngularRadius")sunTan=value;}
+    }
     struct ShaderTagId {}
     struct CullingParameters {}
     struct CullingResults {}
@@ -117,12 +128,15 @@ public class ShadowCameraChecks {
         var pass=new ShadowCameraChecks();var context=new ScriptableRenderContext();
         pass.Execute(context,source);
         var shadow=pass.m_shadowCamera;
+        Require(Math.Abs(Shader.sunTan-Math.Tan(Math.PI/180))<1e-7,"Shadow angle is not the sky solar radius");
         Require(Hooks.draws==4 && shadow!=source,"Four cascades were not drawn on the separate camera");
         Require(!source.manualAspect && source.enabled && !source.orthographic,"Source auto-aspect/type/enabled changed");
         Require(source.nearClipPlane==.3f && source.farClipPlane==1000 && source.rect.width==.7f && source.rect.height==.6f,"Source clips/rect changed");
         Require(source.targetTexture==originalTarget && source.projectionMatrix.token==93 && source.worldToCameraMatrix.token==71,"Source target/custom matrices changed");
         source.viewportAspect=1920f/1080;
+        pass.m_atmosphereSettings._SunDiskAngle=2;
         pass.Execute(context,source);
+        Require(Math.Abs(Shader.sunTan-Math.Tan(2*Math.PI/180))<1e-7,"Edited solar radius did not update shadows");
         Require(pass.m_shadowCamera==shadow && source.aspect==source.viewportAspect,"Resize did not retain auto aspect/camera reuse");
         // A centered angular disk's pixel width/height is viewportAspect/cameraAspect.
         Require(source.viewportAspect/source.aspect==1,"Centered solar disk is stretched after resize");

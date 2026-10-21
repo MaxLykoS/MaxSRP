@@ -5,6 +5,7 @@
 #include "LightInput.hlsl"
 #include "GlobalIllumination.hlsl"
 #include "AtomsphereScattering/RayMarching.hlsl"
+#include "Shadow.hlsl"
 
 // Editor comparison camera only. Zero preserves normal rendering.
 float _MaxLightingDiagnosticMode;
@@ -79,7 +80,7 @@ float3 PBR_IndirectLit(Surface surface)
 }
 
 // 总光照函数
-float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float roughness, float2 uv)
+float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float roughness, float2 uv, float visibility)
 {
     // surface的L赋值放到各个函数里
     Surface surface;
@@ -97,10 +98,10 @@ float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float ro
     float3 c_dirPointLight = PBR_DirectLitPointLight(surface);
     float3 c_indirLit = PBR_IndirectLit(surface);
 
-    float visibility = UNITY_SAMPLE_TEX2D(_ScreenSpaceShadowMapBlur, uv);
-    if (_MaxLightingDiagnosticMode == 1.0) return c_dirDirLight * visibility + c_dirPointLight;
     if (_MaxLightingDiagnosticMode == 5.0) return c_dirDirLight + c_dirPointLight;
     if (_MaxLightingDiagnosticMode >= 2.0 && _MaxLightingDiagnosticMode <= 4.0) return c_indirLit;
+
+    if (_MaxLightingDiagnosticMode == 1.0) return c_dirDirLight * visibility + c_dirPointLight;
     return c_dirDirLight * visibility + c_dirPointLight + c_indirLit;
 }
 #endif
