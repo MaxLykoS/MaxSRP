@@ -1,0 +1,69 @@
+// Isolated layer-30 caster/receiver; captures real pipeline before/after TAA and phase-averaged PCSS.
+// No existing object, scene asset or pipeline setting is changed.
+// Change run to keep A/B files; softShadow=false also exercises a harder contact.
+string run="CurrentSoft";bool softShadow=true;
+foreach(var r in UnityEngine.Object.FindObjectsOfType<UnityEngine.Renderer>())
+    if(r.gameObject.layer==30)throw new System.Exception("Diagnostic layer 30 is already in use; choose an unused layer before capturing.");
+var folder="D:/UnityProject/MaxSRP/OfflineBaseline/MovingShadows/"+run;
+System.IO.Directory.CreateDirectory(folder);
+const int n=192;
+var owned=new System.Collections.Generic.List<UnityEngine.Object>();
+var savedSun=UnityEngine.RenderSettings.sun;var active=UnityEngine.RenderTexture.active;
+var cameraGO=new UnityEngine.GameObject("Moving-shadow diagnostic camera");owned.Add(cameraGO);cameraGO.hideFlags=UnityEngine.HideFlags.HideAndDontSave;
+var camera=cameraGO.AddComponent<UnityEngine.Camera>();camera.enabled=false;camera.cameraType=UnityEngine.CameraType.Game;
+camera.orthographic=true;camera.orthographicSize=softShadow?2:3;camera.nearClipPlane=.1f;camera.farClipPlane=softShadow?25:20;camera.cullingMask=1<<30;
+camera.transform.position=new UnityEngine.Vector3(0,softShadow?15:10,0);camera.transform.rotation=UnityEngine.Quaternion.Euler(90,0,0);camera.clearFlags=UnityEngine.CameraClearFlags.SolidColor;
+var destination=new UnityEngine.RenderTexture(n,n,24,UnityEngine.RenderTextureFormat.ARGBHalf,UnityEngine.RenderTextureReadWrite.Linear);destination.Create();owned.Add(destination);camera.targetTexture=destination;
+var sunGO=new UnityEngine.GameObject("Moving-shadow diagnostic sun");owned.Add(sunGO);sunGO.hideFlags=UnityEngine.HideFlags.HideAndDontSave;
+var sun=sunGO.AddComponent<UnityEngine.Light>();sun.type=UnityEngine.LightType.Directional;sun.intensity=savedSun!=null?savedSun.intensity:100000;sun.shadows=UnityEngine.LightShadows.Soft;
+sun.transform.rotation=UnityEngine.Quaternion.Euler(softShadow?80:60,-30,0);UnityEngine.RenderSettings.sun=sun;
+var material=new UnityEngine.Material(UnityEngine.Shader.Find("Unlit/PBRGBuffer"));owned.Add(material);material.SetTexture("_RoughnessMap",UnityEngine.Texture2D.whiteTexture);
+var ground=UnityEngine.GameObject.CreatePrimitive(UnityEngine.PrimitiveType.Plane);owned.Add(ground);ground.hideFlags=UnityEngine.HideFlags.HideAndDontSave;ground.layer=30;ground.transform.localScale=new UnityEngine.Vector3(2,1,2);ground.GetComponent<UnityEngine.Renderer>().sharedMaterial=material;
+var caster=UnityEngine.GameObject.CreatePrimitive(UnityEngine.PrimitiveType.Cube);owned.Add(caster);caster.hideFlags=UnityEngine.HideFlags.HideAndDontSave;caster.layer=30;caster.transform.position=new UnityEngine.Vector3(-.5f,softShadow?8:3,0);caster.GetComponent<UnityEngine.Renderer>().sharedMaterial=material;
+if(softShadow)caster.transform.localScale=new UnityEngine.Vector3(.5f,1,.5f);
+var probe=new UnityEngine.Material(UnityEngine.Shader.Find("Hidden/MaxSRP/PcssConvergenceProbe"));owned.Add(probe);
+var targets=new UnityEngine.RenderTexture[4];
+for(int k=0;k<4;++k){targets[k]=new UnityEngine.RenderTexture(n,n,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);targets[k].Create();owned.Add(targets[k]);}
+var read=new UnityEngine.Texture2D(n,n,UnityEngine.TextureFormat.RGBAFloat,false,true);owned.Add(read);
+int frame=-1;var labels=new[]{"source","resolved","rawVisibility","referenceVisibility"};
+var metadata=new System.Collections.Generic.List<string>();metadata.Add("frame,jitterX,jitterY,offset,orthoSize,blockers,filters");
+System.Action<UnityEngine.Rendering.CommandBuffer,UnityEngine.Camera,UnityEngine.RenderTexture,UnityEngine.RenderTexture,UnityEngine.RenderTexture> capture=null;
+capture=(cmd,c,source,resolved,motion)=>{
+    if(c!=camera || frame<0)return;
+    cmd.Blit(source,targets[0]);cmd.Blit(resolved,targets[1]);
+    int oldB=UnityEngine.Shader.GetGlobalInteger("_PcssBlockerSamples"),oldF=UnityEngine.Shader.GetGlobalInteger("_PcssFilterSamples");
+    for(int v=0;v<2;++v){
+        cmd.SetRenderTarget(targets[2+v]);cmd.SetViewport(new UnityEngine.Rect(0,0,n,n));cmd.ClearRenderTarget(false,true,UnityEngine.Color.clear);
+        int count=v==0?1:16;
+        if(v==1){cmd.SetGlobalInteger("_PcssBlockerSamples",64);cmd.SetGlobalInteger("_PcssFilterSamples",64);}
+        for(int f=0;f<count;++f){
+            var block=new UnityEngine.MaterialPropertyBlock();block.SetFloat("_MainLightShadowsAvailable",1);block.SetMatrix("_ShadowReceiverView",camera.worldToCameraMatrix);
+            block.SetVector("_PcssProbe",new UnityEngine.Vector4(1f/count,0,1,0));
+            if(v==1)block.SetVector("_MaxTemporalPhase",new UnityEngine.Vector4(1,UnityEngine.Mathf.Repeat((f+.5f)*.754877666f,1),UnityEngine.Mathf.Repeat((f+.5f)*.569840296f,1),0));
+            cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,probe,v==0?0:1,UnityEngine.MeshTopology.Triangles,3,1,block);
+        }
+    }
+    cmd.SetGlobalInteger("_PcssBlockerSamples",oldB);cmd.SetGlobalInteger("_PcssFilterSamples",oldF);
+};
+MaxSRP.MaxTemporalAAPass.EditorResolveCapture+=capture;
+try{
+    for(int warm=0;warm<32;++warm)camera.Render();
+    for(frame=0;frame<48;++frame){
+        float offset=frame<4?0:UnityEngine.Mathf.Min(frame-3,24)*.04f;
+        caster.transform.position=new UnityEngine.Vector3(-.5f+offset,softShadow?8:3,0);
+        camera.Render();
+        var jitter=UnityEngine.Shader.GetGlobalVector("_MaxTaaJitter");
+        metadata.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture,"{0},{1:R},{2:R},{3:R},{4:R},{5},{6}",frame,jitter.x*n,jitter.y*n,offset,camera.orthographicSize,UnityEngine.Shader.GetGlobalInteger("_PcssBlockerSamples"),UnityEngine.Shader.GetGlobalInteger("_PcssFilterSamples")));
+        for(int k=0;k<4;++k){
+            UnityEngine.RenderTexture.active=targets[k];read.ReadPixels(new UnityEngine.Rect(0,0,n,n),0,0);read.Apply();
+            var pixels=read.GetPixels();var floats=new float[n*n*4];for(int i=0;i<pixels.Length;++i){floats[i*4]=pixels[i].r;floats[i*4+1]=pixels[i].g;floats[i*4+2]=pixels[i].b;floats[i*4+3]=pixels[i].a;}
+            var bytes=new byte[floats.Length*4];System.Buffer.BlockCopy(floats,0,bytes,0,bytes.Length);System.IO.File.WriteAllBytes(folder+"/"+frame.ToString("D3")+"_"+labels[k]+".f32",bytes);
+        }
+    }
+    System.IO.File.WriteAllLines(folder+"/frames.csv",metadata.ToArray());
+}finally{
+    MaxSRP.MaxTemporalAAPass.EditorResolveCapture-=capture;UnityEngine.RenderSettings.sun=savedSun;UnityEngine.RenderTexture.active=active;
+    for(int i=owned.Count-1;i>=0;--i)UnityEngine.Object.DestroyImmediate(owned[i]);
+    if(UnityEditor.SceneView.lastActiveSceneView!=null)UnityEditor.SceneView.lastActiveSceneView.camera.Render();
+}
+return "Captured 48 frames: 4 stationary, 24 translating, 20 settling; 192x192 HDR and raw/reference visibility at "+folder;

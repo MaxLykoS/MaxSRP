@@ -48,6 +48,12 @@ $taskDefines="#define SHADER_API_D3D11 1`n#define UNITY_COMPILER_HLSL 1`n#define
 $taskChecks=@(
  @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','ConvergenceFragment','ps_5_0'),
  @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','PlaneFixtureFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','BiasNormalFixtureFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','AtlasDepthFixtureFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','AtlasFilterFixtureFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','AtlasInspectFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','CascadeDebugFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','ShadowWorldFixtureFragment','ps_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaVertex','vs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaResolve','ps_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaCopy','ps_5_0'),

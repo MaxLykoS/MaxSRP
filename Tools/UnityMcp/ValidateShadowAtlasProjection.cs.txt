@@ -1,0 +1,54 @@
+// Asymmetric known casters in an isolated preview scene. Validates real CSM
+// raster viewport -> atlas UV mapping for each cascade, not just texture packing.
+var asset=(MaxSRP.MaxRendererPipelineAsset)UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+var savedSun=UnityEngine.RenderSettings.sun;
+var settings=asset.CascadeSetting;float savedDistance=settings.ShadowDistance,savedDistribution=settings.DistributionExponent;
+var utility=new UnityEditor.PreviewRenderUtility();bool open=false;
+var material=new UnityEngine.Material(UnityEngine.Shader.Find("Hidden/MaxSRP/PcssConvergenceProbe"));
+var target=new UnityEngine.RenderTexture(32,4,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);target.Create();
+var read=new UnityEngine.Texture2D(32,4,UnityEngine.TextureFormat.RGBAFloat,false,true);
+var active=UnityEngine.RenderTexture.active;
+var reports=new System.Collections.Generic.List<string>();
+System.Action<UnityEngine.Rendering.CommandBuffer,UnityEngine.Camera,UnityEngine.RenderTexture,UnityEngine.RenderTexture,UnityEngine.Vector4> capture=null;
+bool captured=false;
+try{
+    settings.ShadowDistance=500;settings.DistributionExponent=2;
+    var camera=utility.camera;camera.transform.position=new UnityEngine.Vector3(0,8,0);camera.transform.rotation=UnityEngine.Quaternion.identity;
+    camera.fieldOfView=60;camera.nearClipPlane=.3f;camera.farClipPlane=500;camera.clearFlags=UnityEngine.CameraClearFlags.SolidColor;
+    var sun=utility.lights[0];sun.type=UnityEngine.LightType.Directional;sun.enabled=true;sun.intensity=100000;sun.shadows=UnityEngine.LightShadows.Soft;sun.shadowStrength=1;
+    sun.transform.rotation=UnityEngine.Quaternion.LookRotation(new UnityEngine.Vector3(.3f,-1,.2f));UnityEngine.RenderSettings.sun=sun;
+    var positions=new UnityEngine.Vector3[4];var depths=new[]{16f,65f,160f,350f};
+    var casterMaterial=UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Material>("Assets/MaxRendererPipeline/Materials/PBRLit.mat");
+    if(casterMaterial==null){foreach(var r in UnityEngine.Object.FindObjectsOfType<UnityEngine.Renderer>())if(r.sharedMaterial!=null&&r.sharedMaterial.FindPass("ShadowCaster")>=0){casterMaterial=r.sharedMaterial;break;}}
+    if(casterMaterial==null)throw new System.Exception("No production shadow caster material");
+    for(int i=0;i<4;++i){var cube=UnityEngine.GameObject.CreatePrimitive(UnityEngine.PrimitiveType.Cube);cube.hideFlags=UnityEngine.HideFlags.HideAndDontSave;positions[i]=new UnityEngine.Vector3(-3+i*2,3,depths[i]);cube.transform.position=positions[i];cube.transform.localScale=new UnityEngine.Vector3(4,6,4);cube.GetComponent<UnityEngine.Renderer>().sharedMaterial=casterMaterial;utility.AddSingleGO(cube);}
+    utility.BeginPreview(new UnityEngine.Rect(0,0,128,128),UnityEngine.GUIStyle.none);open=true;
+    capture=(cmd,c,hdr,depth,parameters)=>{
+        if(c!=camera)return;captured=true;
+        UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);
+        for(int cascade=0;cascade<4;++cascade)for(int state=0;state<2;++state){
+            var p=positions[cascade]+sun.transform.forward*(-positions[cascade].y/sun.transform.forward.y);
+            if(state==1)p.x+=20;
+            var block=new UnityEngine.MaterialPropertyBlock();block.SetVector("_AtlasProbe",new UnityEngine.Vector4(cascade,0,0,0));block.SetVector("_PcssPlaneDx",p);
+            cmd.SetRenderTarget(target);cmd.SetViewport(new UnityEngine.Rect((cascade*2+state)*4,0,4,4));cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,material,8,UnityEngine.MeshTopology.Triangles,3,1,block);
+        }
+        UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);
+        cmd.SetRenderTarget(camera.targetTexture);cmd.SetViewport(new UnityEngine.Rect(0,0,128,128));
+    };
+    MaxSRP.MaxColorOutputPass.EditorOutputCapture+=capture;
+    camera.Render();
+    if(!captured)throw new System.Exception("Preview did not execute the production pipeline");
+    UnityEngine.RenderTexture.active=target;read.ReadPixels(new UnityEngine.Rect(0,0,32,4),0,0);read.Apply();
+    for(int cascade=0;cascade<4;++cascade)for(int state=0;state<2;++state){
+        var value=read.GetPixel((cascade*2+state)*4+2,2);float actual=value.r;
+        reports.Add("cascade="+cascade+" expected="+state+" actual="+actual+" sample="+value);
+        if(float.IsNaN(actual)||UnityEngine.Mathf.Abs(actual-state)>1e-5f)throw new System.Exception("Wrong projected atlas shadow: cascade="+cascade+" expected="+state+" actual="+actual+" sample="+value);
+    }
+
+}finally{
+    MaxSRP.MaxColorOutputPass.EditorOutputCapture-=capture;
+    if(open)utility.EndPreview();utility.Cleanup();UnityEngine.RenderSettings.sun=savedSun;settings.ShadowDistance=savedDistance;settings.DistributionExponent=savedDistribution;
+    UnityEngine.RenderTexture.active=active;UnityEngine.Object.DestroyImmediate(read);UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(material);
+    if(UnityEditor.SceneView.lastActiveSceneView!=null)UnityEditor.SceneView.lastActiveSceneView.camera.Render();
+}
+System.IO.File.WriteAllLines("D:/UnityProject/MaxSRP/OfflineBaseline/ShadowAtlas/projection.txt",reports.ToArray());return reports.ToArray();

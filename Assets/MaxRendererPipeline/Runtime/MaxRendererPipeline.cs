@@ -451,11 +451,71 @@ namespace MaxSRP
 
     internal static class MaxRenderResources
     {
+#if UNITY_EDITOR
+        private const string PendingSceneObjectsKey = "MaxSRP.PendingSceneObjectDestruction";
+        private static bool s_sceneDestructionScheduled;
+
+        [InitializeOnLoadMethod]
+        private static void ResumePendingSceneDestruction()
+        {
+            if (SessionState.GetIntArray(PendingSceneObjectsKey, Array.Empty<int>()).Length > 0)
+                ScheduleSceneDestruction();
+        }
+
+        private static void QueueSceneDestruction(GameObject sceneObject)
+        {
+            // Pipeline disposal can also run just before a domain reload. Keep
+            // instance IDs in the Editor session, rather than in a lost closure.
+            var pending = new List<int>(SessionState.GetIntArray(PendingSceneObjectsKey, Array.Empty<int>()));
+            int id = sceneObject.GetInstanceID();
+            if (!pending.Contains(id)) pending.Add(id);
+            SessionState.SetIntArray(PendingSceneObjectsKey, pending.ToArray());
+            ScheduleSceneDestruction();
+        }
+
+        private static void ScheduleSceneDestruction()
+        {
+            if (s_sceneDestructionScheduled) return;
+            s_sceneDestructionScheduled = true;
+            EditorApplication.update += DestroyPendingSceneObjects;
+        }
+
+        private static void DestroyPendingSceneObjects()
+        {
+            EditorApplication.update -= DestroyPendingSceneObjects;
+            s_sceneDestructionScheduled = false;
+            int[] pending = SessionState.GetIntArray(PendingSceneObjectsKey, Array.Empty<int>());
+            SessionState.SetIntArray(PendingSceneObjectsKey, Array.Empty<int>());
+            foreach (int id in pending)
+            {
+                var sceneObject = EditorUtility.InstanceIDToObject(id) as GameObject;
+                if (sceneObject == null) continue;
+                if (Application.isPlaying) UnityEngine.Object.Destroy(sceneObject);
+                else UnityEngine.Object.DestroyImmediate(sceneObject);
+            }
+        }
+#endif
         public static void Destroy<T>(ref T resource) where T : UnityEngine.Object
         {
             T owned = resource;
             resource = null;
             if (owned == null) return;
+            if (owned is GameObject sceneObject)
+            {
+#if UNITY_EDITOR
+                if (!Application.isPlaying)
+                {
+                    // Asset validation can dispose the pipeline inside OnValidate
+                    // or rendering callbacks, where DestroyImmediate is forbidden.
+                    // Destroy is also invalid in Edit Mode; retire on the next
+                    // Editor update, after the current callback has unwound.
+                    QueueSceneDestruction(sceneObject);
+                    return;
+                }
+#endif
+                UnityEngine.Object.Destroy(sceneObject);
+                return;
+            }
             if (owned is RenderTexture target) target.Release();
             CoreUtils.Destroy(owned);
         }

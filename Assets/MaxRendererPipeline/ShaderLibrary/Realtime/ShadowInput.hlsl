@@ -1,10 +1,10 @@
 #ifndef MAX_SHADOW_INPUT_INCLUDED
 #define MAX_SHADOW_INPUT_INCLUDED
 
-Texture2D _MainShadowMap0; SamplerComparisonState sampler_MainShadowMap0;
-Texture2D _MainShadowMap1; SamplerComparisonState sampler_MainShadowMap1;
-Texture2D _MainShadowMap2; SamplerComparisonState sampler_MainShadowMap2;
-Texture2D _MainShadowMap3; SamplerComparisonState sampler_MainShadowMap3;
+Texture2D _MainShadowAtlas; SamplerComparisonState sampler_MainShadowAtlas;
+float4 _ShadowAtlasTile0, _ShadowAtlasTile1, _ShadowAtlasTile2, _ShadowAtlasTile3;
+float _ShadowResolution0, _ShadowResolution1, _ShadowResolution2, _ShadowResolution3;
+int _PcssCascadeCount;
 Texture2D _NoiseTexture;
 SamplerState sampler_PointRepeat;
 

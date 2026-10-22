@@ -1,0 +1,81 @@
+// Current live scene, including non-readable imported meshes/textures. Uses
+// Editor mesh access + GPU texture reads; never walks Unity's Library directory.
+var folder="D:/UnityProject/MaxSRP/OfflineBaseline/UnrealReference";
+System.IO.Directory.CreateDirectory(folder+"/meshes");System.IO.Directory.CreateDirectory(folder+"/textures");
+var culture=System.Globalization.CultureInfo.InvariantCulture;
+System.Func<float,string> number=v=>v.ToString("R",culture);
+System.Func<UnityEngine.Vector3,float[]> vector=v=>new[]{v.x,v.y,v.z};
+System.Func<UnityEngine.Quaternion,float[]> quat=q=>new[]{q.x,q.y,q.z,q.w};
+var compute=UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.ComputeShader>("Assets/MaxRendererPipeline/Editor/MaxImportedTextureExport.compute");
+int kernel=compute.FindKernel("ExportImportedMip");
+var textures=new System.Collections.Generic.Dictionary<string,object>();
+var materials=new System.Collections.Generic.Dictionary<string,object>();
+var objects=new System.Collections.Generic.List<object>();
+var active=UnityEngine.RenderTexture.active;
+System.Func<UnityEngine.Texture,string> exportTexture=texture=>{
+    if(texture==null)return null;
+    string key="T_"+System.Math.Abs(texture.GetInstanceID());if(textures.ContainsKey(key))return key;
+    var target=new UnityEngine.RenderTexture(texture.width,texture.height,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear){enableRandomWrite=true};target.Create();
+    var read=new UnityEngine.Texture2D(texture.width,texture.height,UnityEngine.TextureFormat.RGBAFloat,false,true);
+    try{
+        compute.SetTexture(kernel,"_Source",texture);compute.SetTexture(kernel,"_Output",target);compute.SetInts("_Size",texture.width,texture.height);compute.SetInt("_Mip",0);compute.Dispatch(kernel,(texture.width+7)/8,(texture.height+7)/8,1);
+        UnityEngine.RenderTexture.active=target;read.ReadPixels(new UnityEngine.Rect(0,0,texture.width,texture.height),0,0);read.Apply();
+        var raw=read.GetRawTextureData<byte>();var bytes=new byte[raw.Length];raw.CopyTo(bytes);System.IO.File.WriteAllBytes(folder+"/textures/"+key+".f32",bytes);
+        textures.Add(key,new{name=texture.name,source=UnityEditor.AssetDatabase.GetAssetPath(texture),width=texture.width,height=texture.height,format=texture.graphicsFormat.ToString(),linear_gpu_rgba="textures/"+key+".f32"});
+    }finally{UnityEngine.RenderTexture.active=active;UnityEngine.Object.DestroyImmediate(read);UnityEngine.Object.DestroyImmediate(target);}
+    return key;
+};
+System.Func<UnityEngine.Material,string> exportMaterial=material=>{
+    if(material==null)throw new System.Exception("Renderer has no material");
+    string key="M_"+System.Math.Abs(material.GetInstanceID());if(materials.ContainsKey(key))return key;
+    var maps=new System.Collections.Generic.Dictionary<string,string>();
+    foreach(string property in new[]{"_AlbedoMap","_MetalnessMap","_RoughnessMap","_NormalMap"})maps[property]=material.HasProperty(property)?exportTexture(material.GetTexture(property)):null;
+    var scale=material.HasProperty("_AlbedoMap")?material.GetTextureScale("_AlbedoMap"):UnityEngine.Vector2.one;
+    var offset=material.HasProperty("_AlbedoMap")?material.GetTextureOffset("_AlbedoMap"):UnityEngine.Vector2.zero;
+    materials.Add(key,new{name=material.name,source=UnityEditor.AssetDatabase.GetAssetPath(material),shader=material.shader.name,maps=maps,uv_scale=new[]{scale.x,scale.y},uv_offset=new[]{offset.x,offset.y}});
+    return key;
+};
+try{foreach(var renderer in UnityEngine.Object.FindObjectsOfType<UnityEngine.MeshRenderer>()){
+    if(!renderer.enabled||!renderer.gameObject.activeInHierarchy||renderer.gameObject.hideFlags!=UnityEngine.HideFlags.None)continue;
+    var filter=renderer.GetComponent<UnityEngine.MeshFilter>();if(filter==null||filter.sharedMesh==null)continue;
+    var mesh=filter.sharedMesh;var dataArray=UnityEditor.MeshUtility.AcquireReadOnlyMeshData(mesh);var data=dataArray[0];
+    var vertices=new Unity.Collections.NativeArray<UnityEngine.Vector3>(data.vertexCount,Unity.Collections.Allocator.Temp);
+    var normals=new Unity.Collections.NativeArray<UnityEngine.Vector3>(data.vertexCount,Unity.Collections.Allocator.Temp);
+    var uv=new Unity.Collections.NativeArray<UnityEngine.Vector2>(data.vertexCount,Unity.Collections.Allocator.Temp);
+    try{
+        data.GetVertices(vertices);data.GetNormals(normals);if(data.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord0))data.GetUVs(0,uv);
+        var pivot=renderer.transform.position;var matrix=renderer.localToWorldMatrix;var normalMatrix=matrix.inverse.transpose;
+        var p=new UnityEngine.Vector3[data.vertexCount];var n=new UnityEngine.Vector3[data.vertexCount];
+        for(int i=0;i<p.Length;++i){var world=matrix.MultiplyPoint3x4(vertices[i])-pivot;var wn=normalMatrix.MultiplyVector(normals[i]).normalized;
+            // OBJ/FBX intermediate is right-handed; UE importer always negates Y.
+            p[i]=new UnityEngine.Vector3(world.z,-world.x,world.y)*100;n[i]=new UnityEngine.Vector3(wn.z,-wn.x,wn.y);}
+        for(int sub=0;sub<data.subMeshCount;++sub){
+            string key="SM_"+System.Math.Abs(renderer.GetInstanceID())+"_"+sub;
+            string path=folder+"/meshes/"+key+".obj";
+            var indices=new Unity.Collections.NativeArray<int>(data.GetSubMesh(sub).indexCount,Unity.Collections.Allocator.Temp);
+            try{data.GetIndices(indices,sub,true);
+                using(var writer=new System.IO.StreamWriter(path,false,new System.Text.UTF8Encoding(false))){
+                    writer.WriteLine("o "+key);
+                    for(int i=0;i<p.Length;++i)writer.WriteLine("v "+number(p[i].x)+" "+number(p[i].y)+" "+number(p[i].z));
+                    for(int i=0;i<p.Length;++i)writer.WriteLine("vt "+number(uv[i].x)+" "+number(uv[i].y));
+                    for(int i=0;i<p.Length;++i)writer.WriteLine("vn "+number(n[i].x)+" "+number(n[i].y)+" "+number(n[i].z));
+                    for(int i=0;i<indices.Length;i+=3){int a=indices[i],b=indices[i+1],c=indices[i+2];if(UnityEngine.Vector3.Dot(UnityEngine.Vector3.Cross(p[b]-p[a],p[c]-p[a]),n[a]+n[b]+n[c])<0){int swap=b;b=c;c=swap;}
+                        writer.WriteLine("f "+(a+1)+"/"+(a+1)+"/"+(a+1)+" "+(b+1)+"/"+(b+1)+"/"+(b+1)+" "+(c+1)+"/"+(c+1)+"/"+(c+1));}
+                }
+                string mat=exportMaterial(renderer.sharedMaterials[System.Math.Min(sub,renderer.sharedMaterials.Length-1)]);
+                objects.Add(new{key=key,name=renderer.name,mesh="meshes/"+key+".obj",material=mat,unity_position=vector(pivot),unity_rotation=quat(renderer.transform.rotation),unity_scale=vector(renderer.transform.lossyScale),bounds_center=vector(renderer.bounds.center),bounds_size=vector(renderer.bounds.size),vertices=data.vertexCount,triangles=indices.Length/3,cast_shadows=renderer.shadowCastingMode!=UnityEngine.Rendering.ShadowCastingMode.Off,receive_shadows=renderer.receiveShadows});
+            }finally{indices.Dispose();}
+        }
+    }finally{vertices.Dispose();normals.Dispose();uv.Dispose();dataArray.Dispose();}
+}}finally{UnityEngine.RenderTexture.active=active;}
+var cameras=new System.Collections.Generic.List<object>();
+foreach(var camera in UnityEngine.Camera.allCameras)if(camera.cameraType==UnityEngine.CameraType.Game)cameras.Add(new{name=camera.name,position=vector(camera.transform.position),rotation=quat(camera.transform.rotation),forward=vector(camera.transform.forward),up=vector(camera.transform.up),vfov=camera.fieldOfView,hfov=2*UnityEngine.Mathf.Atan(UnityEngine.Mathf.Tan(camera.fieldOfView*UnityEngine.Mathf.Deg2Rad*.5f)*camera.aspect)*UnityEngine.Mathf.Rad2Deg,aspect=camera.aspect,width=camera.pixelWidth,height=camera.pixelHeight,near=camera.nearClipPlane,far=camera.farClipPlane});
+var lights=new System.Collections.Generic.List<object>();
+foreach(var light in UnityEngine.Object.FindObjectsOfType<UnityEngine.Light>())if(light.enabled&&light.gameObject.activeInHierarchy&&light.gameObject.hideFlags==UnityEngine.HideFlags.None){
+    var color=MaxSRP.LightPhotometry.LinearFilter(light);
+    lights.Add(new{name=light.name,type=(int)light.type,position=vector(light.transform.position),rotation=quat(light.transform.rotation),forward=vector(light.transform.forward),intensity=light.intensity,candela=light.type==UnityEngine.LightType.Point?MaxSRP.LightPhotometry.PointCandela(light):0,color_linear=new[]{color.r,color.g,color.b},range=light.range,is_sun=light==UnityEngine.RenderSettings.sun,shadows=(int)light.shadows});
+}
+var asset=(MaxSRP.MaxRendererPipelineAsset)UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+var result=new{captured_utc=System.DateTime.UtcNow.ToString("O"),source_scene=UnityEngine.SceneManagement.SceneManager.GetActiveScene().path,objects=objects,materials=materials,textures=textures,cameras=cameras,lights=lights,atmosphere=Newtonsoft.Json.Linq.JObject.Parse(UnityEngine.JsonUtility.ToJson(asset.AtmosphereScatteringSetting)),exposure=Newtonsoft.Json.Linq.JObject.Parse(UnityEngine.JsonUtility.ToJson(asset.ColorOutput)),csm=Newtonsoft.Json.Linq.JObject.Parse(UnityEngine.JsonUtility.ToJson(asset.CascadeSetting))};
+System.IO.File.WriteAllText(folder+"/manifest.json",Newtonsoft.Json.JsonConvert.SerializeObject(result,Newtonsoft.Json.Formatting.Indented),new System.Text.UTF8Encoding(false));
+return new{folder=folder,objects=objects.Count,materials=materials.Count,textures=textures.Count,cameras=cameras.Count,lights=lights.Count};

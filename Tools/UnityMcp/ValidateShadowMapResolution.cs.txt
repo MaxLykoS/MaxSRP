@@ -1,0 +1,14 @@
+// Actual atlas tile resizing. Full recovery/border checks: ValidateShadowAtlas.cs.txt.
+var asset=(MaxSRP.MaxRendererPipelineAsset)UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+var camera=UnityEditor.SceneView.lastActiveSceneView.camera;var settings=asset.CascadeSetting;
+var saved=new MaxSRP.ShadowMapResolution[4];for(int i=0;i<4;++i)saved[i]=settings.GetCascade(i).MapResolution;
+var reports=new System.Collections.Generic.List<string>();
+try{
+    foreach(int tileSize in new[]{512,1024,2048}){
+        for(int i=0;i<4;++i)settings.GetCascade(i).MapResolution=(MaxSRP.ShadowMapResolution)tileSize;
+        camera.Render();var atlas=UnityEngine.Shader.GetGlobalTexture("_MainShadowAtlas");
+        if(atlas==null||atlas.width>4096||atlas.height>4096)throw new System.Exception("Atlas exceeds limit");
+        for(int i=0;i<4;++i){float resolution=UnityEngine.Shader.GetGlobalFloat("_ShadowResolution"+i);if(resolution!=UnityEngine.Mathf.Min(tileSize,atlas.width/2)-4)throw new System.Exception("Wrong effective resolution");reports.Add("cascade="+i+" tile="+tileSize+" effective="+resolution);}
+    }
+}finally{for(int i=0;i<4;++i)settings.GetCascade(i).MapResolution=saved[i];camera.Render();}
+return reports.ToArray();

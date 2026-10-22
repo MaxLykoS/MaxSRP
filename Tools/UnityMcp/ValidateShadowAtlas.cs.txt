@@ -1,0 +1,71 @@
+// Real production CSM resources + GPU comparison sampling. No scene is modified.
+var folder="D:/UnityProject/MaxSRP/OfflineBaseline/ShadowAtlas";
+System.IO.Directory.CreateDirectory(folder);
+var reports=new System.Collections.Generic.List<string>();
+var camera=UnityEditor.SceneView.lastActiveSceneView.camera;
+var asset=(MaxSRP.MaxRendererPipelineAsset)UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+var settings=asset.CascadeSetting;
+var flags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+camera.Render();
+var pipeline=(MaxSRP.MaxRenderPipeline)UnityEngine.Rendering.RenderPipelineManager.currentPipeline;
+var pass=pipeline.GetType().GetField("m_shadowCastPass",flags).GetValue(pipeline);
+var atlasField=pass.GetType().GetField("m_shadowAtlas",flags);
+var atlas=(UnityEngine.RenderTexture)atlasField.GetValue(pass);
+if(atlas==null || !atlas.IsCreated() || atlas.width>4096 || atlas.height>4096)throw new System.Exception("Atlas missing or exceeds 4096");
+reports.Add("atlas="+atlas.width+"x"+atlas.height+" depth="+atlas.depth+" PCSS cascades="+settings.PcssCascadeCount);
+for(int i=0;i<4;++i){
+    var rect=UnityEngine.Shader.GetGlobalVector("_ShadowAtlasTile"+i);
+    float res=UnityEngine.Shader.GetGlobalFloat("_ShadowResolution"+i);
+    if(res>2044 || res<1 || rect.z<0 || rect.w<0 || rect.z+rect.x>1 || rect.w+rect.y>1)throw new System.Exception("Invalid tile "+i);
+    reports.Add("cascade="+i+" effective="+res+" UV="+rect+" metresPerTexel="+UnityEngine.Shader.GetGlobalFloat("_OrthoWidth"+i)/res);
+}
+float savedDistribution=settings.DistributionExponent;
+var savedSize=settings.Cascade0.MapResolution;
+var material=new UnityEngine.Material(UnityEngine.Shader.Find("Hidden/MaxSRP/PcssConvergenceProbe"));
+var target=new UnityEngine.RenderTexture(64,64,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);target.Create();
+var fixtureDescriptor=new UnityEngine.RenderTextureDescriptor(64,64,UnityEngine.RenderTextureFormat.Depth,24){shadowSamplingMode=UnityEngine.Rendering.ShadowSamplingMode.CompareDepths,msaaSamples=1};
+var fixture=new UnityEngine.RenderTexture(fixtureDescriptor){filterMode=UnityEngine.FilterMode.Bilinear,wrapMode=UnityEngine.TextureWrapMode.Clamp};fixture.Create();
+var read=new UnityEngine.Texture2D(64,64,UnityEngine.TextureFormat.RGBAFloat,false,true);
+var active=UnityEngine.RenderTexture.active;
+int cases=0;
+try{
+    // Real rendered atlas: every tile must contain geometry after all four draws.
+    var block=new UnityEngine.MaterialPropertyBlock();block.SetTexture("_MainShadowAtlas",atlas);
+    var cmd=new UnityEngine.Rendering.CommandBuffer();cmd.SetRenderTarget(target);cmd.SetViewport(new UnityEngine.Rect(0,0,64,64));
+    UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,material,6,UnityEngine.MeshTopology.Triangles,3,1,block);UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);UnityEngine.Graphics.ExecuteCommandBuffer(cmd);cmd.Release();
+    UnityEngine.RenderTexture.active=target;read.ReadPixels(new UnityEngine.Rect(0,0,64,64),0,0);read.Apply();
+    var pixels=read.GetPixels();
+    for(int tile=0;tile<4;++tile){int occupied=0;for(int y=(tile/2)*32;y<(tile/2+1)*32;++y)for(int x=(tile%2)*32;x<(tile%2+1)*32;++x){float d=pixels[y*64+x].r;if(UnityEngine.SystemInfo.usesReversedZBuffer?d>1e-6f:d<.999999f)++occupied;}reports.Add("rendered quadrant="+tile+" occupied="+occupied);}
+    // Resizing/lost native storage/destroyed wrapper must all recover ownership.
+    settings.Cascade0.MapResolution=MaxSRP.ShadowMapResolution.Resolution1024;camera.Render();
+    if(UnityEngine.Shader.GetGlobalFloat("_ShadowResolution0")!=1020)throw new System.Exception("Tile resize failed");
+    atlas.Release();camera.Render();atlas=(UnityEngine.RenderTexture)atlasField.GetValue(pass);if(!atlas.IsCreated())throw new System.Exception("Native RT recovery failed");
+    UnityEngine.Object.DestroyImmediate(atlas);camera.Render();atlas=(UnityEngine.RenderTexture)atlasField.GetValue(pass);if(atlas==null||!atlas.IsCreated()||UnityEngine.Shader.GetGlobalTexture("_MainShadowAtlas")!=atlas)throw new System.Exception("Destroyed RT recovery failed");
+    reports.Add("tile resize + released/destroyed atlas recovery=PASS");
+    foreach(float e in new[]{1f,2f,3f,4f}){
+        settings.DistributionExponent=e;camera.Render();float total=1+e+e*e+e*e*e;float cumulative=0,weight=1;
+        for(int i=0;i<4;++i){cumulative+=weight/total;weight*=e;if(UnityEngine.Mathf.Abs(UnityEngine.Shader.GetGlobalFloat("_Split"+i)-cumulative)>1e-6f)throw new System.Exception("Distribution mismatch");}
+        reports.Add("geometric distribution="+e+" PASS");
+    }
+    // Four opposing depth tiles. Read close to every corner with deliberately
+    // oversized PCSS kernels: any cross-tile access changes a pure 0/1 result.
+    cmd=new UnityEngine.Rendering.CommandBuffer();cmd.SetRenderTarget(fixture);cmd.SetViewport(new UnityEngine.Rect(0,0,64,64));cmd.ClearRenderTarget(true,false,UnityEngine.Color.clear);
+    block=new UnityEngine.MaterialPropertyBlock();block.SetVector("_AtlasFixtureDepths",new UnityEngine.Vector4(.8f,.2f,.2f,.8f));
+    UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,material,4,UnityEngine.MeshTopology.Triangles,3,1,block);UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);UnityEngine.Graphics.ExecuteCommandBuffer(cmd);cmd.Release();
+    foreach(bool pcss in new[]{false,true})for(int tile=0;tile<4;++tile)foreach(float x in new[]{.00001f,.5f,.99999f})foreach(float y in new[]{.00001f,.5f,.99999f}){
+        block=new UnityEngine.MaterialPropertyBlock();block.SetTexture("_MainShadowAtlas",fixture);block.SetVector("_ShadowAtlasTile0",new UnityEngine.Vector4(.5f,.5f,(tile%2)*.5f,(tile/2)*.5f));block.SetFloat("_ShadowResolution0",32);
+        block.SetVector("_AtlasProbe",new UnityEngine.Vector4(x,y,.5f,pcss?1:0));block.SetFloat("_ShadowLightTanAngularRadius",1);block.SetInt("_PcssBlockerSamples",16);block.SetInt("_PcssFilterSamples",32);
+        cmd=new UnityEngine.Rendering.CommandBuffer();cmd.SetRenderTarget(target);cmd.SetViewport(new UnityEngine.Rect(0,0,64,64));UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,material,5,UnityEngine.MeshTopology.Triangles,3,1,block);UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);UnityEngine.Graphics.ExecuteCommandBuffer(cmd);cmd.Release();
+        UnityEngine.RenderTexture.active=target;read.ReadPixels(new UnityEngine.Rect(0,0,64,64),0,0);read.Apply();float actual=read.GetPixel(32,32).r;
+        bool high=tile==0||tile==3;float expected=(UnityEngine.SystemInfo.usesReversedZBuffer?high:!high)?0:1;
+        if(float.IsNaN(actual)||UnityEngine.Mathf.Abs(actual-expected)>1e-5f)throw new System.Exception("Atlas leak: tile="+tile+" pcss="+pcss+" uv="+x+","+y+" actual="+actual+" expected="+expected);
+        ++cases;
+    }
+    reports.Add("GPU PCSS/PCF tile corners/edges/centres: "+cases+" PASS");
+}finally{
+    settings.DistributionExponent=savedDistribution;settings.Cascade0.MapResolution=savedSize;
+    UnityEngine.RenderTexture.active=active;UnityEngine.Object.DestroyImmediate(read);UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(fixture);UnityEngine.Object.DestroyImmediate(material);
+    pipeline.ResetTemporalHistory(camera);camera.Render();
+}
+System.IO.File.WriteAllLines(folder+"/validation.txt",reports.ToArray());
+return reports.ToArray();

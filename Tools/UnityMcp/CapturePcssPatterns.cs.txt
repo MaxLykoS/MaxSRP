@@ -16,7 +16,7 @@ capture=(cmd,camera,hdr,depth,parameters)=>{
     MaxSRP.MaxColorOutputPass.EditorOutputCapture-=capture;
     UnityEditor.EditorApplication.update-=timeout;
     float step=UnityEngine.Shader.GetGlobalFloat("_ShadowNoiseWorldTexelSize");
-    float coarseStep=UnityEngine.Shader.GetGlobalFloat("_OrthoWidth0")/MaxSRP.MaxShadowCasterPass.SHADOWMAP_RESOLUTION;
+    float coarseStep=UnityEngine.Shader.GetGlobalFloat("_OrthoWidth0")/UnityEngine.Shader.GetGlobalFloat("_ShadowResolution0");
     System.IO.File.WriteAllText(System.IO.Path.Combine(output,"capture.txt"),"UTC="+System.DateTime.UtcNow.ToString("O")+" camera="+camera.name+" size="+hdr.width+"x"+hdr.height+" currentStep="+step+" coarseStep="+coarseStep+" fineStep="+(coarseStep/16)+" boundNoise="+(UnityEngine.Shader.GetGlobalTexture("_NoiseTexture")!=null)+" noiseSize="+UnityEngine.Shader.GetGlobalVector("_ShadowNoiseTextureSize")+" cameraPosition="+camera.transform.position+" cameraRotation="+camera.transform.rotation+" light="+UnityEngine.Shader.GetGlobalVector("_DirectionalLightDirection"));
     int previousBlocker=UnityEngine.Shader.GetGlobalInteger("_PcssBlockerSamples"),previousFilter=UnityEngine.Shader.GetGlobalInteger("_PcssFilterSamples");
     UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);
@@ -33,7 +33,7 @@ capture=(cmd,camera,hdr,depth,parameters)=>{
         properties.SetVector("_ShadowNoiseTextureSize",new UnityEngine.Vector4(noise.width,noise.height,0,0));properties.SetTexture("_NoiseTexture",noise);
         cmd.SetGlobalInteger("_PcssBlockerSamples",i==7?64:16);
         cmd.SetGlobalInteger("_PcssFilterSamples",i==0 || i==2?16:i==7?64:32);
-        properties.SetFloat("_ShadowTexelResolution",MaxSRP.MaxShadowCasterPass.SHADOWMAP_RESOLUTION);
+        properties.SetFloat("_ShadowTexelResolution",UnityEngine.Shader.GetGlobalFloat("_ShadowResolution0"));
         cmd.SetRenderTarget(target);cmd.SetViewport(new UnityEngine.Rect(0,0,target.width,target.height));
         cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,material,i<4 || i==5?0:1,UnityEngine.MeshTopology.Triangles,3,1,properties);
     }

@@ -1,0 +1,18 @@
+var shader=UnityEngine.Shader.Find("Hidden/MaxSRP/PcssConvergenceProbe");var material=new UnityEngine.Material(shader);var target=new UnityEngine.RenderTexture(4,4,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);target.Create();var read=new UnityEngine.Texture2D(4,4,UnityEngine.TextureFormat.RGBAFloat,false,true);
+var active=UnityEngine.RenderTexture.active;var savedCamera=UnityEngine.Shader.GetGlobalVector("_WorldSpaceCameraPos");var reports=new System.Collections.Generic.List<string>();
+try{
+    for(int test=0;test<9;++test){
+        float scale=test==0?1e-6f:test==2?10000:1;
+        var dx=new UnityEngine.Vector3(scale,0,0);var dy=new UnityEngine.Vector3(0,0,scale);var cam=new UnityEngine.Vector4(0,test==4?-10:10,0,1);var expected=test==4?UnityEngine.Vector3.down:UnityEngine.Vector3.up;
+        if(test==3){var swap=dx;dx=dy;dy=swap;}
+        if(test==5){dx=new UnityEngine.Vector3(1,1,0);expected=new UnityEngine.Vector3(-1,1,0).normalized;}
+        if(test==6){dy=dx;expected=UnityEngine.Vector3.zero;}
+        if(test==7){dx=dy=UnityEngine.Vector3.zero;expected=UnityEngine.Vector3.zero;}
+        if(test==8){dx=new UnityEngine.Vector3(float.NaN,0,0);expected=UnityEngine.Vector3.zero;}
+        var cmd=new UnityEngine.Rendering.CommandBuffer();var block=new UnityEngine.MaterialPropertyBlock();block.SetVector("_PcssProbe",UnityEngine.Vector4.zero);block.SetVector("_PcssPlaneDx",dx);block.SetVector("_PcssPlaneDy",dy);cmd.SetGlobalVector("_WorldSpaceCameraPos",cam);cmd.SetRenderTarget(target);cmd.SetViewport(new UnityEngine.Rect(0,0,4,4));UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,material,3,UnityEngine.MeshTopology.Triangles,3,1,block);UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);UnityEngine.Graphics.ExecuteCommandBuffer(cmd);cmd.Release();
+        UnityEngine.RenderTexture.active=target;read.ReadPixels(new UnityEngine.Rect(0,0,4,4),0,0);read.Apply();var color=read.GetPixel(2,2);var normal=new UnityEngine.Vector3(color.r,color.g,color.b);float error=(normal-expected).magnitude;
+        if(float.IsNaN(error)||error>1e-5f)throw new System.Exception("Bias normal case "+test+" failed: "+normal+" expected="+expected);
+        reports.Add("case="+test+" normal="+normal+" error="+error);
+    }
+}finally{UnityEngine.Shader.SetGlobalVector("_WorldSpaceCameraPos",savedCamera);UnityEngine.RenderTexture.active=active;UnityEngine.Object.DestroyImmediate(read);UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(material);if(UnityEditor.SceneView.lastActiveSceneView!=null)UnityEditor.SceneView.lastActiveSceneView.camera.Render();}
+System.IO.Directory.CreateDirectory("D:/UnityProject/MaxSRP/OfflineBaseline/SphereShadowReview");System.IO.File.WriteAllLines("D:/UnityProject/MaxSRP/OfflineBaseline/SphereShadowReview/bias_normal_gpu.txt",reports.ToArray());return reports.ToArray();

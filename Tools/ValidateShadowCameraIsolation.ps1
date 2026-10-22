@@ -20,7 +20,6 @@ $taskDispose = Get-TaskBlock 'public void Dispose('
 $taskHost = @'
 using System;
 public class ShadowCameraChecks {
-    const int SHADOWMAP_RESOLUTION=1024;
     Camera m_shadowCamera;
     Cascade m_cascade=new Cascade();
     class AtmosphereSettings {public float _SunDiskAngle=1;}
@@ -30,7 +29,9 @@ public class ShadowCameraChecks {
         public static float Clamp(float value,float a,float b){return Math.Max(a,Math.Min(b,value));}
         public static float Tan(float angle){return (float)Math.Tan(angle);}
     }
-    RenderTexture[] m_shadowTexture={new RenderTexture(),new RenderTexture(),new RenderTexture(),new RenderTexture()};
+    RenderTexture m_shadowAtlas=new RenderTexture {width=4096,height=4096};
+    RectInt[] m_tileRects={new RectInt(),new RectInt(),new RectInt(),new RectInt()};
+    void EnsureShadowAtlas(){}
     ShaderTagId m_shaderTagID=new ShaderTagId();
     enum HideFlags { HideAndDontSave }
     struct Vector3 { public static Vector3 forward {get{return new Vector3();}} public static Vector3 operator-(Vector3 v){return v;} }
@@ -40,7 +41,8 @@ public class ShadowCameraChecks {
     struct Matrix4x4 { public int token; public static Matrix4x4 operator*(Matrix4x4 a,Matrix4x4 b){return a;} }
     struct Rect { public float x,y,width,height; public Rect(float a,float b,float c,float d){x=a;y=b;width=c;height=d;} }
     class Transform { public Quaternion rotation=new Quaternion(); }
-    class RenderTexture {}
+    class RenderTexture {public int width=4096,height=4096;}
+    struct RectInt {public int x {get{return 0;}} public int y {get{return 0;}}public int width {get{return 2044;}} public int height {get{return 2044;}}}
     class GameObject {
         public HideFlags hideFlags; public GameObject(string name){}
         public T AddComponent<T>() where T:Camera,new() { return new T {gameObject=this}; }
@@ -90,10 +92,10 @@ public class ShadowCameraChecks {
         }
     }
     class CommandBuffer {
-        public void SetRenderTarget(RenderTexture rt){}
+        public void SetRenderTarget(RenderTexture rt){Hooks.target=rt;}
         public void SetGlobalMatrix(string name,Matrix4x4 matrix){}
-        public void SetViewport(Rect rect){Require(rect.width==1024 && rect.height==1024,"Shadow viewport not square");}
-        public void ClearRenderTarget(bool depth,bool color,Color c){}
+        public void SetViewport(Rect rect){Require(rect.width==rect.height && (rect.width==4096 || rect.width==2044),"Invalid clear/tile viewport");Hooks.viewportWidth=rect.width;}
+        public void ClearRenderTarget(bool depth,bool color,Color c){Require(Hooks.viewportWidth==4096 && depth && !color,"Atlas must be cleared whole, not once per tile");Hooks.clears++;}
     }
     struct Color {public static Color clear {get{return new Color();}}}
     static class CommandBufferPool {
@@ -118,7 +120,7 @@ public class ShadowCameraChecks {
         public static void Destroy<T>(ref T value)where T:class{if(value is GameObject)destroyedObjects++;value=null;}
         public static void UnbindTexture(string name,RenderTexture value){}
     }
-    static class Hooks {public static Camera main;public static bool cullMiss,emptyRange,failSetup;public static int draws;}
+    static class Hooks {public static Camera main;public static RenderTexture target;public static bool cullMiss,emptyRange,failSetup;public static int draws,clears;public static float viewportWidth;}
     static void Require(bool condition,string message){if(!condition)throw new Exception(message);}
     __EXECUTE__
     __DISPOSE__
@@ -129,7 +131,7 @@ public class ShadowCameraChecks {
         pass.Execute(context,source);
         var shadow=pass.m_shadowCamera;
         Require(Math.Abs(Shader.sunTan-Math.Tan(Math.PI/180))<1e-7,"Shadow angle is not the sky solar radius");
-        Require(Hooks.draws==4 && shadow!=source,"Four cascades were not drawn on the separate camera");
+        Require(Hooks.draws==4 && Hooks.clears==1 && shadow!=source,"Four cascades were not drawn on the separate camera");
         Require(!source.manualAspect && source.enabled && !source.orthographic,"Source auto-aspect/type/enabled changed");
         Require(source.nearClipPlane==.3f && source.farClipPlane==1000 && source.rect.width==.7f && source.rect.height==.6f,"Source clips/rect changed");
         Require(source.targetTexture==originalTarget && source.projectionMatrix.token==93 && source.worldToCameraMatrix.token==71,"Source target/custom matrices changed");

@@ -1,0 +1,23 @@
+// Replay the production final-output shader on the original camera's same-frame
+// HDR input; preserve camera properties and the normal backbuffer rendering.
+var camera=UnityEngine.Camera.main;if(camera==null)throw new System.Exception("No Main Camera");
+var material=new UnityEngine.Material(UnityEngine.Shader.Find("Hidden/MaxSRP/ColorOutput"));
+var target=new UnityEngine.RenderTexture(1920,1080,24,UnityEngine.RenderTextureFormat.ARGB32,UnityEngine.RenderTextureReadWrite.sRGB);target.Create();
+var read=new UnityEngine.Texture2D(1920,1080,UnityEngine.TextureFormat.RGBA32,false,true);
+var active=UnityEngine.RenderTexture.active;bool captured=false;
+string path="D:/UnityProject/Unreal/我的项目/Saved/MaxSRPReference/Unity_Comparison.png";
+System.Action<UnityEngine.Rendering.CommandBuffer,UnityEngine.Camera,UnityEngine.RenderTexture,UnityEngine.RenderTexture,UnityEngine.Vector4> capture=(cmd,c,hdr,depth,parameters)=>{
+    if(c!=camera)return;captured=true;
+    var block=new UnityEngine.MaterialPropertyBlock();block.SetTexture("_SceneColorHDR",hdr);block.SetTexture("_SceneDepthHDR",depth);parameters.z=0;block.SetVector("_ColorOutputParameters",parameters);
+    cmd.SetRenderTarget(target);cmd.SetViewport(new UnityEngine.Rect(0,0,1920,1080));UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,material,0,UnityEngine.MeshTopology.Triangles,3,1,block);UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);
+    cmd.SetRenderTarget(c.targetTexture!=null?new UnityEngine.Rendering.RenderTargetIdentifier(c.targetTexture):new UnityEngine.Rendering.RenderTargetIdentifier(UnityEngine.Rendering.BuiltinRenderTextureType.CameraTarget));
+    cmd.SetViewport(new UnityEngine.Rect(0,0,c.pixelWidth,c.pixelHeight));
+};
+MaxSRP.MaxColorOutputPass.EditorOutputCapture+=capture;
+try{
+    camera.Render();if(!captured)throw new System.Exception("Original camera capture missed");
+    UnityEngine.RenderTexture.active=target;read.ReadPixels(new UnityEngine.Rect(0,0,1920,1080),0,0);read.Apply();System.IO.File.WriteAllBytes(path,read.EncodeToPNG());
+}finally{
+    MaxSRP.MaxColorOutputPass.EditorOutputCapture-=capture;UnityEngine.RenderTexture.active=active;UnityEngine.Object.DestroyImmediate(read);UnityEngine.Object.DestroyImmediate(material);UnityEngine.Object.DestroyImmediate(target);
+}
+return path;

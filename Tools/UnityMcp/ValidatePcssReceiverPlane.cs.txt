@@ -16,7 +16,7 @@ try{
     foreach(int count in new[]{16,32,64})foreach(float scale in new[]{.000001f,1,10000}){
         var cmd=new UnityEngine.Rendering.CommandBuffer();
         var bindings=new UnityEngine.MaterialPropertyBlock();
-        bindings.SetTexture("_MainShadowMap0",depth);cmd.SetGlobalInteger("_PcssBlockerSamples",count);
+        bindings.SetTexture("_PcssFixtureDepth",depth);cmd.SetGlobalInteger("_PcssBlockerSamples",count);
         bindings.SetMatrix("_ShadowVPMatrix0",projection);
         bindings.SetVector("_PcssProbe",new UnityEngine.Vector4(.51f,.15f,.4f,.2f));
         bindings.SetVector("_PcssPlaneDx",new UnityEngine.Vector4(scale,0,0,0));
