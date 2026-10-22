@@ -13,6 +13,12 @@ namespace MaxSRP
         private Shader m_lightingShader;
         public Shader LightingShader => m_lightingShader;
 
+        [SerializeField] private ClusteredLightingSettings m_clusteredLightingSettings = new ClusteredLightingSettings();
+        public ClusteredLightingSettings ClusteredLighting => m_clusteredLightingSettings;
+        [SerializeField, Tooltip("Required clustered point-light culling compute shader. Retained in Player builds through this reference.")]
+        private ComputeShader m_clusteredLightingCS;
+        public ComputeShader ClusteredLightingCS => m_clusteredLightingCS;
+
         [SerializeField]
         private ColorOutputSettings m_colorOutputSettings = new ColorOutputSettings();
         public ColorOutputSettings ColorOutput => m_colorOutputSettings;

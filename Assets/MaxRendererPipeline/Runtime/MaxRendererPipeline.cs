@@ -21,6 +21,7 @@ namespace MaxSRP
         private readonly Dictionary<long, int> m_outputCameraCounts = new Dictionary<long, int>();
         private MaxTemporalAAPass m_temporalAA;
         private MaxLightPass m_LightPass;
+        private MaxClusteredLightingPass m_clusteredLightingPass;
         private MaxColorOutputPass m_colorOutputPass;
         private MaxIBLGIPass m_iblGIPass;
         private MaxShadowCasterPass m_shadowCastPass;
@@ -37,6 +38,7 @@ namespace MaxSRP
             try
             {
                 m_LightPass = new MaxLightPass(setting.LightingShader);
+                m_clusteredLightingPass = new MaxClusteredLightingPass(setting.ClusteredLightingCS);
                 m_colorOutputPass = new MaxColorOutputPass(setting.ColorOutput);
                 m_temporalAA = new MaxTemporalAAPass(setting.TemporalShader);
                 m_shadowCastPass = new MaxShadowCasterPass(setting.CascadeSetting, setting.AtmosphereScatteringSetting);
@@ -54,6 +56,7 @@ namespace MaxSRP
         {
             m_proceduralSkyboxPass.PruneDestroyedCameras();
             m_temporalAA.PruneDestroyedCameras();
+            m_clusteredLightingPass.PruneDestroyedCameras();
             PruneCameraResources(cameras);
             PrepareOutputSizes(cameras);
             PruneOutputResources(cameras);
@@ -180,7 +183,9 @@ namespace MaxSRP
             MaxTemporalAAPass.Bind(context, camera, temporal);
             m_iblGIPass.Execute(context, m_proceduralSkyboxPass.EnvironmentSky,
                 m_proceduralSkyboxPass.EnvironmentRevision, m_setting.SkyIBL);
-            m_LightPass.Execute(context, camera, output.Color, output.Depth, viewport, m_iblGIPass, hasShadows);
+            var localLights = m_clusteredLightingPass.Prepare(context, camera, width, height,
+                m_lightConfigurator, m_setting.ClusteredLighting);
+            m_LightPass.Execute(context, camera, output.Color, output.Depth, viewport, m_iblGIPass, hasShadows, localLights);
 
             if (camera.clearFlags == CameraClearFlags.Skybox)
             {
@@ -323,6 +328,7 @@ namespace MaxSRP
             m_colorOutputPass?.Dispose();
             m_temporalAA?.Dispose();
             m_LightPass?.Dispose();
+            m_clusteredLightingPass?.Dispose();
             m_iblGIPass?.Dispose();
             m_shadowCastPass?.Dispose();
             m_proceduralSkyboxPass?.Dispose();

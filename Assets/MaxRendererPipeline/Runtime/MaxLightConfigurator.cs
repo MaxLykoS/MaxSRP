@@ -4,11 +4,21 @@ using UnityEngine.Rendering;
 
 namespace MaxSRP
 {
+    // Shared with ClusteredLightInput.hlsl; two float4s, 32 bytes per light.
+    public struct MaxPointLightData
+    {
+        public Vector4 positionRange;
+        public Vector4 color;
+    }
+
     public class MaxLightConfigurator
     {
         private const int MAX_VISIBLE_POINT_LIGHTS = 32;
         private readonly Vector4[] m_pointLightPositionAndRanges = new Vector4[MAX_VISIBLE_POINT_LIGHTS];
         private readonly Vector4[] m_pointLightColors = new Vector4[MAX_VISIBLE_POINT_LIGHTS];
+        private MaxPointLightData[] m_pointLights = new MaxPointLightData[64];
+        public MaxPointLightData[] PointLights => m_pointLights;
+        public int PointLightCount { get; private set; }
 
         public void SetupMultiShaderLightingParams(ScriptableRenderContext context, ref CullingResults cullingResults, SunLightData sun)
         {
@@ -28,25 +38,34 @@ namespace MaxSRP
                         switch (light.lightType)
                         {
                             case LightType.Point:
-                                if (pointLightCount >= MAX_VISIBLE_POINT_LIGHTS) break;
+                                if (pointLightCount == m_pointLights.Length)
+                                    System.Array.Resize(ref m_pointLights, m_pointLights.Length * 2);
                                 Vector4 positionAndRange = light.light.transform.position;
                                 positionAndRange.w = light.range;
-                                m_pointLightPositionAndRanges[pointLightCount] = positionAndRange;
                                 // Upload candela / HDRScale; shader inverse-square falloff
                                 // turns this into illuminance / HDRScale at the surface.
-                                m_pointLightColors[pointLightCount] = LightPhotometry.PointColor(light.light);
+                                Vector4 color = LightPhotometry.PointColor(light.light);
+                                m_pointLights[pointLightCount] = new MaxPointLightData { positionRange = positionAndRange, color = color };
+                                // Preserve the legacy uniform interface for offline shader fixtures.
+                                // Runtime lighting uses the complete structured buffer below.
+                                if (pointLightCount < MAX_VISIBLE_POINT_LIGHTS)
+                                {
+                                    m_pointLightPositionAndRanges[pointLightCount] = positionAndRange;
+                                    m_pointLightColors[pointLightCount] = color;
+                                }
                                 ++pointLightCount;
                                 break;
                         }
                     }
                     cullingResults.SetLightIndexMap(lightIndexingMap);
+                    PointLightCount = pointLightCount;
                     // Directional lights in visibleLights never select/replace the sun.
                     // Write zeros as well, so removing the sun cannot retain an old direction.
                     cmd.SetGlobalVector(ShaderProperties._DirectionalLightDirection, sun.Direction);
                     cmd.SetGlobalColor(ShaderProperties._DirectionalLightColor, sun.LinearColor);
                     cmd.SetGlobalVectorArray(ShaderProperties._PointLightPositionAndRanges, m_pointLightPositionAndRanges);
                     cmd.SetGlobalVectorArray(ShaderProperties._PointLightColors, m_pointLightColors);
-                    cmd.SetGlobalInteger(ShaderProperties._PointLightCount, pointLightCount);
+                    cmd.SetGlobalInteger(ShaderProperties._PointLightCount, Mathf.Min(pointLightCount, MAX_VISIBLE_POINT_LIGHTS));
                     context.ExecuteCommandBuffer(cmd);
                 }
                 finally

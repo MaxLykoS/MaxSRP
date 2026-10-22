@@ -1,12 +1,12 @@
 # MaxSRP 问题检查与修复记录
 
-更新日期：2026-10-22（CSM atlas、近级 PCSS／远级 PCF、UE 移动端对照与阴影阶段收尾）。
+更新日期：2026-10-23（接入 Clustered Deferred 点光与独立 Bistro 室外测试场景，保留既有太阳、物理强度与共享 TAA）。
 
 范围：实时 SRP、PBR、IBL、大气和级联阴影。待处理章节沿用原编号，便于逐项处理；已完成的项目集中放在文末按日期排列的“已修复”区域。
 
 当前 TAA 契约与接入边界见 [Documentation/TemporalAA.md](Documentation/TemporalAA.md)，AGENTS.md 已要求相关模块遵守该契约。
 
-待处理：**27、28、32**，共 3 项。33 在接入独立相机历史时一并修复，见文末。19、29 已分别修复；30 的屏幕阴影过滤路径已按用户选择移除，31 已补齐四级 PCSS、投影重叠及过渡，记录见文末。shadow cache 暂不实现。27/28 为独立大气对照发现的条件性精度事项；cluster lighting、场景 GI 继续延期。
+待处理：**27、28、32**，共 3 项。33 在接入独立相机历史时一并修复，见文末。19、29 已分别修复；30 的屏幕阴影过滤路径已按用户选择移除，31 已补齐四级 PCSS、投影重叠及过渡，记录见文末。shadow cache 暂不实现。27/28 为独立大气对照发现的条件性精度事项；clustered 点光已接入，聚光灯／面光源、局部光阴影与场景 GI 继续延期。
 
 P1 表示优先修复的正确性问题；P2 表示条件性错误、精度问题、功能未接通或性能问题。各项具体证据与验证范围分别记录，不能将某一项的 GPU 验证推广到全部管线。
 
@@ -759,3 +759,15 @@ atlas 每相机完整清一次，逐级不再清整张深度。宽核搜索和�
 用户确认当前阴影画面可以暂时收尾，保留现有 4096 atlas、近两级 PCSS／远两级 PCF、Stable CSM 与共享 TAA。Shadow cache 延后至地形系统引入后再设计，本阶段不实现。
 
 当前测试场景已迁移到 UE 5.3 移动前向路径对照，生成工具与参数记录见 `Tools/UnrealBaseline/README.md`。用户观察到球体阴影轮廓相近、UE 柔边更宽；两边每级分辨率、过滤和深度比较不同，尚未统一世界 texel 尺寸，因此不把柔边宽度差直接解释为 PCSS 半影公式错误。此结论不扩大为移动真机性能或所有运动场景已验收。
+
+## 已接入（2026-10-23，Clustered Deferred 点光）
+
+在现有 GBuffer Lighting 中接入每相机独立的三维局部灯列表，默认 64×64 像素、32 个深度层、每格 64 个存储索引。CPU 收集不再于 32 灯截断，点光的 BRDF、物理强度和衰减不改，方向光仍单独计算。近远／格子范围外、容量溢出或不支持建表时回退完整灯列表，不以任意丢灯换性能。沿用共享 TAA，不增加阴影历史或随机采样；shadow cache、GI、聚光灯／面光和局部灯阴影仍延期。详细契约见 `Documentation/ClusteredLighting.md`。
+
+真实 GPU 的 8 组生产 Compute 测试：24523 个视锥内点、300835 组点／光球检查，无漏灯，包含负 near 正交、非对称投影和 129 灯容量溢出。实际 GBuffer／Lighting 的 96 灯场景完成 7 组开关对照，涵盖透视／正交／非对称、共享 TAA jitter、容量 8 溢出、零灯与缩放 view 回退；HDR 读回在该夹具内逐像素一致。每相机隔离、缺席保留与原生 buffer 丢失恢复通过。生产 HLSL、Runtime Player／Editor Unity API 编译及物理光照数值检查通过。结果位于忽略目录 `OfflineBaseline/ClusteredLighting`，不宣称手机性能或 Player 构建已验证。
+
+## 已接入（2026-10-23，Bistro 室外测试场景）
+
+新增独立 `Assets/Scenes/BistroTest/BistroTest.unity`：1296 个网格、132 个材质、2,832,120 三角形，53 盏默认展示点光，另有默认关闭的额外 128 / 256 / 512 灯压力组。原场景保持不变。Bistro 材质适配原包 ORM 通道、DirectX 法线和叶片 alpha clip，GBuffer / Shadow / Motion 使用一致裁剪；既有 GBuffer3 自发光在雾之前接入 Lighting。`MaxSceneExposure` 只覆盖所属场景的最终曝光，不改管线资产、GraphicsSettings、QualitySettings 或 HDR 历史约定。
+
+实际 Unity GPU 检查通过：默认视角可见 46 盏点光，三个压力档分别为 111 / 179 / 311，输出非空且有限；曝光启停及 Game / SceneView / 活动场景范围通过。模型、贴图和派生纹理本体留在本地，Git 仅收录 819 个依赖 `.meta`，另提交场景、材质、Shader、恢复工具与许可说明。完整餐厅室内尚未导入；玻璃当前隐藏，AO 未消费，局部灯阴影和 GI 仍不在本版。详见 `Documentation/BistroTest.md`，不将正确性读回视为桌面或手机 GPU 性能测量。

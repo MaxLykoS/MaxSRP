@@ -28,6 +28,7 @@ $taskConverted=foreach($s in $taskFunctions){
  $s=$s.Replace('_DirectionalLightDirection.xyz','XYZ(_DirectionalLightDirection)').Replace('_DirectionalLightColor.rgb','XYZ(_DirectionalLightColor)')
  $s=$s.Replace('pointLight.positionRange.xyz','XYZ(pointLight.positionRange)').Replace('pointLight.color.rgb','XYZ(pointLight.color)')
  $s=$s.Replace('pointLightPos.xyz','pointLightPos').Replace('pointLight.positionRange.w','pointLight.positionRange.W')
+ $s=$s.Replace('GetPointLightList(surface.P, lightListStart, lightListCount)','GetPointLightList(surface.P, out lightListStart, out lightListCount)')
  $s=$s.Replace('1.0 - F0','new Vector3(1) - F0')
  $s=$s.Replace('max(float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness), F0)','Vector3.Max(new Vector3(1.0 - roughness), F0)')
  $s=$s.Replace('float3(', 'new Vector3(').Replace('float3','Vector3')
@@ -49,7 +50,12 @@ namespace PhysicalShaderMath {
   static Vector3 sampleSpec,sampleDiffuse;
   static Vector2 sampleBRDF;
   static bool isfinite(float value)=>float.IsFinite(value);
-  static PointLight GetPointLight(int i)=>point;
+  // BRDF/photometry fixture deliberately traverses the full light list. Cluster
+  // culling and overflow correctness are checked with the production GPU kernels.
+  static PointLight GetPointLight(uint i)=>point;
+  static int GetPointLightCount()=>_PointLightCount;
+  static bool GetPointLightList(Vector3 position,out uint start,out uint count){start=0;count=0;return false;}
+  static uint GetPointLightListIndex(uint start,uint offset)=>start+offset;
   static Vector3 XYZ(Vector4 v)=>new Vector3(v.X,v.Y,v.Z);
   static float dot(Vector3 a,Vector3 b)=>Vector3.Dot(a,b);
   static Vector3 normalize(Vector3 a)=>Vector3.Normalize(a);
@@ -153,6 +159,7 @@ namespace PhysicalShaderMath {
 }
 '@
 $taskHost=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'DynamicSkyIBLTestHost.cs'))+"`nnamespace UnityEngine {public class SerializeField:Attribute {}}"
+$taskHost=$taskHost.Replace('public const float PI=', 'public static int Min(int a,int b)=>Math.Min(a,b); public const float PI=')
 $taskSources=@('Runtime/MaxPhysicalLight.cs','Runtime/SunLightData.cs','Runtime/MaxLightConfigurator.cs','Runtime/Passes/MaxUpdateGIPass.cs') | ForEach-Object {[regex]::Replace((ReadSource $_),'(?m)^using [^;]+;\r?\n','')}
 $taskSettings=Block (ReadSource 'Runtime/Passes/MaxColorOutputPass.cs') 'public sealed class ColorOutputSettings'
 $taskSettings="namespace MaxSRP {public enum ToneMappingMode {None,ACES}`n"+$taskSettings+'}'
@@ -171,8 +178,21 @@ namespace MaxSRP {
    // The actual configurator must ignore finalColor and upload the physical Light intensity.
    light.intensity=1000;var list=new[]{new VisibleLight{light=light,lightType=LightType.Point,range=10,finalColor=new Color(999,999,999)}};
    var culling=new CullingResults{visibleLights=new Unity.Collections.NativeArray<VisibleLight>(list)};
-   new MaxLightConfigurator().SetupMultiShaderLightingParams(new ScriptableRenderContext(),ref culling,default);
+   var configurator=new MaxLightConfigurator();configurator.SetupMultiShaderLightingParams(new ScriptableRenderContext(),ref culling,default);
    var uploaded=(Vector4[])Shader.Globals[Shader.PropertyToID("_PointLightColors")];Close(uploaded[0].x,.0021404115f,"Configurator retains unitless finalColor");
+   // The production structured-light upload must grow beyond the old 32-light
+   // uniform limit, preserving ordering, ranges, and physical HDR normalization.
+   var many=new VisibleLight[129];for(int i=0;i<many.Length;++i)many[i]=list[0];
+   culling.visibleLights=new Unity.Collections.NativeArray<VisibleLight>(many);
+   configurator.SetupMultiShaderLightingParams(new ScriptableRenderContext(),ref culling,default);
+   Checks.Require(configurator.PointLightCount==129&&configurator.PointLights.Length>=129,"Complete point-light upload truncated or failed to grow");
+   foreach(int i in new[]{0,31,32,63,64,128}){
+    Close(configurator.PointLights[i].color.x,.0021404115f,"Structured point-light color differs from physical intensity");
+    Close(configurator.PointLights[i].positionRange.w,10,"Structured point-light range/order lost");
+   }
+   culling.visibleLights=new Unity.Collections.NativeArray<VisibleLight>(new VisibleLight[0]);
+   configurator.SetupMultiShaderLightingParams(new ScriptableRenderContext(),ref culling,default);
+   Checks.Require(configurator.PointLightCount==0,"Removed point lights remain active");
    // Both direct paths must shade identically for equal surface illuminance.
    PhysicalShaderMath.Check.Run();
    var settings=new ColorOutputSettings();float e=settings.GetExposureMultiplier();Close(e,100000f/(1.2f*32768),"EV100 daylight scale");
@@ -186,7 +206,7 @@ namespace MaxSRP {
    double day=day18/100000*settings.GetExposureMultiplier();settings.CameraEV100=8;
    double room=room18/100000*settings.GetExposureMultiplier();
    Checks.Require(day>.14&&day<.15&&room>.09&&room<.10,"Gray card physical exposure");
-   return "PASS: actual units/configurator/BRDF/exposure; lumen-candela, HDR normalization, color/temperature, equal sun-point illuminance, 401 normal-map horizon crossings, Fresnel/zero-half-vector/GGX boundaries and invalid IBL isolation, inverse-square/range/center, EV100/compensation, daylight and indoor gray cards (before tone mapping: "+day+", "+room+").";
+   return "PASS: actual units/configurator/BRDF/exposure; 129-light upload/growth/removal, lumen-candela, HDR normalization, color/temperature, equal sun-point illuminance, 401 normal-map horizon crossings, Fresnel/zero-half-vector/GGX boundaries and invalid IBL isolation, inverse-square/range/center, EV100/compensation, daylight and indoor gray cards (before tone mapping: "+day+", "+room+").";
   }
  }
 }
@@ -194,7 +214,9 @@ namespace MaxSRP {
 Add-Type -TypeDefinition ("#pragma warning disable CS0649`n"+$taskHost+"`n"+($taskSources -join "`n")+"`n"+$taskSettings+"`n"+$taskShaderHost.Replace('__FUNCTIONS__',($taskConverted -join "`n"))+"`n"+$taskChecks)
 [MaxSRP.PhotometryChecks]::Run()
 $taskOutput=ReadSource 'Runtime/Passes/MaxColorOutputPass.cs'
-if(-not $taskOutput.Contains('settings.GetExposureMultiplier()')){throw 'Final output bypasses physical exposure'}
+if(-not $taskOutput.Contains('MaxSceneExposure.GetExposureMultiplier(camera, settings)')){throw 'Final output bypasses scene-aware physical exposure'}
+$taskSceneExposure=ReadSource 'Runtime/MaxSceneExposure.cs'
+if(-not $taskSceneExposure.Contains('fallback.GetExposureMultiplier()')){throw 'Scene exposure bypasses the default physical exposure fallback'}
 $taskScene=[IO.File]::ReadAllText((Join-Path $taskRoot 'Assets/Scenes/SkyboxScene.unity'))
 $taskExpected=@{'2138677392'=$null;'44756188'=7500;'922907208'=15000;'2144985078'=1500}
 foreach($id in $taskExpected.Keys){

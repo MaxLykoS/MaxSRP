@@ -13,6 +13,12 @@ MonoBehaviour:
   m_Name: Max Renderer Pipeline Asset
   m_EditorClassIdentifier: 
   m_lightingShader: {fileID: 4800000, guid: b7b56707e539de6499dfad1cb0cf1464, type: 3}
+  m_clusteredLightingSettings:
+    Enabled: 1
+    TileSize: 64
+    DepthSlices: 32
+    MaxLightsPerCluster: 64
+  m_clusteredLightingCS: {fileID: 7200000, guid: ba3391733eb84be79755af8922d3f79b, type: 3}
   m_colorOutputSettings:
     CameraEV100: 15
     ExposureEV: 0

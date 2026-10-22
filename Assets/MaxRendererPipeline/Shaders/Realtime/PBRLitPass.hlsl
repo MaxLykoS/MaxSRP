@@ -96,6 +96,7 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
     if (_MaxLightingDiagnosticMode < 2.0 || _MaxLightingDiagnosticMode > 5.0)
         visibility = MainLightShadow(pW.xyz, normal, receiverDx, receiverDy);
     float3 c = PBR_Shading(pW.xyz, normal, albedo.rgb, metalness, roughness, o.uv, visibility);
+    c += emission;
 
 	// Perspective LUT depth is ray length; orthographic rays start on the camera plane.
     float atmosphereDistance = unity_OrthoParams.w > 0.5

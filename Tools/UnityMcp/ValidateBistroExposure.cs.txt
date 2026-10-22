@@ -1,0 +1,32 @@
+var scene=UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+var e=UnityEngine.Object.FindObjectOfType<MaxSRP.MaxSceneExposure>();
+var camera=UnityEngine.Camera.main;
+var view=UnityEditor.SceneView.lastActiveSceneView;
+if(e==null || camera==null || scene.path!="Assets/Scenes/BistroTest/BistroTest.unity") throw new System.Exception("Open Bistro first");
+var pipeline=(MaxSRP.MaxRendererPipelineAsset)UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+var beforeDefault=UnityEngine.Rendering.GraphicsSettings.defaultRenderPipeline;
+var beforeQuality=Enumerable.Range(0,UnityEngine.QualitySettings.names.Length).Select(UnityEngine.QualitySettings.GetRenderPipelineAssetAt).ToArray();
+var fallback=pipeline.ColorOutput;
+float expected=MaxSRP.LightPhotometry.HDRScale/(1.2f*UnityEngine.Mathf.Pow(2,e.CameraEV100))*UnityEngine.Mathf.Pow(2,e.ExposureEV);
+System.Action<UnityEngine.Camera,float> check=(c,wanted)=>{
+    if(System.Math.Abs(MaxSRP.MaxSceneExposure.GetExposureMultiplier(c,fallback)-wanted)>0.01f)throw new System.Exception("Exposure scope mismatch: "+c.cameraType);
+};
+UnityEngine.SceneManagement.Scene temporary=default(UnityEngine.SceneManagement.Scene);
+try{
+    e.enabled=false;check(camera,fallback.GetExposureMultiplier());
+    e.enabled=true;check(camera,expected);
+    if(view)check(view.camera,expected);
+    temporary=UnityEditor.SceneManagement.EditorSceneManager.NewScene(UnityEditor.SceneManagement.NewSceneSetup.EmptyScene,UnityEditor.SceneManagement.NewSceneMode.Additive);
+    UnityEngine.SceneManagement.SceneManager.SetActiveScene(temporary);
+    check(camera,expected);if(view)check(view.camera,fallback.GetExposureMultiplier());
+    UnityEngine.SceneManagement.SceneManager.SetActiveScene(scene);
+    if(view)check(view.camera,expected);
+    if(UnityEngine.Rendering.GraphicsSettings.defaultRenderPipeline!=beforeDefault)throw new System.Exception("Global pipeline changed");
+    for(int i=0;i<beforeQuality.Length;i++)if(UnityEngine.QualitySettings.GetRenderPipelineAssetAt(i)!=beforeQuality[i])throw new System.Exception("Quality pipeline changed");
+}finally{
+    if(temporary.IsValid())UnityEditor.SceneManagement.EditorSceneManager.CloseScene(temporary,true);
+    UnityEngine.SceneManagement.SceneManager.SetActiveScene(scene);e.enabled=true;
+}
+UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
+System.IO.File.WriteAllText("OfflineBaseline/Bistro/lifecycle_validation.txt","PASS: scene/Game/SceneView exposure scope and disable/enable fallback; global/quality pipelines unchanged\n");
+return "PASS: scene exposure lifecycle; global/quality pipelines unchanged";

@@ -33,6 +33,9 @@ namespace MaxSRP.EditorDiagnostics
                     $"MaxSRP pipeline '{AssetDatabase.GetAssetPath(asset)}' requires an asset reference to " +
                     "MaxSRP/PBRLitPass in Lighting Shader. Assign it before building the Player.");
             Shader temporal = asset.TemporalShader;
+            if (asset.ClusteredLighting.Enabled &&
+                (asset.ClusteredLightingCS == null || !AssetDatabase.Contains(asset.ClusteredLightingCS)))
+                throw new BuildFailedException($"MaxSRP pipeline '{AssetDatabase.GetAssetPath(asset)}' requires its Clustered Lighting CS asset reference.");
             if (temporal == null || !AssetDatabase.Contains(temporal) || temporal.name != "Hidden/MaxSRP/TemporalAA")
                 throw new BuildFailedException($"MaxSRP pipeline '{AssetDatabase.GetAssetPath(asset)}' requires its Temporal Shader asset reference.");
         }

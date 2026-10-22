@@ -1,0 +1,92 @@
+#pragma kernel PrepareLights
+#pragma kernel BuildClusters
+
+#define MAX_CLUSTER_COMPUTE
+#include "../../ShaderLibrary/Realtime/ClusteredLightInput.hlsl"
+
+RWStructuredBuffer<float4> _MaxClusterViewLights;
+
+[numthreads(64, 1, 1)]
+void PrepareLights(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)max(_MaxPointLightCount, 0))
+        return;
+    float4 positionRange = _MaxPointLights[id.x].positionRange;
+    float3 positionVS = mul(_MaxClusterWorldToView, float4(positionRange.xyz, 1.0)).xyz;
+    _MaxClusterViewLights[id.x] = float4(positionVS, abs(positionRange.w));
+}
+
+bool MaxClusterCornerAtDepth(float2 uv, float sliceNear, float sliceFar, out float3 nearPoint, out float3 farPoint)
+{
+    float2 ndc = uv * 2.0 - 1.0;
+    float4 a = mul(_MaxClusterInvProjection, float4(ndc, -1.0, 1.0));
+    float4 b = mul(_MaxClusterInvProjection, float4(ndc, 1.0, 1.0));
+    nearPoint = farPoint = 0.0;
+    if (!all(isfinite(a)) || !all(isfinite(b)) || abs(a.w) < 1e-8 || abs(b.w) < 1e-8)
+        return false;
+    a.xyz /= a.w;
+    b.xyz /= b.w;
+    float3 delta = b.xyz - a.xyz;
+    if (!all(isfinite(delta)) || abs(delta.z) < 1e-8)
+        return false;
+    nearPoint = a.xyz + delta * ((-sliceNear - a.z) / delta.z);
+    farPoint = a.xyz + delta * ((-sliceFar - a.z) / delta.z);
+    return all(isfinite(nearPoint)) && all(isfinite(farPoint));
+}
+
+[numthreads(4, 4, 4)]
+void BuildClusters(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= (uint3)_MaxClusterGrid.xyz))
+        return;
+    uint clusterIndex = (id.z * (uint)_MaxClusterGrid.y + id.y) * (uint)_MaxClusterGrid.x + id.x;
+    uint capacity = (uint)_MaxClusterGrid.w;
+    _MaxClusterCounts[clusterIndex] = capacity + 1u;
+    if (!MaxClusterParametersValid())
+        return;
+
+    float sliceNear = MaxClusterSliceDepth(id.z);
+    float sliceFar = MaxClusterSliceDepth(id.z + 1u);
+    float2 uvMin = (float2)id.xy * _MaxClusterScreen.z / _MaxClusterScreen.xy;
+    // The final XY tile can be partial; lookup and construction use viewport
+    // pixels rather than evenly dividing normalized UV by ceil(width / tile).
+    float2 uvMax = min(((float2)id.xy + 1.0) * _MaxClusterScreen.z, _MaxClusterScreen.xy) / _MaxClusterScreen.xy;
+    float3 boxMin = 1e30;
+    float3 boxMax = -1e30;
+    [unroll]
+    for (uint corner = 0; corner < 4u; ++corner)
+    {
+        float2 uv = float2((corner & 1u) ? uvMax.x : uvMin.x, (corner & 2u) ? uvMax.y : uvMin.y);
+        float3 a, b;
+        if (!MaxClusterCornerAtDepth(uv, sliceNear, sliceFar, a, b))
+            return;
+        boxMin = min(boxMin, min(a, b));
+        boxMax = max(boxMax, max(a, b));
+    }
+
+    // View-space AABB is deliberately conservative. Numerical padding avoids
+    // boundary false negatives; pixels retain the existing exact range falloff.
+    float3 extentScale = max(abs(boxMin), abs(boxMax));
+    float epsilon = max(1e-4, max(extentScale.x, max(extentScale.y, extentScale.z)) * 1e-5);
+    uint count = 0;
+    uint start = clusterIndex * capacity;
+    for (uint lightIndex = 0; lightIndex < (uint)max(_MaxPointLightCount, 0); ++lightIndex)
+    {
+        float4 light = _MaxClusterViewLights[lightIndex];
+        // Invalid input falls back to full evaluation instead of poisoning the
+        // cell or treating a non-finite distance as a successful rejection.
+        if (!all(isfinite(light)))
+            return;
+        float3 offset = light.xyz - clamp(light.xyz, boxMin, boxMax);
+        float paddedRadius = light.w + epsilon;
+        if (dot(offset, offset) <= paddedRadius * paddedRadius)
+        {
+            if (count < capacity)
+                _MaxClusterLightIndices[start + count] = lightIndex;
+            ++count;
+        }
+    }
+    // Record the real count even if the fixed storage overflows. Lookup then
+    // uses the complete light buffer, preserving all contributions.
+    _MaxClusterCounts[clusterIndex] = count;
+}

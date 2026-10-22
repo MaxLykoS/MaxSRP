@@ -57,7 +57,7 @@ namespace MaxSRP
             {
                 cmd.SetGlobalTexture(ColorID, color);
                 cmd.SetGlobalTexture(DepthID, sceneDepth);
-                float exposure = settings.GetExposureMultiplier();
+                float exposure = MaxSceneExposure.GetExposureMultiplier(camera, settings);
                 // Our scene is always rendered into a texture. The backbuffer uses a different
                 // projection convention on top-origin APIs; RT destinations keep the source convention.
                 float flipToBackbuffer = !IsTextureDestination(camera) && SystemInfo.graphicsUVStartsAtTop ? 1.0f : 0.0f;

@@ -21,7 +21,8 @@ namespace MaxSRP
         }
 
         public void Execute(ScriptableRenderContext context, Camera camera, RenderTargetIdentifier target,
-            RenderTargetIdentifier depth, Rect viewport, MaxIBLGIPass ibl, bool hasShadows)
+            RenderTargetIdentifier depth, Rect viewport, MaxIBLGIPass ibl, bool hasShadows,
+            MaxClusteredLightingPass.CameraLightResources localLights)
         {
             CommandBuffer cmd = CommandBufferPool.Get("LightPass");
             try
@@ -34,6 +35,7 @@ namespace MaxSRP
                 int pass = camera.clearFlags == CameraClearFlags.Nothing ? 2 :
                     camera.clearFlags == CameraClearFlags.Depth ? 1 : 0;
                 ibl.SetLightingBindings(m_iblBindings);
+                localLights.Bind(m_iblBindings);
                 // Bind camera-local availability explicitly; other views may have left global maps.
                 m_iblBindings.SetFloat("_MainLightShadowsAvailable", hasShadows ? 1.0f : 0.0f);
                 m_iblBindings.SetMatrix("_ShadowReceiverView", camera.worldToCameraMatrix);
