@@ -1,0 +1,139 @@
+// Actual production GBuffer -> MaxLightPass HDR A/B, in an isolated preview scene.
+var utility = new UnityEditor.PreviewRenderUtility(); bool open = false;
+var material = new UnityEngine.Material(UnityEngine.Shader.Find("Unlit/PBRGBuffer"));
+var asset = (MaxSRP.MaxRendererPipelineAsset)UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+var settings = asset.ClusteredLighting;
+bool savedEnabled = settings.Enabled; int savedCapacity = settings.MaxLightsPerCluster;
+var previousDiagnostic = MaxSRP.MaxLightPass.DiagnosticCamera;
+float previousMode = MaxSRP.MaxLightPass.DiagnosticLightingMode;
+var previousRT = UnityEngine.RenderTexture.active;
+const int width = 257, height = 145;
+var target = new UnityEngine.RenderTexture(width, height, 0, UnityEngine.RenderTextureFormat.ARGBHalf, UnityEngine.RenderTextureReadWrite.Linear); target.Create();
+var read = new UnityEngine.Texture2D(width, height, UnityEngine.TextureFormat.RGBAFloat, false, true);
+var lights = new System.Collections.Generic.List<UnityEngine.Light>();
+var reports = new System.Collections.Generic.List<string>();
+var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+var camera = utility.camera;
+bool copied = false;
+System.Action<UnityEngine.Rendering.CommandBuffer,UnityEngine.Camera,UnityEngine.RenderTexture,UnityEngine.RenderTexture,UnityEngine.Vector4> capture = (cmd,c,hdr,depth,parameters) => {
+    if(c != camera) return;
+    if(hdr.width != width || hdr.height != height) throw new System.Exception("Unexpected preview HDR dimensions");
+    cmd.CopyTexture(hdr, target); copied = true;
+};
+MaxSRP.MaxColorOutputPass.EditorOutputCapture += capture;
+try
+{
+    var cube = UnityEngine.GameObject.CreatePrimitive(UnityEngine.PrimitiveType.Cube);
+    cube.hideFlags = UnityEngine.HideFlags.HideAndDontSave; cube.transform.localScale = new UnityEngine.Vector3(6,3.4f,.2f);
+    utility.AddSingleGO(cube); cube.GetComponent<UnityEngine.Renderer>().sharedMaterial = material;
+    material.SetTexture("_AlbedoMap",UnityEngine.Texture2D.whiteTexture);
+    material.SetTexture("_MetalnessMap",UnityEngine.Texture2D.blackTexture);
+    material.SetTexture("_RoughnessMap",UnityEngine.Texture2D.grayTexture);
+    camera.transform.position = new UnityEngine.Vector3(0,0,-5); camera.transform.rotation = UnityEngine.Quaternion.identity;
+    camera.cameraType = UnityEngine.CameraType.Preview;
+    camera.nearClipPlane=.1f; camera.farClipPlane=80; camera.fieldOfView=60;
+    camera.clearFlags=UnityEngine.CameraClearFlags.SolidColor; camera.backgroundColor=UnityEngine.Color.black;
+    for(int i=0;i<96;++i)
+    {
+        var go = new UnityEngine.GameObject("Cluster fixture light "+i); go.hideFlags=UnityEngine.HideFlags.HideAndDontSave;
+        go.transform.position = new UnityEngine.Vector3((i%12-5.5f)*.42f, (i/12-3.5f)*.36f, -1.5f-(i%3)*.2f);
+        utility.AddSingleGO(go); var light=go.AddComponent<UnityEngine.Light>(); light.type=UnityEngine.LightType.Point;
+        light.range=1.8f; light.intensity=20000; light.shadows=UnityEngine.LightShadows.None;
+        light.color=new UnityEngine.Color(.4f+(i%3)*.25f,.5f+(i%4)*.12f,.6f+(i%5)*.08f);
+        lights.Add(light);
+    }
+    utility.BeginPreview(new UnityEngine.Rect(0,0,width,height),UnityEngine.GUIStyle.none); open=true;
+    MaxSRP.MaxLightPass.DiagnosticCamera=camera; MaxSRP.MaxLightPass.DiagnosticLightingMode=1;
+    System.Func<UnityEngine.Color[]> render = () => {
+        copied=false;
+        if(camera.cameraType==UnityEngine.CameraType.Game)
+            ((MaxSRP.MaxRenderPipeline)UnityEngine.Rendering.RenderPipelineManager.currentPipeline).ResetTemporalHistory(camera);
+        utility.Render(true,false); if(!copied)throw new System.Exception("Production HDR capture did not execute");
+        UnityEngine.RenderTexture.active=target; read.ReadPixels(new UnityEngine.Rect(0,0,width,height),0,0); read.Apply(); return read.GetPixels();
+    };
+    object pipeline=UnityEngine.Rendering.RenderPipelineManager.currentPipeline;
+    var configurator=(MaxSRP.MaxLightConfigurator)pipeline.GetType().GetField("m_lightConfigurator",flags).GetValue(pipeline);
+    object pass=pipeline.GetType().GetField("m_clusteredLightingPass",flags).GetValue(pipeline);
+    var states=(System.Collections.IDictionary)pass.GetType().GetField("m_cameras",flags).GetValue(pass);
+    for(int test=0;test<7;++test)
+    {
+        camera.cameraType=test==5?UnityEngine.CameraType.Game:UnityEngine.CameraType.Preview;
+        camera.ResetWorldToCameraMatrix();
+        camera.ResetProjectionMatrix(); camera.orthographic=test==1; camera.orthographicSize=1.8f;
+        if(test==6)camera.worldToCameraMatrix=UnityEngine.Matrix4x4.Scale(new UnityEngine.Vector3(1.1f,.9f,1))*camera.worldToCameraMatrix;
+        settings.MaxLightsPerCluster=test==3?8:64;
+        foreach(var light in lights){ light.enabled=test!=4;light.range=test==3?30:1.8f; }
+        if(test==2){var projection=UnityEngine.Matrix4x4.Frustum(-.055f,.09f,-.04f,.055f,.1f,80);camera.projectionMatrix=projection;}
+        settings.Enabled=false; var reference=render();
+        int observed=configurator.PointLightCount;
+        if(test!=4 && observed!=96)throw new System.Exception("Runtime visible lights truncated: "+observed);
+        if(test==4 && observed!=0)throw new System.Exception("Removed lights remained visible: "+observed);
+        settings.Enabled=true; var clustered=render();
+        double square=0, energy=0, maximum=0; int nonblack=0;
+        for(int i=0;i<reference.Length;++i)
+        {
+            if(reference[i].r+reference[i].g+reference[i].b>1e-4)++nonblack;
+            for(int c=0;c<3;++c)
+            {
+                float a=reference[i][c],b=clustered[i][c];
+                if(float.IsNaN(a)||float.IsInfinity(a)||float.IsNaN(b)||float.IsInfinity(b))throw new System.Exception("Non-finite production HDR");
+                double d=a-b; square+=d*d; energy+=a*a; maximum=System.Math.Max(maximum,System.Math.Abs(d)/System.Math.Max(1e-4,System.Math.Abs(a)));
+            }
+        }
+        double relativeRms=System.Math.Sqrt(square/System.Math.Max(energy,1e-20));
+        if(test!=4 && nonblack<1000)throw new System.Exception("Fixture failed to render geometry");
+        if(relativeRms>5e-4 || maximum>.005)throw new System.Exception("Clustered HDR differs from full lighting: test="+test+" rms="+relativeRms+" max="+maximum);
+        object state=states[camera.GetInstanceID()];
+        bool gridEnabled=(bool)state.GetType().GetField("Enabled",flags).GetValue(state);
+        if(test==5)
+        {
+            object taa=pipeline.GetType().GetField("m_temporalAA",flags).GetValue(pipeline);
+            var histories=(System.Collections.IDictionary)taa.GetType().GetField("m_histories",flags).GetValue(taa);
+            if(!histories.Contains(camera.GetInstanceID()))throw new System.Exception("Game camera did not enter shared TAA");
+            var history=(MaxSRP.MaxTemporalAAPass.CameraHistory)histories[camera.GetInstanceID()];
+            if(history.Jitter==UnityEngine.Vector2.zero)throw new System.Exception("Game fixture did not exercise jitter");
+            reports.Add("Game shared TAA jitter=("+history.Jitter.x.ToString("R")+","+history.Jitter.y.ToString("R")+")");
+        }
+        if(test!=4 && test!=6 && !gridEnabled)throw new System.Exception("Clustered path silently bypassed");
+        if(test==6 && gridEnabled)throw new System.Exception("Scaled custom view needs full-light fallback");
+        if(test==3)
+        {
+            var countBuffer=(UnityEngine.ComputeBuffer)state.GetType().GetField("Counts",flags).GetValue(state);
+            var counts=new uint[countBuffer.count]; countBuffer.GetData(counts); int overflows=0;
+            foreach(uint count in counts)if(count>8)++overflows;
+            if(overflows==0)throw new System.Exception("Overflow fallback was not exercised");
+            reports.Add("overflowCells="+overflows);
+        }
+        reports.Add("case="+test+" visibleLights="+observed+" nonblack="+nonblack+" relativeRms="+relativeRms+" maxRelative="+maximum);
+    }
+    // Reallocation after native buffer loss and isolation from the real Game camera.
+    camera.cameraType=UnityEngine.CameraType.Preview;camera.ResetWorldToCameraMatrix();camera.ResetProjectionMatrix();
+    foreach(var light in lights)light.enabled=true;
+    settings.MaxLightsPerCluster=savedCapacity; settings.Enabled=true; render();
+    object first=states[camera.GetInstanceID()];
+    var original=(UnityEngine.ComputeBuffer)first.GetType().GetField("Counts",flags).GetValue(first); original.Release(); render();
+    var replacement=(UnityEngine.ComputeBuffer)first.GetType().GetField("Counts",flags).GetValue(first);
+    if(!replacement.IsValid() || object.ReferenceEquals(original,replacement))throw new System.Exception("Released cluster buffer did not recover");
+    var main=UnityEngine.Camera.main;
+    if(main!=null && main!=camera)
+    {
+        main.Render();
+        object other=states[main.GetInstanceID()];
+        if(object.ReferenceEquals(first.GetType().GetField("Lights",flags).GetValue(first),other.GetType().GetField("Lights",flags).GetValue(other)))throw new System.Exception("Cameras share local light storage");
+        if(!replacement.IsValid())throw new System.Exception("Rendering another camera retired live preview buffers");
+        reports.Add("per-camera buffers independent; absent live camera retained");
+    }
+    reports.Add("native buffer loss recovered; production point-light count exceeds old 32-light limit");
+}
+finally
+{
+    settings.Enabled=savedEnabled; settings.MaxLightsPerCluster=savedCapacity;
+    MaxSRP.MaxLightPass.DiagnosticCamera=previousDiagnostic;MaxSRP.MaxLightPass.DiagnosticLightingMode=previousMode;
+    MaxSRP.MaxColorOutputPass.EditorOutputCapture-=capture;UnityEngine.RenderTexture.active=previousRT;
+    if(open)utility.EndPreview();utility.Cleanup();UnityEngine.Object.DestroyImmediate(material);
+    UnityEngine.Object.DestroyImmediate(read);UnityEngine.Object.DestroyImmediate(target);
+    UnityEditor.SceneView.RepaintAll();
+}
+var folder=System.IO.Path.GetFullPath("OfflineBaseline/ClusteredLighting");System.IO.Directory.CreateDirectory(folder);
+System.IO.File.WriteAllLines(System.IO.Path.Combine(folder,"production_render_validation.txt"),reports);
+return reports.ToArray();

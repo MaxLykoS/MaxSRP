@@ -1,0 +1,215 @@
+// Run through Unity MCP execute_code in the MaxSRP Editor after compilation.
+// Production kernels, real GPU readback, and an independent per-point sphere oracle.
+// No Camera, scene, render-pipeline setting, imported texture or material is changed.
+if (!UnityEngine.SystemInfo.supportsComputeShaders)
+    throw new System.Exception("Clustered GPU fixtures require compute support");
+const string computePath = "Assets/MaxRendererPipeline/Shaders/Realtime/ClusteredLighting.compute";
+var asset = UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.ComputeShader>(computePath);
+if (asset == null) throw new System.Exception("Missing production compute: " + computePath);
+if (System.Runtime.InteropServices.Marshal.SizeOf(typeof(MaxSRP.MaxPointLightData)) != 32)
+    throw new System.Exception("Production point-light upload stride must be 32 bytes");
+var compute = UnityEngine.Object.Instantiate(asset);
+var folder = System.IO.Path.GetFullPath("OfflineBaseline/ClusteredLighting");
+System.IO.Directory.CreateDirectory(folder);
+var reports = new System.Collections.Generic.List<string>();
+var invariant = System.Globalization.CultureInfo.InvariantCulture;
+System.Func<double,string> number = value => value.ToString("R", invariant);
+int prepare = compute.FindKernel("PrepareLights");
+int build = compute.FindKernel("BuildClusters");
+int totalSamples = 0, totalInside = 0, totalUpperReferences = 0, totalOverflowCells = 0, falseNegatives = 0;
+bool passed = false;
+string failure = "";
+try
+{
+    // Perspective, extreme aspect/FOV, asymmetric frustum, orthographic, signed
+    // orthographic depth, no lights, overflowing lists, and exact-capacity lists.
+    for (int test = 0; test < 8; ++test)
+    {
+        string label = new[]{"perspective", "wide_perspective", "asymmetric_perspective",
+            "orthographic", "orthographic_negative_near", "zero_lights",
+            "overlap_overflow_129_lights", "overlap_exact_capacity_32_lights"}[test];
+        bool orthographic = test == 3 || test == 4;
+        bool overlap = test >= 6;
+        int width = test == 1 ? 1003 : 257, height = test == 1 ? 619 : 145;
+        int tile = 64, nx = (width + tile - 1) / tile, ny = (height + tile - 1) / tile;
+        int nz = test == 1 ? 24 : 16;
+        int lightCount = test == 5 ? 0 : test == 6 ? 129 : test == 7 ? 32 : 96;
+        int capacity = test == 6 ? 8 : test == 7 ? 32 : 128;
+        int cells = nx * ny * nz;
+        float near = test == 4 ? -35 : test == 1 ? .03f : .1f;
+        float far = test == 4 ? 80 : test == 1 ? 500 : 120;
+        var projection = orthographic
+            ? UnityEngine.Matrix4x4.Ortho(-39, 27, -18, 24, near, far)
+            : test == 2 ? UnityEngine.Matrix4x4.Frustum(-.04f, .095f, -.035f, .055f, near, far)
+            : UnityEngine.Matrix4x4.Perspective(test == 1 ? 121 : 63, width / (float)height, near, far);
+        var inverseProjection = projection.inverse;
+        var worldToView = UnityEngine.Matrix4x4.Scale(new UnityEngine.Vector3(1, 1, -1)) *
+            UnityEngine.Matrix4x4.TRS(new UnityEngine.Vector3(137.5f, -41.3f, 203.1f),
+                UnityEngine.Quaternion.Euler(23, -71, 9), UnityEngine.Vector3.one).inverse;
+        var viewToWorld = worldToView.inverse;
+        System.Func<float,float,float,UnityEngine.Vector3> pointAt = (u, v, depth) =>
+        {
+            var middle = inverseProjection.MultiplyPoint(new UnityEngine.Vector3(2 * u - 1, 2 * v - 1, 0));
+            var view = orthographic ? new UnityEngine.Vector3(middle.x, middle.y, -depth)
+                : new UnityEngine.Vector3(middle.x * (-depth / middle.z), middle.y * (-depth / middle.z), -depth);
+            return viewToWorld.MultiplyPoint3x4(view);
+        };
+        System.Func<float,float> depthAt = fraction => orthographic ? near + fraction * (far - near)
+            : near * UnityEngine.Mathf.Pow(far / near, fraction);
+        var random = new System.Random(314159 + test * 1009);
+        System.Func<float> unit = () => (float)random.NextDouble();
+        var lights = new MaxSRP.MaxPointLightData[System.Math.Max(1, lightCount)];
+        for (int i = 0; i < lightCount; ++i)
+        {
+            var position = overlap ? pointAt(.5f, .5f, 8)
+                : pointAt(-.15f + unit() * 1.3f, -.15f + unit() * 1.3f, depthAt(unit()));
+            float radius = overlap ? .5f : .02f + unit() * far * .08f;
+            if (!overlap && i == 0) { radius = 2; position = pointAt(.5f, .5f, near - 1); }
+            if (!overlap && i == 1) { radius = 4; position = pointAt(.5f, .5f, far + 2); }
+            if (!overlap && i == 2) { radius = far * 30; position = pointAt(.5f, .5f, near); }
+            lights[i] = new MaxSRP.MaxPointLightData {
+                positionRange = new UnityEngine.Vector4(position.x, position.y, position.z, radius),
+                color = new UnityEngine.Vector4(.01f + i * .0001f, .02f, .03f, 0)
+            };
+        }
+        var pointBuffer = new UnityEngine.ComputeBuffer(lights.Length, 32);
+        var viewBuffer = new UnityEngine.ComputeBuffer(lights.Length, 16);
+        var countBuffer = new UnityEngine.ComputeBuffer(cells, 4);
+        var indexBuffer = new UnityEngine.ComputeBuffer(cells * capacity, 4);
+        try
+        {
+            pointBuffer.SetData(lights);
+            // Poison counts before dispatch so missing/partial dispatch cannot pass.
+            var counts = new uint[cells]; for (int i = 0; i < counts.Length; ++i) counts[i] = 0xffffffffu;
+            countBuffer.SetData(counts);
+            compute.SetInt("_MaxPointLightCount", lightCount);
+            compute.SetVector("_MaxClusterGrid", new UnityEngine.Vector4(nx, ny, nz, capacity));
+            compute.SetVector("_MaxClusterScreen", new UnityEngine.Vector4(width, height, tile, 0));
+            compute.SetVector("_MaxClusterDepth", new UnityEngine.Vector4(near, far, orthographic ? 1 : 0, 0));
+            compute.SetMatrix("_MaxClusterWorldToView", worldToView);
+            compute.SetMatrix("_MaxClusterProjection", projection);
+            compute.SetMatrix("_MaxClusterInvProjection", inverseProjection);
+            compute.SetBuffer(prepare, "_MaxPointLights", pointBuffer);
+            compute.SetBuffer(prepare, "_MaxClusterViewLights", viewBuffer);
+            compute.SetBuffer(build, "_MaxClusterViewLights", viewBuffer);
+            compute.SetBuffer(build, "_MaxClusterCounts", countBuffer);
+            compute.SetBuffer(build, "_MaxClusterLightIndices", indexBuffer);
+            compute.Dispatch(prepare, (lights.Length + 63) / 64, 1, 1);
+            compute.Dispatch(build, (nx + 3) / 4, (ny + 3) / 4, (nz + 3) / 4);
+            countBuffer.GetData(counts);
+            var indices = new uint[cells * capacity]; indexBuffer.GetData(indices);
+            var viewLights = new UnityEngine.Vector4[lights.Length]; viewBuffer.GetData(viewLights);
+            float maxTransformError = 0;
+            for (int i = 0; i < lightCount; ++i)
+            {
+                var expected = worldToView.MultiplyPoint3x4(lights[i].positionRange);
+                float error = UnityEngine.Vector3.Distance(expected, viewLights[i]);
+                maxTransformError = UnityEngine.Mathf.Max(maxTransformError, error);
+                if (error > .002f || UnityEngine.Mathf.Abs(viewLights[i].w - lights[i].positionRange.w) > 1e-5f)
+                    throw new System.Exception(label + ": PrepareLights position/range differs from CPU transform");
+            }
+            int overflowCells = 0, upperReferences = 0, maxCount = 0;
+            for (int cell = 0; cell < cells; ++cell)
+            {
+                if (counts[cell] > (uint)lightCount)
+                    throw new System.Exception(label + ": cell not written, invalid geometry fallback, or corrupt count at " + cell + " count=" + counts[cell]);
+                maxCount = System.Math.Max(maxCount, (int)counts[cell]);
+                if (counts[cell] > capacity) ++overflowCells;
+                var seen = new System.Collections.Generic.HashSet<uint>();
+                for (int j = 0; j < System.Math.Min((int)counts[cell], capacity); ++j)
+                {
+                    uint index = indices[cell * capacity + j];
+                    if (index >= lightCount || !seen.Add(index))
+                        throw new System.Exception(label + ": out-of-range or duplicate light-list index");
+                    if (index >= 32) ++upperReferences;
+                }
+            }
+            var samples = new System.Collections.Generic.List<UnityEngine.Vector3>();
+            samples.Add(pointAt(.5f, .5f, 8));
+            for (int i = 0; i < 2200; ++i) samples.Add(pointAt(unit(), unit(), depthAt(unit())));
+            // Sample inside every sphere; the oracle only asks whether an actual
+            // surface point receives a light, never duplicates cluster-AABB logic.
+            for (int i = 0; i < lightCount && !overlap; ++i)
+                for (int s = 0; s < 12; ++s)
+                {
+                    var direction = new UnityEngine.Vector3(unit() * 2 - 1, unit() * 2 - 1, unit() * 2 - 1).normalized;
+                    samples.Add((UnityEngine.Vector3)lights[i].positionRange + direction * lights[i].positionRange.w * .99f * unit());
+                }
+            // Probe either side of exact tile/depth boundaries, including the
+            // one-pixel rightmost tile in the 257-pixel viewport.
+            foreach (float offset in new[]{-1e-5f, 0, 1e-5f})
+            {
+                for (int x = 1; x < nx; ++x)
+                    for (int z = 0; z < nz; ++z) samples.Add(pointAt(x * tile / (float)width + offset, .53f, depthAt((z + .5f) / nz)));
+                for (int y = 1; y < ny; ++y)
+                    for (int z = 0; z < nz; ++z) samples.Add(pointAt(.47f, y * tile / (float)height + offset, depthAt((z + .5f) / nz)));
+                for (int z = 1; z < nz; ++z) samples.Add(pointAt(.37f, .61f, depthAt(z / (float)nz) + offset));
+            }
+            int checkedSamples = 0, insidePairs = 0, overflowSamples = 0;
+            foreach (var sample in samples)
+            {
+                var view = worldToView.MultiplyPoint3x4(sample);
+                float depth = -view.z;
+                var clip = projection * new UnityEngine.Vector4(view.x, view.y, view.z, 1);
+                float u = (clip.x / clip.w + 1) * .5f, v = (clip.y / clip.w + 1) * .5f;
+                if (depth < near || depth >= far || u < 0 || v < 0 || u >= 1 || v >= 1) continue;
+                float fraction = orthographic ? (depth - near) / (far - near)
+                    : UnityEngine.Mathf.Log(depth / near) / UnityEngine.Mathf.Log(far / near);
+                int z = UnityEngine.Mathf.Clamp(UnityEngine.Mathf.FloorToInt(fraction * nz), 0, nz - 1);
+                int x = UnityEngine.Mathf.Clamp(UnityEngine.Mathf.FloorToInt(u * width / tile), 0, nx - 1);
+                int y = UnityEngine.Mathf.Clamp(UnityEngine.Mathf.FloorToInt(v * height / tile), 0, ny - 1);
+                int cell = (z * ny + y) * nx + x;
+                bool overflow = counts[cell] > capacity;
+                if (overflow) ++overflowSamples;
+                for (int light = 0; light < lightCount; ++light)
+                {
+                    float radius = lights[light].positionRange.w;
+                    if ((sample - (UnityEngine.Vector3)lights[light].positionRange).sqrMagnitude >= radius * radius) continue;
+                    ++insidePairs;
+                    if (overflow) continue; // Production lookup must traverse the complete point buffer.
+                    bool found = false;
+                    for (int j = 0; j < (int)counts[cell]; ++j)
+                        if (indices[cell * capacity + j] == light) { found = true; break; }
+                    if (!found)
+                    {
+                        ++falseNegatives;
+                        throw new System.Exception(label + ": FALSE NEGATIVE, cell=" + cell + " light=" + light + " uv=" + u + "," + v + " depth=" + depth);
+                    }
+                }
+                ++checkedSamples;
+            }
+            if (checkedSamples < 1000 || (lightCount > 0 && insidePairs == 0))
+                throw new System.Exception(label + ": insufficient in-frustum lighting samples");
+            if (test == 6 && (maxCount != 129 || overflowSamples == 0))
+                throw new System.Exception("Overflow must retain true count 129 and request full-light fallback");
+            if (test == 7 && (maxCount != capacity || overflowCells != 0))
+                throw new System.Exception("Exact-capacity cells must retain all lights without overflow");
+            if (!overlap && lightCount > 32 && upperReferences == 0)
+                throw new System.Exception(label + ": light indices above 31 were lost");
+            totalSamples += checkedSamples; totalInside += insidePairs;
+            totalUpperReferences += upperReferences; totalOverflowCells += overflowCells;
+            reports.Add("{\"name\":\"" + label + "\",\"width\":" + width + ",\"height\":" + height +
+                ",\"grid\":[" + nx + "," + ny + "," + nz + "],\"lightCount\":" + lightCount + ",\"capacity\":" + capacity +
+                ",\"checkedPoints\":" + checkedSamples + ",\"insideLightPairs\":" + insidePairs + ",\"falseNegatives\":0,\"maxCellCount\":" + maxCount +
+                ",\"overflowCells\":" + overflowCells + ",\"overflowPoints\":" + overflowSamples + ",\"referencesAbove31\":" + upperReferences +
+                ",\"maxViewTransformErrorMetres\":" + number(maxTransformError) + "}");
+        }
+        finally { pointBuffer.Release(); viewBuffer.Release(); countBuffer.Release(); indexBuffer.Release(); }
+    }
+    passed = true;
+}
+catch (System.Exception exception) { failure = exception.ToString(); throw; }
+finally
+{
+    UnityEngine.Object.DestroyImmediate(compute);
+    string escapedFailure = failure.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n");
+    string json = "{\"passed\":" + (passed ? "true" : "false") + ",\"utc\":\"" + System.DateTime.UtcNow.ToString("o") +
+        "\",\"graphicsAPI\":\"" + UnityEngine.SystemInfo.graphicsDeviceType + "\",\"productionCompute\":\"" + computePath +
+        "\",\"pointLightStride\":32,\"checkedPoints\":" + totalSamples + ",\"insideLightPairs\":" + totalInside +
+        ",\"falseNegatives\":" + falseNegatives + ",\"overflowCells\":" + totalOverflowCells + ",\"referencesAbove31\":" + totalUpperReferences +
+        ",\"failure\":\"" + escapedFailure + "\",\"cases\":[" + string.Join(",", reports.ToArray()) + "]}";
+    System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "gpu_validation.json"), json, new System.Text.UTF8Encoding(false));
+}
+return "PASS: production clustered kernels; " + reports.Count + " camera/light fixtures, " + totalSamples +
+    " in-frustum points, " + totalInside + " point/light sphere checks; no false negatives. Overflow cells=" +
+    totalOverflowCells + ", references above light 31=" + totalUpperReferences + ". " + folder + "/gpu_validation.json";

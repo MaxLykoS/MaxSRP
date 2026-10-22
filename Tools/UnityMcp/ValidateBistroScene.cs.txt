@@ -1,0 +1,58 @@
+var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+if(scene.path != "Assets/Scenes/BistroTest/BistroTest.unity") throw new System.Exception("Open BistroTest first");
+var renderers = scene.GetRootGameObjects().SelectMany(g=>g.GetComponentsInChildren<UnityEngine.MeshRenderer>(true)).ToArray();
+var materials = renderers.SelectMany(r=>r.sharedMaterials).Where(m=>m!=null).Distinct().ToArray();
+var shader = UnityEngine.Shader.Find("MaxSRP/Bistro GBuffer");
+if(shader==null || !shader.isSupported) throw new System.Exception("Bistro shader unsupported");
+foreach(var m in materials){
+    if(m.shader!=shader) throw new System.Exception("Unconverted material: "+m.name);
+    foreach(var property in new[]{"_BaseColorMap","_MaskMap","_NormalMap"})
+        if(!m.GetTexture(property)) throw new System.Exception("Missing "+property+" on "+m.name);
+    var normal = (UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(UnityEditor.AssetDatabase.GetAssetPath(m.GetTexture("_NormalMap")));
+    var mask = (UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(UnityEditor.AssetDatabase.GetAssetPath(m.GetTexture("_MaskMap")));
+    if(normal.textureType!=UnityEditor.TextureImporterType.NormalMap || normal.sRGBTexture || !normal.flipGreenChannel || mask.sRGBTexture)
+        throw new System.Exception("Incorrect normal/mask import: "+m.name);
+}
+var errors=UnityEditor.ShaderUtil.GetShaderMessages(shader).Where(m=>m.severity.ToString()=="Error").ToArray();
+if(errors.Length>0) throw new System.Exception(string.Join("\n",errors.Select(m=>m.message)));
+var lights=scene.GetRootGameObjects().SelectMany(g=>g.GetComponentsInChildren<UnityEngine.Light>(true)).ToArray();
+var activePoints=lights.Where(l=>l.type==UnityEngine.LightType.Point && l.isActiveAndEnabled).ToArray();
+foreach(var l in activePoints)
+    if(!l.TryGetComponent<MaxSRP.MaxPhysicalLight>(out var p) || p.PointUnit!=MaxSRP.PointLightUnit.Lumen)
+        throw new System.Exception("Missing photometric unit: "+l.name);
+var cameras=scene.GetRootGameObjects().SelectMany(g=>g.GetComponentsInChildren<UnityEngine.Camera>(true)).Where(c=>c.isActiveAndEnabled).ToArray();
+if(cameras.Length!=1 || UnityEngine.Camera.main!=cameras[0]) throw new System.Exception("Expected exactly one enabled MainCamera");
+var pipeline=UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline as MaxSRP.MaxRendererPipelineAsset;
+if(!pipeline || UnityEditor.AssetDatabase.GetAssetPath(pipeline)!="Assets/MaxRendererPipeline/Max Renderer Pipeline Asset.asset") throw new System.Exception("Expected unchanged main pipeline");
+if(!pipeline.ClusteredLighting.Enabled || !pipeline.TemporalAA.Enabled) throw new System.Exception("Clustered/TAA must be enabled");
+var camera=cameras[0];
+var exposure=UnityEngine.Object.FindObjectOfType<MaxSRP.MaxSceneExposure>();
+if(!exposure || !exposure.enabled || System.Math.Abs(MaxSRP.MaxSceneExposure.GetExposureMultiplier(camera,pipeline.ColorOutput)-MaxSRP.LightPhotometry.HDRScale/(1.2f*UnityEngine.Mathf.Pow(2,10.5f)))>0.01f)
+    throw new System.Exception("Scene exposure missing");
+string directory="OfflineBaseline/Bistro";System.IO.Directory.CreateDirectory(directory);
+var output=new UnityEngine.RenderTexture(1280,720,24,UnityEngine.RenderTextureFormat.ARGB32,UnityEngine.RenderTextureReadWrite.sRGB);output.Create();
+var oldTarget=camera.targetTexture;var oldActive=UnityEngine.RenderTexture.active;
+var read=new UnityEngine.Texture2D(1280,720,UnityEngine.TextureFormat.RGBAFloat,false,true);
+double meanOutput=0;
+try{
+    camera.targetTexture=output;
+    for(int i=0;i<16;i++)camera.Render();
+    UnityEngine.RenderTexture.active=output;read.ReadPixels(new UnityEngine.Rect(0,0,1280,720),0,0);read.Apply();
+    var pixels=read.GetPixels();meanOutput=pixels.Average(c=>(double)(c.r+c.g+c.b)/3);
+    if(meanOutput<0.01 || pixels.Average(c=>(double)c.a)<0.9)throw new System.Exception("Empty/black camera output");
+    var png=new UnityEngine.Texture2D(1280,720,UnityEngine.TextureFormat.RGBA32,false,true);
+    try{png.SetPixels(pixels);png.Apply();System.IO.File.WriteAllBytes(directory+"/BistroTest.png",png.EncodeToPNG());}
+    finally{UnityEngine.Object.DestroyImmediate(png);}
+}finally{
+    camera.targetTexture=oldTarget;UnityEngine.RenderTexture.active=oldActive;
+    UnityEngine.Object.DestroyImmediate(read);output.Release();UnityEngine.Object.DestroyImmediate(output);
+}
+long triangles=0;foreach(var r in renderers){var mesh=r.GetComponent<UnityEngine.MeshFilter>().sharedMesh;for(int s=0;s<mesh.subMeshCount;s++)triangles+=(long)mesh.GetIndexCount(s)/3;}
+string report="PASS: actual Unity scene validation\n"+
+    "Renderers="+renderers.Length+"; Materials="+materials.Length+"; Triangles="+triangles+"\n"+
+    "ActivePointLights="+activePoints.Length+"; ConfiguredPointLights="+lights.Count(l=>l.type==UnityEngine.LightType.Point)+"\n"+
+    "Camera="+camera.transform.position+"; EV100="+exposure.CameraEV100+"; MainAssetEV="+pipeline.ColorOutput.CameraEV100+"\n"+
+    "Final output mean RGB="+meanOutput+"\n"+
+    "NormalMap/LinearMask imports verified; shader supported; missing material textures=0\n";
+System.IO.File.WriteAllText(directory+"/scene_validation.txt",report);
+return report;

@@ -38,9 +38,13 @@ float3 PBR_DirectLitPointLight(Surface surface)
     // point light shading
     float3 Lo = float3(0.0, 0.0, 0.0);
 
-    for (int i1 = 0; i1 < _PointLightCount; ++i1)
+    uint lightListStart, lightListCount;
+    bool useCluster = GetPointLightList(surface.P, lightListStart, lightListCount);
+    uint pointLightCount = useCluster ? lightListCount : (uint)GetPointLightCount();
+    for (uint i1 = 0; i1 < pointLightCount; ++i1)
     {
-        PointLight pointLight = GetPointLight(i1);
+        uint lightIndex = useCluster ? GetPointLightListIndex(lightListStart, i1) : i1;
+        PointLight pointLight = GetPointLight(lightIndex);
         float3 pointLightPos = pointLight.positionRange.xyz;
         float3 lightOffset = pointLightPos - surface.P;
         float distanceSqr = dot(lightOffset, lightOffset);

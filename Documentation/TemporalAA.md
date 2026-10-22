@@ -26,6 +26,7 @@ TAA 是 MaxSRP 的公共基础设施。各 Pass 必须遵守本文件约定；�
 - CSM 使用原来的无 jitter 投影与 texel snapping。剔除使用无 jitter 视锥并保守扩展一像素，不能让 jitter 造成边缘物体突然被剔除。
 - 大气 LUT 的方向采样使用无 jitter 投影，Lighting 查询 LUT 时从当前 UV 减去 jitter。LUT 构建不能使接下来的深度反投影悄悄改回另一套矩阵。
 - 离线预览诊断与反射相机旁路 TAA，保持既有数值 baseline 可重复。
+- Clustered 点光建表使用无 jitter CPU 投影，片元从 jitter 深度重建的世界位置重新投影查表，不混用 SV_POSITION、输出视窗偏移和 GPU Y 翻转。每相机独立灯表、溢出／范围外回退完整灯列表，不新增时间历史；详见 `Documentation/ClusteredLighting.md`。
 
 ## 运动向量
 
@@ -47,6 +48,7 @@ TAA 是 MaxSRP 的公共基础设施。各 Pass 必须遵守本文件约定；�
 - 越界、前后深度不匹配、无有效上一位置均逐像素拒绝历史。邻域方差用于约束旧颜色；超出局部变化范围的着色变化降低历史权重。
 - 静态历史默认上限 0.94，运动时降低，初始阶段按已有计数增加。既不是承诺固定累积 32 帧，也不是两帧平均。
 - 只因某相机缺席本次 Render 调用不能清除它的 GBuffer、输出或 TAA 历史。销毁相机时释放；关闭 TAA 时移除历史及本模块增加的 depthTextureMode 位。
+- `MaxSceneExposure` 仅在最终 Color Output 按场景覆盖 EV100 / 曝光补偿；Game 按相机所属场景、SceneView 按活动场景选择，Preview / Reflection 旁路。它不切换管线资产或质量配置，不改变 HDR 历史的光度缩放。
 - Inspector 验证可同步释放旧管线。生成的 GameObject（隐藏阴影相机等）须经 `MaxRenderResources.Destroy` 释放：编辑模式将销毁移到下一次 Editor 更新，并通过 SessionState 保留跨 domain reload 的待清理 ID；运行时使用 `Object.Destroy`。不得在 OnValidate/渲染回调内直接 DestroyImmediate GameObject。资源所有者引用立即置空，避免旧管线继续使用已退役对象。
 - Editor Scene 视图初始、相机或太阳变化后主动刷新至 32 次解析，避免停止操作后没有后续帧可供收敛。
 

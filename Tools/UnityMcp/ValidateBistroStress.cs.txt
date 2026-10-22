@@ -1,0 +1,34 @@
+var camera=UnityEngine.Camera.main;
+if(camera==null || camera.gameObject.scene.path!="Assets/Scenes/BistroTest/BistroTest.unity")throw new System.Exception("Open Bistro first");
+var parent=UnityEngine.GameObject.Find("Stress Tests (Enable One Child Only)");
+var groups=Enumerable.Range(0,parent.transform.childCount).Select(i=>parent.transform.GetChild(i).gameObject).ToArray();
+var active=groups.Select(g=>g.activeSelf).ToArray();
+var originalTarget=camera.targetTexture;
+var originalActive=UnityEngine.RenderTexture.active;
+var output=new UnityEngine.RenderTexture(320,180,24,UnityEngine.RenderTextureFormat.ARGBHalf,UnityEngine.RenderTextureReadWrite.Linear);output.Create();
+var read=new UnityEngine.Texture2D(320,180,UnityEngine.TextureFormat.RGBAFloat,false,true);
+var report=new System.Text.StringBuilder();
+try{
+    camera.targetTexture=output;
+    foreach(var group in groups)group.SetActive(false);
+    for(int test=-1;test<groups.Length;test++){
+        if(test>=0)groups[test].SetActive(true);
+        var pipeline=(MaxSRP.MaxRenderPipeline)UnityEngine.Rendering.RenderPipelineManager.currentPipeline;
+        pipeline.ResetTemporalHistory(camera);camera.Render();
+        pipeline=(MaxSRP.MaxRenderPipeline)UnityEngine.Rendering.RenderPipelineManager.currentPipeline;
+        var configurator=(MaxSRP.MaxLightConfigurator)typeof(MaxSRP.MaxRenderPipeline).GetField("m_lightConfigurator",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance).GetValue(pipeline);
+        UnityEngine.RenderTexture.active=output;read.ReadPixels(new UnityEngine.Rect(0,0,320,180),0,0);read.Apply();
+        var pixels=read.GetPixels();int invalid=pixels.Count(c=>float.IsNaN(c.r)||float.IsInfinity(c.r)||float.IsNaN(c.g)||float.IsInfinity(c.g)||float.IsNaN(c.b)||float.IsInfinity(c.b));
+        if(invalid>0)throw new System.Exception("Non-finite output in "+test);
+        if(pixels.Average(c=>(double)(c.r+c.g+c.b)/3)<0.01 || pixels.Average(c=>(double)c.a)<0.9)throw new System.Exception("Empty lighting output in "+test);
+        report.AppendLine((test<0?"Showcase":groups[test].name)+": visible point lights="+configurator.PointLightCount+"; non-finite pixels=0");
+        if(test>=0)groups[test].SetActive(false);
+    }
+}finally{
+    for(int i=0;i<groups.Length;i++)groups[i].SetActive(active[i]);
+    camera.targetTexture=originalTarget;UnityEngine.RenderTexture.active=originalActive;
+    UnityEngine.Object.DestroyImmediate(read);output.Release();UnityEngine.Object.DestroyImmediate(output);
+}
+UnityEditor.SceneManagement.EditorSceneManager.SaveScene(camera.gameObject.scene);
+System.IO.File.WriteAllText("OfflineBaseline/Bistro/stress_validation.txt",report.ToString());
+return report.ToString();

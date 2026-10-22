@@ -3,6 +3,7 @@
 
 #include "HLSLSupport.cginc"
 #include "./CommonInput.hlsl"
+#include "ClusteredLightInput.hlsl"
 
 #define POINT_LIGHT_COUNT 32
 
@@ -36,8 +37,23 @@ DirLight GetMainLight()
     return light;
 }
 
+int GetPointLightCount()
+{
+    if (_MaxUsePointLightBuffer > 0.5)
+        return max(_MaxPointLightCount, 0);
+    return clamp(_PointLightCount, 0, POINT_LIGHT_COUNT);
+}
+
 PointLight GetPointLight(uint index)
 {
+    if (_MaxUsePointLightBuffer > 0.5)
+    {
+        MaxPointLightData data = _MaxPointLights[index];
+        PointLight bufferedLight;
+        bufferedLight.positionRange = data.positionRange;
+        bufferedLight.color = data.color;
+        return bufferedLight;
+    }
     PointLight light;
     float4 positionRange = _PointLightPositionAndRanges[index];
     float4 color = _PointLightColors[index];

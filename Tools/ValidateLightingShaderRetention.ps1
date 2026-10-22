@@ -19,6 +19,16 @@ foreach ($taskAsset in $taskAssets) {
 if (-not [IO.File]::ReadAllText((Join-Path $taskRuntime 'MaxRendererPipelineAsset.cs.meta')).Contains($taskReference)) {
     throw 'New pipeline asset default reference is missing.'
 }
+$taskClusterGuid = [regex]::Match([IO.File]::ReadAllText((Join-Path $taskRoot 'Assets/MaxRendererPipeline/Shaders/Realtime/ClusteredLighting.compute.meta')), '(?m)^guid: (\w+)').Groups[1].Value
+$taskClusterReference = "m_clusteredLightingCS: {fileID: 7200000, guid: $taskClusterGuid, type: 3}"
+foreach ($taskAsset in $taskAssets) {
+    if (-not [IO.File]::ReadAllText($taskAsset.FullName).Contains($taskClusterReference)) {
+        throw "Missing serialized clustered Compute dependency: $($taskAsset.FullName)"
+    }
+}
+if (-not [IO.File]::ReadAllText((Join-Path $taskRuntime 'MaxRendererPipelineAsset.cs.meta')).Contains($taskClusterReference)) {
+    throw 'New pipeline asset clustered Compute default reference is missing.'
+}
 
 # Bind production sources to installed Unity engine/editor APIs for both contexts.
 # Only the two unchanged SRP Core helpers below use declaration-only stand-ins;

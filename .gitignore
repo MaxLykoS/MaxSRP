@@ -66,3 +66,9 @@ crashlytics-build.properties
 __pycache__/
 *.py[cod]
 
+# Bistro source payloads stay local; preserve Unity GUIDs and importer settings.
+# Re-include directories so Git can discover .meta files at every depth.
+/Assets/ThirdParty/Bistro/**
+!/Assets/ThirdParty/Bistro/**/
+!/Assets/ThirdParty/Bistro/**/*.meta
+
