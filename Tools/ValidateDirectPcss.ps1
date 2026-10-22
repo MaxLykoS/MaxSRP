@@ -14,7 +14,7 @@ function Get-TaskFunction([string]$source, [string]$signature) {
 $taskFunctions = @(Get-TaskFunction $taskSpace 'float ClipDepthToDeviceDepth(')
 foreach ($signature in @('bool IsShadowOccluded(', 'float ShadowDistanceFromNear(', 'float BiasedShadowDepth(',
     'float2 ShadowClipToUV(', 'float PCSSFilterRadius(', 'float2 PcssSobolSquare(', 'float2 PcssSquareToDisk(',
-    'float2 PcssDiskSample(', 'float2 GetAverageBlockerDepth(', 'float PCSS(', 'float PcssNeighborWeight(')) {
+    'float2 PcssDiskSample(', 'float2 ClampShadowTileUV(', 'float2 ShadowAtlasUV(', 'float2 GetAverageAtlasBlockerDepth(', 'float2 GetAverageBlockerDepth(', 'float FilterDirectionalShadow(', 'float PCSS(', 'float PcssNeighborWeight(')) {
     $taskFunctions += Get-TaskFunction $taskShadow $signature
 }
 $taskHost = @'
@@ -25,6 +25,7 @@ public static class __CLASS__ {
     static float _ShadowLightTanAngularRadius=.1f;
     static object sampler_PointClamp=new object();
     class SamplerComparisonState {}
+    static Vector2 clamp(Vector2 a,float b,float c)=>Vector2.Clamp(a,new Vector2(b),new Vector2(c));
     static float max(float a,float b)=>Math.Max(a,b);
     static float min(float a,float b)=>Math.Min(a,b);
     static float saturate(float x)=>Math.Max(0,Math.Min(1,x));
@@ -142,6 +143,7 @@ foreach ($taskReverse in @($false, $true)) {
         $taskCode = $taskLines -join "`n"
         $taskCode = $taskCode.Replace('any(uv < 0.0) || any(uv > 1.0)', 'uv.X < 0.0 || uv.Y < 0.0 || uv.X > 1.0 || uv.Y > 1.0')
         $taskCode = $taskCode.Replace('shadowNDC.xy', 'new Vector2(shadowNDC.X, shadowNDC.Y)').Replace('UNITY_NEAR_CLIP_VALUE', '0.0')
+        $taskCode = $taskCode.Replace('tile.xy','new Vector2(tile.X,tile.Y)').Replace('tile.zw','new Vector2(tile.Z,tile.W)').Replace('float4(', 'new Vector4(')
         $taskCode = $taskCode.Replace('float4x4', 'Matrix4x4').Replace('[loop]', '').Replace('[unroll]', '').Replace('float2(', 'new Vector2(')
         $taskCode = $taskCode.Replace('float2', 'Vector2').Replace('float3', 'Vector3').Replace('float4', 'Vector4')
         $taskCode = [regex]::Replace($taskCode, '\.([xyzw])\b', { param($m) '.' + $m.Groups[1].Value.ToUpperInvariant() })

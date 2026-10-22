@@ -1,6 +1,6 @@
 # MaxSRP 问题检查与修复记录
 
-更新日期：2026-10-21（原生分辨率全画面 TAA、时间渲染契约及多相机资源生命周期）。
+更新日期：2026-10-22（CSM atlas、近级 PCSS／远级 PCF、UE 移动端对照与阴影阶段收尾）。
 
 范围：实时 SRP、PBR、IBL、大气和级联阴影。待处理章节沿用原编号，便于逐项处理；已完成的项目集中放在文末按日期排列的“已修复”区域。
 
@@ -693,3 +693,69 @@ Unity MCP 实测生产 Shader 的 12 项 GPU 夹具通过：常量、合成噪�
 当前相机的同帧 A/B 位于忽略目录 `OfflineBaseline/PcssConvergence`：oldMean64 与 correctedMean64、oldMean32 与 correctedMean32；固定斜向阶梯在校正组消退。`FinalColor/resolved.png` 为正式 Lighting + TAA 输出，颜色/运动读回均无 NaN/Inf；仍有有限采样的细噪声，不把此次修复宣称为所有角度或移动阴影都已验收。
 
 诊断修正：Unity 的旧 SetInt/SetGlobalInt 浮点上传接口不能用于当前 HLSL int 预算；本次诊断与旧 `CapturePcssPatterns` 已改为 SetGlobalInteger，并在绘制后恢复预算。**前面“PCSS 低差异采样/受约束邻域复用”记录中的 GPU 16/32/64 预算对照没有可靠覆盖整数参数，相关预算间误差与降噪百分比不能继续作为定量结论**；本节使用修正后的上传与实际采样结果复测。斜面夹具纹理/矩阵改为绘制局部绑定，避免改变运行管线全局阴影纹理。Editor 隐藏时诊断脚本显式渲染 Scene 相机，避免把过期文件或超时输出当作新结果。
+
+## 上轮排查记录／未解决用户现象（2026-10-21，移动阴影）
+
+用户接受静态画面后，先提交基线 **9421efa**。上轮临时把 blocker 搜索从 16 改为 64，并给共享 TAA 添加照明变化检测；合成软半影用例中的误差下降约 53%，但参考仍来自相同 shadow map，未覆盖源图栅格误差。**用户随后确认实际栅格闪烁没有缓解，因此不能把这组数字作为用户问题已修复的证据。**
+
+本轮撤回上述两项额外开销，恢复已验收的 **16/32 PCSS** 和原共享 TAA。离线试验图像及工具仍保留于 `OfflineBaseline/MovingShadows`、`CaptureMovingShadows.cs.txt` 和 `AnalyzeMovingShadows.py`，用于区分后续采样误差；未增加阴影专用 TAA 或空间模糊。
+
+## 已调整／待用户动态验收（2026-10-21，移动 caster 的 shadow map 栅格步进）
+
+实际 Scene 相机 FOV=60°，1397×710，ShadowDistance=500 米。原来四级均为硬编码 1024²；稳定包围球加 padding 后，四级投影宽度约 97.91、266.30、591.29、1311.07 米，单 texel 分别约 9.56、26.01、57.74、128.03 厘米。近处物体缓慢移动时，轮廓跨过 texel 边界会离散改变栅格覆盖；Stable CSM 固定相机投影不能让移动几何覆盖连续。PCSS 高采样与 TAA 对原图的平均也不能还原源图缺少的轮廓。
+
+新增逐级 `MapResolution`（1024/2048/4096）。当前资产及新建设置的质量配置为 **4096/2048/1024/1024**，仍保留 500 米覆盖和既有切分。实际纹理大小同步用于 viewport、CSM padding、texel snapping 和 Editor 采样尺度。支持运行时调整尺寸；原生 RT Release/Destroy 后重新分配并绑定本 Pass 资源，避免陈旧全局纹理。当前 Scene 近两级实测单 texel 约 **2.39、12.99 厘米**，远两级不变。太阳角、世界半影公式、bias 与 TAA 均保持验收基线。
+
+独立复现：`CaptureShadowRasterMotion.cs.txt` 在临时 layer 30 创建离屏 caster 和可见地面，相机 far=1000、阴影覆盖=500；物体每帧平移 4 毫米，分别采集 1024/2048/4096 的 48 帧。固定相机、主相机 jitter 和诊断采样序列；每帧以 64/64 次、16 相位平均 PCSS，仅用于剥离随机采样噪声，未添加运行时滤波。另由 `AnalyzeShadowRasterMotion.py` 用解析 ray/box 相交与 256 个太阳圆盘方向独立计算可见度，不读取 shadow map，不包含 TAA 或 GI。
+
+| 单级图分辨率 | 最大帧间可见度 RMS 跳变 | 相对解析参考的时间残差 RMS |
+| --- | ---: | ---: |
+| 1024 | 0.048927 | 0.013380 |
+| 2048 | 0.025936 | 0.009338 |
+| 4096 | 0.013543 | 0.006534 |
+
+同一区域解析参考的最大帧间变化约 0.004619；4096 相比 1024 的最大跳变量降低约 **72%**。太阳圆盘精确光线可见度和 PCSS 是不同近似，绝对误差不能当作 PCSS 物理公式已完全验证，也不保证解析结果应逐像素相等。主要证据是同相机、同覆盖、同运动下，栅格跳变随源图分辨率显著缩小。输出位于忽略目录 `OfflineBaseline/ShadowRasterMotion`。
+
+真实 Unity 复测：四级尺寸 4096/2048/1024/1024、运行时更改为 2048、Release 恢复、Destroy/fake-null 恢复及 owned global binding 均通过；入口 `ValidateShadowMapResolution.cs.txt`。源相机隔离夹具改为混合尺寸，验证实际 Execute 的每级 viewport 与纹理相符。三档分辨率的 1152 组 CSM 旋转/平移稳定性、4608 个覆盖及 10368 个过渡/核支持检查、Player/Editor 条件 Unity API 编译均通过。
+
+成本与边界：按每 texel 4 字节估算，四张深度图从约 **16 MiB 增至 88 MiB**，光栅填充开销也增加；实际驱动占用及手机耗时未测。这是用于确认/改善画面的质量配置，分辨率仍可逐级下调。后续可结合目标阴影距离和级联切分改善分配效率；本轮不缩短覆盖距离、不加入 shadow cache/GI，也不把更高分辨率宣称为根除所有阴影走样。
+
+## 已修正／待用户画面验收（2026-10-22，球体阴影波浪与近级覆盖）
+
+用户在直径 1 米的 Sphere 上观察到阴影边缘起伏。实际网格为 515 顶点、768 三角形；当前 Scene 相机距离球体约 2.8 米，而第一张 4096² 图覆盖约 90.18 米、每 texel 约 2.20 厘米，球宽仅约 45 texel。临时换成 64×128 分段、约 1.6 万三角形的球后，主要起伏仍在。
+
+`CaptureSphereShadows.cs.txt` 在同一 Scene 相机对比原始样本、64/64 taps × 32 相位平均、平面法线、临时近级收紧和高模球。测试后恢复原网格与设置；平均仅用于诊断，不进入运行时。对照发现两项：
+
+- **normal map 扭曲 bias**：此前 `positionWS + normalWS * ShadingPointNormalBias` 中的 normalWS 来自砖面法线贴图。0.1 米偏移带有横向分量，即使几何平坦，也会让阴影查询位置随纹理凹凸变化。现在通过已存在的世界位置导数重建几何接收面法线，朝向相机；世界法线偏移和 slope bias 使用该法线。BRDF 及有无直接光照判断继续使用贴图法线。可靠导数缺失时关闭法线位移，保留深度 bias，不增加 GBuffer 通道或历史。
+- **首级覆盖浪费近处密度**：新增 `FirstCascadeMaxDistance=10m`。第一分界从约 35 米提前至 10 米，仍保留后续约 100/225/500 米终点、四级分辨率与既有物理半影公式；参数为 0 可恢复原比例分配。实际当前首级投影宽约 26.89 米，texel 约 **6.57 毫米**，球宽约 **152 texel**。显存不增加；10 米以后更早使用第二级，这是近/中距离分配的取舍。
+
+只修正 bias 的 A/B：球体地面半影区域，原贴图法线与平面法线对照的平均可见度差为 0.10950、最大差为 0.46398；修正后两组逐像素一致。修正组与旧平面法线参考最大差约 0.000246，来自有限精度导数/投影计算。继续收紧首级后，剩余栅格轮廓进一步变圆。诊断目录为忽略的 `OfflineBaseline/SphereShadowReview`，`comparison.png` 三列依次为原结果、仅几何 bias、收紧近级；`FinalColor/resolved.png` 为正式 Lighting + TAA + 输出转换的读回。
+
+验证：`ValidateShadowBiasNormal.cs.txt` 的 9 项实际生产函数 GPU 测试通过，覆盖三档导数尺度、反向导数顺序、相机上下两侧、斜面、零/共线/NaN 回退。57 项 HLSL 编译通过。首级限制 0/10 米、三档分辨率下，2304 组稳定性、9216 个覆盖与 20736 个重叠/核支持检查通过；Runtime Player/Editor 条件 Unity API 编译通过。当前 Scene 同帧 HDR 输入/解析结果/运动数据均无 NaN/Inf。尚未据此宣称所有材质、轮廓回退及快速运动均已验收。
+
+## 已修复（2026-10-22，Inspector 切换阴影分辨率时销毁隐藏相机报错）
+
+Inspector 的 SerializedObject 修改触发 RenderPipelineAsset.OnValidate，旧 MaxRenderPipeline 同步 Dispose；隐藏阴影相机随后经 CoreUtils.Destroy 走编辑模式 DestroyImmediate。Unity 禁止在 OnValidate/渲染等回调中立即销毁 GameObject，因而报错并遗留无归属的隐藏相机。此前仅直接改 C# 设置字段的分辨率测试没有覆盖这个资产验证路径。
+
+`MaxRenderResources.Destroy` 对 GameObject 单独处理：持有方引用立即置空；编辑模式下一次 EditorApplication.update 再销毁，运行时使用 Object.Destroy。待清理 ID 存入 Editor SessionState，并由 InitializeOnLoadMethod 在脚本重载后继续清理，避免普通延迟闭包随 domain reload 丢失；已被其他路径销毁的对象跳过。纹理解绑、RT Release 及其他渲染资源的既有释放方式保持不变。
+
+通过 MCP 清理了本工程中 162 个旧错误遗留的、明确标记 HideAndDontSave 且不属于活动 Pass 的隐藏阴影相机，保留当前管线相机。复测入口 `Tools/UnityMcp/ValidateShadowDisposal.cs.txt` 使用真实 SerializedObject.ApplyModifiedPropertiesWithoutUndo 连续四次切换并恢复原分辨率，每次都确认管线重建、旧相机在 Editor 更新后消失、阴影图尺寸正确，隐藏相机数量始终为 1，监听期间无新增 Console error。未清空原控制台日志。
+
+另外实际请求了一次脚本重新编译/domain reload；重载后隐藏相机仍为 1、SessionState 待清理数为 0。验证记录在忽略目录 `OfflineBaseline/ShadowDisposal`。Player/Editor 条件 Unity API 编译及源相机隔离/Execute/Dispose 检查通过；本轮未改变已验收的阴影采样、bias、级联覆盖或 TAA。
+
+
+### 4096 上限的 CSM atlas 与远级 PCF（2026-10-22）
+
+按用户确认，将方向光四张独立深度图合并为一张最大 4096×4096 的 atlas，运行时仅绑定一个阴影纹理资源，共享 comparison/point sampler。固定 2×2 布局，当前每级 2048 tile（含保护边），有效 viewport 2044×2044；首级相对原 4096 降低分辨率，其他三级相对原 1024 提升。当前 D3D11 深度实际为 32 bit，逻辑存储约 64 MiB。没有增加阴影缓存、GI 或第二套时间解析。
+
+距离配置改为 UE 同类等比区间分布，`DistributionExponent=2`，500 米下约 33.3/100/233.3/500 米；移除旧固定比例与首级单独上限。保留 Stable CSM、每级有效分辨率 snapping、重叠拟合、10% 可见度混合和末级淡出。近两级 PCSS，远两级确定性 3×3 tent PCF，跨算法边界仍混合两级结果。PCF 的纹理过滤不等于屏幕空间模糊。
+
+atlas 每相机完整清一次，逐级不再清整张深度。宽核搜索和过滤均限制在 tile 有效 texel 中心内，按限制后的偏移做平面修正。真实投影 GPU 测试覆盖 viewport 与纹理 UV 约定，防止 atlas 行重复翻转；资源销毁/丢失恢复与 Inspector 生命周期继续遵守共享 TAA 契约。实现、参数和验证入口详见 `Documentation/ShadowAtlas.md`。
+
+验证：72 组 atlas PCSS/PCF 边界采样、8 个实际投影内外点、9 组接收平面 GPU 检查通过；真实 Inspector 四次 tile 切换保持单一隐藏相机且无新增错误。数值检查覆盖四种分布、透视/正交、自定义投影与级联重叠；生产 HLSL 及深度/法线变体通过。Scene/Game 同帧输出已检查。手机 GPU 的性能与功耗仍未实测。
+
+### 当前阴影阶段收尾（2026-10-22）
+
+用户确认当前阴影画面可以暂时收尾，保留现有 4096 atlas、近两级 PCSS／远两级 PCF、Stable CSM 与共享 TAA。Shadow cache 延后至地形系统引入后再设计，本阶段不实现。
+
+当前测试场景已迁移到 UE 5.3 移动前向路径对照，生成工具与参数记录见 `Tools/UnrealBaseline/README.md`。用户观察到球体阴影轮廓相近、UE 柔边更宽；两边每级分辨率、过滤和深度比较不同，尚未统一世界 texel 尺寸，因此不把柔边宽度差直接解释为 PCSS 半影公式错误。此结论不扩大为移动真机性能或所有运动场景已验收。

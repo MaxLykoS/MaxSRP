@@ -5,12 +5,17 @@ using UnityEngine.Serialization;
 
 namespace MaxSRP
 {
+    public enum ShadowMapResolution { Resolution512 = 512, Resolution1024 = 1024, Resolution2048 = 2048 }
     public enum PcssSampleCount { Samples16 = 16, Samples32 = 32, Samples64 = 64 }
 
     [System.Serializable]
     public class CascadeSettings
     {
         public float ShadowDistance = 50;
+        [Range(1.0f, 4.0f), Tooltip("Ratio of consecutive cascade depth-slice lengths (UE-style geometric distribution). 1 is uniform; 2 uses 1:2:4:8. Larger values reserve more detail near the camera.")]
+        public float DistributionExponent = 2.0f;
+        [Range(0, 4), Tooltip("Number of near cascades using PCSS. Remaining cascades use deterministic 3x3 comparison PCF, blended at cascade boundaries.")]
+        public int PcssCascadeCount = 2;
         public PcssSampleCount BlockerSamples = PcssSampleCount.Samples16;
         public PcssSampleCount FilterSamples = PcssSampleCount.Samples32;
         [Range(0.0f, 0.3f), Tooltip("Fraction of the smaller adjacent depth slice used to blend cascades.")]
@@ -18,7 +23,7 @@ namespace MaxSRP
         [Range(0.0f, 0.5f), Tooltip("Fraction of the last cascade's depth slice used to fade shadows out.")]
         public float DistanceFadeFraction = 0.1f;
         public ShadowSettings Cascade0 = new ShadowSettings();
-        public ShadowSettings Cascade1 = new ShadowSettings();
+        public ShadowSettings Cascade1 = new ShadowSettings { MapResolution = ShadowMapResolution.Resolution2048 };
         public ShadowSettings Cascade2 = new ShadowSettings();
         public ShadowSettings Cascade3 = new ShadowSettings();
 
@@ -76,6 +81,9 @@ namespace MaxSRP
     [System.Serializable]
     public class ShadowSettings
     {
+        [Tooltip("Tile size including a two-texel border per side. Four 2048 tiles fit a single 4096 atlas; effective shadow resolution is tile size minus four.")]
+        public ShadowMapResolution MapResolution = ShadowMapResolution.Resolution2048;
+        [Min(0.0f), Tooltip("World-space offset along the geometric receiver normal; normal maps do not displace the shadow query.")]
         public float ShadingPointNormalBias = 0.1f;
         [Min(0.0f), Tooltip("Receiver depth bias in world units; scales up at grazing angles.")]
         public float DepthNormalBias = 0.005f;

@@ -1,0 +1,44 @@
+// Same-frame current Scene/Game diagnostics; leaves transforms/assets unchanged.
+var folder="D:/UnityProject/MaxSRP/OfflineBaseline/ShadowAtlas";System.IO.Directory.CreateDirectory(folder);
+var owned=new System.Collections.Generic.List<UnityEngine.Object>();
+var probe=new UnityEngine.Material(UnityEngine.Shader.Find("Hidden/MaxSRP/PcssConvergenceProbe"));owned.Add(probe);
+var palette=new[]{new UnityEngine.Color(.9f,.2f,.1f),new UnityEngine.Color(.1f,.8f,.2f),new UnityEngine.Color(.1f,.4f,1),new UnityEngine.Color(.8f,.2f,.8f)};
+float exposure=((MaxSRP.MaxRendererPipelineAsset)UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline).ColorOutput.GetExposureMultiplier();
+var active=UnityEngine.RenderTexture.active;var reports=new System.Collections.Generic.List<string>();
+var cameras=new System.Collections.Generic.List<UnityEngine.Camera>();
+if(UnityEditor.SceneView.lastActiveSceneView!=null)cameras.Add(UnityEditor.SceneView.lastActiveSceneView.camera);
+foreach(var c in UnityEngine.Object.FindObjectsOfType<UnityEngine.Camera>())if(c.cameraType==UnityEngine.CameraType.Game&&c.enabled&&c.gameObject.hideFlags==UnityEngine.HideFlags.None){cameras.Add(c);break;}
+try{foreach(var camera in cameras){
+    string label=camera.cameraType==UnityEngine.CameraType.SceneView?"scene":"game";
+    var size=new UnityEngine.Vector2Int(camera.targetTexture!=null?camera.targetTexture.width:camera.pixelWidth,camera.targetTexture!=null?camera.targetTexture.height:camera.pixelHeight);
+    var visibility=new UnityEngine.RenderTexture(size.x,size.y,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);visibility.Create();owned.Add(visibility);
+    var debug=new UnityEngine.RenderTexture(size.x,size.y,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);debug.Create();owned.Add(debug);
+    var atlas=new UnityEngine.RenderTexture(1024,1024,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);atlas.Create();owned.Add(atlas);
+    var output=new UnityEngine.RenderTexture(size.x,size.y,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);output.Create();owned.Add(output);
+    bool captured=false;
+    System.Action<UnityEngine.Rendering.CommandBuffer,UnityEngine.Camera,UnityEngine.RenderTexture,UnityEngine.RenderTexture,UnityEngine.Vector4> capture=(cmd,c,hdr,depth,parameters)=>{
+        if(c!=camera)return;captured=true;
+        var block=new UnityEngine.MaterialPropertyBlock();block.SetFloat("_MainLightShadowsAvailable",1);block.SetMatrix("_ShadowReceiverView",c.worldToCameraMatrix);block.SetVector("_PcssProbe",new UnityEngine.Vector4(1,0,1,0));
+        UnityEditor.ShaderUtil.SetAsyncCompilation(cmd,false);
+        cmd.SetRenderTarget(visibility);cmd.SetViewport(new UnityEngine.Rect(0,0,size.x,size.y));cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,probe,0,UnityEngine.MeshTopology.Triangles,3,1,block);
+        cmd.SetRenderTarget(debug);cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,probe,7,UnityEngine.MeshTopology.Triangles,3,1,block);
+        cmd.SetRenderTarget(atlas);cmd.SetViewport(new UnityEngine.Rect(0,0,1024,1024));cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,probe,6,UnityEngine.MeshTopology.Triangles,3);
+        UnityEditor.ShaderUtil.RestoreAsyncCompilation(cmd);
+        cmd.Blit(hdr,output);cmd.SetRenderTarget(c.targetTexture!=null?new UnityEngine.Rendering.RenderTargetIdentifier(c.targetTexture):new UnityEngine.Rendering.RenderTargetIdentifier(UnityEngine.Rendering.BuiltinRenderTextureType.CameraTarget));
+        cmd.SetViewport(new UnityEngine.Rect(0,0,size.x,size.y));
+    };
+    MaxSRP.MaxColorOutputPass.EditorOutputCapture+=capture;
+    try{camera.Render();}finally{MaxSRP.MaxColorOutputPass.EditorOutputCapture-=capture;}
+    if(!captured)throw new System.Exception("Capture missed "+label);
+    var views=new[]{visibility,debug,atlas,output};var names=new[]{"visibility","cascades","atlas","hdr_preview"};
+    for(int view=0;view<views.Length;++view){var rt=views[view];var read=new UnityEngine.Texture2D(rt.width,rt.height,UnityEngine.TextureFormat.RGBAFloat,false,true);owned.Add(read);UnityEngine.RenderTexture.active=rt;read.ReadPixels(new UnityEngine.Rect(0,0,rt.width,rt.height),0,0);read.Apply();var pixels=read.GetPixels();float minTexel=float.MaxValue,maxTexel=0;int geometry=0;
+        for(int i=0;i<pixels.Length;++i){var p=pixels[i];if(float.IsNaN(p.r)||float.IsInfinity(p.r)||float.IsNaN(p.g)||float.IsInfinity(p.g)||float.IsNaN(p.b)||float.IsInfinity(p.b))throw new System.Exception("Nonfinite "+label+" "+names[view]);
+            if(view==1){int index=UnityEngine.Mathf.RoundToInt(p.r);if(index<0){pixels[i]=UnityEngine.Color.black;continue;}pixels[i]=UnityEngine.Color.Lerp(palette[index],UnityEngine.Color.white,p.g*.8f);minTexel=UnityEngine.Mathf.Min(minTexel,p.b);maxTexel=UnityEngine.Mathf.Max(maxTexel,p.b);++geometry;}
+            else if(view==3){pixels[i]=new UnityEngine.Color(p.r*exposure,p.g*exposure,p.b*exposure,1).gamma;}
+        }
+        if(view==1)reports.Add(label+" visible shadow receivers="+geometry+" metresPerTexel="+minTexel+".."+maxTexel);
+        var png=new UnityEngine.Texture2D(rt.width,rt.height,UnityEngine.TextureFormat.RGBA32,false,true);owned.Add(png);png.SetPixels(pixels);png.Apply();System.IO.File.WriteAllBytes(folder+"/"+label+"_"+names[view]+".png",png.EncodeToPNG());
+    }
+    reports.Add(label+" size="+size.x+"x"+size.y+" camera="+camera.transform.position);
+}}finally{UnityEngine.RenderTexture.active=active;foreach(var o in owned)if(o!=null)UnityEngine.Object.DestroyImmediate(o);UnityEditor.SceneView.RepaintAll();}
+System.IO.File.WriteAllLines(folder+"/capture.txt",reports.ToArray());return reports.ToArray();

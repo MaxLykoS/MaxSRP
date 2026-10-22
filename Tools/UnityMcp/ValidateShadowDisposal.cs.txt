@@ -1,0 +1,43 @@
+// Drive the real SerializedObject -> asset OnValidate -> pipeline disposal path.
+// Keeps the user's original resolution and collects only new errors; never clears Console.
+if(UnityEngine.Application.isPlaying)throw new System.Exception("Run this Editor validation in Edit Mode");
+var asset=(MaxSRP.MaxRendererPipelineAsset)UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+var camera=UnityEditor.SceneView.lastActiveSceneView.camera;camera.Render();
+var serialized=new UnityEditor.SerializedObject(asset);var property=serialized.FindProperty("m_cascadeSettings.Cascade0.MapResolution");int saved=property.intValue;
+// Every assignment must change the value, including the final restoration.
+var sequence=saved==1024?new[]{2048,512,2048,saved}:saved==2048?new[]{1024,512,1024,saved}:new[]{1024,2048,1024,saved};
+var flags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+var reports=new System.Collections.Generic.List<string>();var errors=new System.Collections.Generic.List<string>();
+UnityEngine.Application.LogCallback logger=(condition,stack,type)=>{if(type==UnityEngine.LogType.Error||type==UnityEngine.LogType.Exception||type==UnityEngine.LogType.Assert)errors.Add(condition);};
+UnityEngine.Application.logMessageReceived+=logger;
+int step=0,phase=0,rebuilds=0;UnityEngine.Camera retired=null;double start=UnityEditor.EditorApplication.timeSinceStartup;
+UnityEditor.EditorApplication.CallbackFunction tick=null;
+tick=()=>{
+    try{
+        if(UnityEditor.EditorApplication.timeSinceStartup-start>30)throw new System.Exception("Editor disposal validation timeout");
+        if(phase==0){
+            var previous=UnityEngine.Rendering.RenderPipelineManager.currentPipeline;
+            var pass=previous.GetType().GetField("m_shadowCastPass",flags).GetValue(previous);retired=(UnityEngine.Camera)pass.GetType().GetField("m_shadowCamera",flags).GetValue(pass);
+            serialized.Update();property=serialized.FindProperty("m_cascadeSettings.Cascade0.MapResolution");property.intValue=sequence[step];serialized.ApplyModifiedPropertiesWithoutUndo();camera.Render();
+            bool recreated=!object.ReferenceEquals(previous,UnityEngine.Rendering.RenderPipelineManager.currentPipeline);if(recreated)++rebuilds;
+            reports.Add("resolution="+sequence[step]+" pipelineRecreated="+recreated);phase=1;return;
+        }
+        if(phase==1){phase=2;return;} // queued retirement runs after this Editor event
+        if(retired!=null)throw new System.Exception("Retired camera survived the next Editor update");
+        var map=UnityEngine.Shader.GetGlobalTexture("_MainShadowAtlas");if(map==null || map.width>4096 || UnityEngine.Shader.GetGlobalFloat("_ShadowResolution0")!=sequence[step]-4)throw new System.Exception("New atlas/tile has wrong size");
+        int count=0;foreach(var c in UnityEngine.Resources.FindObjectsOfTypeAll<UnityEngine.Camera>())if(c.name=="MaxSRP Shadow Camera" && c.gameObject.hideFlags==UnityEngine.HideFlags.HideAndDontSave)++count;
+        if(count!=1)throw new System.Exception("Hidden shadow camera count is "+count+", expected 1");
+        reports.Add("retiredCameraDestroyed=true liveShadowCameras="+count);++step;phase=0;
+        if(step<sequence.Length)return;
+        if(rebuilds<3)throw new System.Exception("Test did not exercise asset-driven pipeline disposal");
+        if(errors.Count>0)throw new System.Exception("New Console errors: "+string.Join(" | ",errors.ToArray()));
+        UnityEditor.EditorApplication.update-=tick;UnityEngine.Application.logMessageReceived-=logger;
+        reports.Add("PASS: four resolution switches, deferred camera cleanup, one owner, no new Console errors");
+        System.IO.Directory.CreateDirectory("D:/UnityProject/MaxSRP/OfflineBaseline/ShadowDisposal");System.IO.File.WriteAllLines("D:/UnityProject/MaxSRP/OfflineBaseline/ShadowDisposal/validation.txt",reports.ToArray());
+    }catch(System.Exception e){
+        UnityEditor.EditorApplication.update-=tick;UnityEngine.Application.logMessageReceived-=logger;
+        serialized.Update();var restore=serialized.FindProperty("m_cascadeSettings.Cascade0.MapResolution");restore.intValue=saved;serialized.ApplyModifiedPropertiesWithoutUndo();camera.Render();
+        reports.Add("FAIL: "+e);System.IO.Directory.CreateDirectory("D:/UnityProject/MaxSRP/OfflineBaseline/ShadowDisposal");System.IO.File.WriteAllLines("D:/UnityProject/MaxSRP/OfflineBaseline/ShadowDisposal/validation.txt",reports.ToArray());
+    }
+};UnityEditor.EditorApplication.update+=tick;
+return "Queued real Inspector/OnValidate disposal regression";

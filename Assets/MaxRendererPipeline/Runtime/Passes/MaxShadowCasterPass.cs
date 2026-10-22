@@ -10,30 +10,23 @@ namespace MaxSRP
 {
     public class MaxShadowCasterPass : IDisposable
     {
-        public const int SHADOWMAP_RESOLUTION = 1024;
-        private RenderTexture[] m_shadowTexture;
+        public const int MaxAtlasSize = 4096;
+        public const int TileBorder = 2;
+        private RenderTexture m_shadowAtlas;
+        private readonly RectInt[] m_tileRects = new RectInt[4];
         private Cascade m_cascade;
         private Camera m_shadowCamera;
         private readonly MaxProceduralSkyboxPass.AtmosphereSettings m_atmosphereSettings;
+        private readonly CascadeSettings m_settings;
         private ShaderTagId m_shaderTagID = new ShaderTagId("ShadowCaster");
         public MaxShadowCasterPass(CascadeSettings cascadeSettings, MaxProceduralSkyboxPass.AtmosphereSettings atmosphereSettings)
         {
             m_atmosphereSettings = atmosphereSettings;
+            m_settings = cascadeSettings;
             try
             {
                 m_cascade = new Cascade(cascadeSettings);
-                m_shadowTexture = new RenderTexture[4];
-                Shader.SetGlobalFloat("_ShadowTexelResolution", SHADOWMAP_RESOLUTION);
-                for (int i = 0; i < m_shadowTexture.Length; ++i)
-                {
-                    var descriptor = new RenderTextureDescriptor(SHADOWMAP_RESOLUTION, SHADOWMAP_RESOLUTION,
-                        RenderTextureFormat.Depth, 24) { shadowSamplingMode = ShadowSamplingMode.CompareDepths, msaaSamples = 1, sRGB = false };
-                    m_shadowTexture[i] = new RenderTexture(descriptor);
-                    m_shadowTexture[i].wrapMode = TextureWrapMode.Clamp;
-                    // Raw blocker reads use a separate point sampler; visibility uses hardware PCF.
-                    m_shadowTexture[i].filterMode = FilterMode.Bilinear;
-                    Shader.SetGlobalTexture("_MainShadowMap" + i, m_shadowTexture[i]);
-                }
+                EnsureShadowAtlas();
             }
             catch
             {
@@ -41,9 +34,53 @@ namespace MaxSRP
                 throw;
             }
         }
+        private void EnsureShadowAtlas()
+        {
+            int resolution = Mathf.Min(MaxAtlasSize, Mathf.ClosestPowerOfTwo(SystemInfo.maxTextureSize));
+            // Never round above the actual hardware limit.
+            if (resolution > SystemInfo.maxTextureSize) resolution /= 2;
+            RenderTexture texture = m_shadowAtlas;
+            if (texture == null || texture.width != resolution || !texture.IsCreated())
+            {
+                var descriptor = new RenderTextureDescriptor(resolution, resolution, RenderTextureFormat.Depth, 24)
+                    { shadowSamplingMode = ShadowSamplingMode.CompareDepths, msaaSamples = 1, sRGB = false };
+                var replacement = new RenderTexture(descriptor) {
+                    name = "Directional Shadow Atlas", wrapMode = TextureWrapMode.Clamp,
+                    // Point blocker reads and hardware comparison PCF use separate samplers.
+                    filterMode = FilterMode.Bilinear, hideFlags = HideFlags.HideAndDontSave
+                };
+                if (!replacement.Create())
+                {
+                    MaxRenderResources.Destroy(ref replacement);
+                    throw new InvalidOperationException("Cannot allocate directional shadow atlas");
+                }
+                MaxRenderResources.UnbindTexture("_MainShadowAtlas", texture);
+                MaxRenderResources.Destroy(ref texture);
+                m_shadowAtlas = replacement;
+            }
+            int cellSize = resolution / 2;
+            for (int i = 0; i < 4; ++i)
+            {
+                int requested = (int)m_settings.GetCascade(i).MapResolution;
+                int tileSize = Mathf.Min(requested >= 2048 ? 2048 : requested >= 1024 ? 1024 : 512, cellSize);
+                var rect = new RectInt((i % 2) * cellSize + TileBorder, (i / 2) * cellSize + TileBorder,
+                    tileSize - 2 * TileBorder, tileSize - 2 * TileBorder);
+                m_tileRects[i] = rect;
+                // Viewport placement and texture addressing use the same native
+                // target coordinates. ShadowClipToUV handles LOCAL projection Y;
+                // flipping the atlas row again would select a different cascade.
+                Shader.SetGlobalVector("_ShadowAtlasTile" + i,
+                    new Vector4((float)rect.width / resolution, (float)rect.height / resolution,
+                        (float)rect.x / resolution, (float)rect.y / resolution));
+                Shader.SetGlobalFloat("_ShadowResolution" + i, rect.width);
+            }
+            Shader.SetGlobalTexture("_MainShadowAtlas", m_shadowAtlas);
+            Shader.SetGlobalInteger("_PcssCascadeCount", Mathf.Clamp(m_settings.PcssCascadeCount, 0, 4));
+        }
         public bool Execute(ScriptableRenderContext context, Camera camera, SunLightData sun)
         {
             if (!sun.CastsShadows) return false;
+            EnsureShadowAtlas();
             // The atmosphere parameter is an angular RADIUS in degrees.
             // Keep tangent finite for invalid/extreme Inspector input.
             float angularRadius = Mathf.Clamp(m_atmosphereSettings._SunDiskAngle, 0.001f, 89.0f) * Mathf.Deg2Rad;
@@ -69,9 +106,25 @@ namespace MaxSRP
             m_shadowCamera.ResetCullingMatrix();
             bool renderedAny = false;
 
+            // Clear the entire shared depth target ONCE. A per-cascade clear may
+            // ignore the viewport and erase previously rendered atlas tiles.
+            CommandBuffer clear = CommandBufferPool.Get("Shadow Atlas Clear");
+            try
+            {
+                clear.SetRenderTarget(m_shadowAtlas);
+                clear.SetViewport(new Rect(0, 0, m_shadowAtlas.width, m_shadowAtlas.height));
+                clear.ClearRenderTarget(true, false, Color.clear);
+                context.ExecuteCommandBuffer(clear);
+            }
+            finally { CommandBufferPool.Release(clear); }
+
             for (int i = 0; i < 4; ++i)
             {
-                float halfDepthRange = m_cascade.ConfigCameraToShadowSpace(m_shadowCamera, lightDir, i, m_cascade.m_OrthoDistance, SHADOWMAP_RESOLUTION);
+                RectInt tile = m_tileRects[i];
+                int resolution = tile.width;
+                // Legacy Editor quad comparisons use the first cascade's texel scale.
+                if (i == 0) Shader.SetGlobalFloat("_ShadowTexelResolution", resolution);
+                float halfDepthRange = m_cascade.ConfigCameraToShadowSpace(m_shadowCamera, lightDir, i, m_cascade.m_OrthoDistance, resolution);
                 Matrix4x4 v = m_shadowCamera.worldToCameraMatrix;
                 Matrix4x4 p = GL.GetGPUProjectionMatrix(m_shadowCamera.projectionMatrix, true);
                 Matrix4x4 shadowVP = p * v;
@@ -83,9 +136,8 @@ namespace MaxSRP
                 {
                     context.SetupCameraProperties(m_shadowCamera);
                     cmd.SetGlobalMatrix("_ShadowCasterVP", shadowVP);
-                    cmd.SetRenderTarget(m_shadowTexture[i]);
-                    cmd.SetViewport(new Rect(0, 0, SHADOWMAP_RESOLUTION, SHADOWMAP_RESOLUTION));
-                    cmd.ClearRenderTarget(true, true, Color.clear);
+                    cmd.SetRenderTarget(m_shadowAtlas);
+                    cmd.SetViewport(new Rect(tile.x, tile.y, tile.width, tile.height));
                     context.ExecuteCommandBuffer(cmd);
                     if (!m_shadowCamera.TryGetCullingParameters(out var cullingParameters)) continue;
                     var cullingResults = context.Cull(ref cullingParameters);
@@ -112,19 +164,13 @@ namespace MaxSRP
                 m_shadowCamera = null;
                 MaxRenderResources.Destroy(ref shadowObject);
             }
-            if (m_shadowTexture == null) return;
-            for (int i = 0; i < m_shadowTexture.Length; ++i)
-            {
-                MaxRenderResources.UnbindTexture("_MainShadowMap" + i, m_shadowTexture[i]);
-                MaxRenderResources.Destroy(ref m_shadowTexture[i]);
-            }
+            MaxRenderResources.UnbindTexture("_MainShadowAtlas", m_shadowAtlas);
+            MaxRenderResources.Destroy(ref m_shadowAtlas);
         }
     }
 
     public class Cascade
     {
-        // 分割参数
-        public float[] m_Splts = { 0.07f, 0.13f, 0.25f, 0.55f };
         private readonly float[] m_splitEnds = new float[4];
         public float[] m_OrthoWidths = new float[4];
         public float m_OrthoDistance = 500;
@@ -165,14 +211,18 @@ namespace MaxSRP
                 new Vector4(shadowNear, shadowFar, span > 0 ? 1.0f / span : 0.0f, 0.0f));
             if (span <= 0) return false;
 
-            // The four weights define contiguous slices; publish cumulative endpoints.
+            // UE-style geometric slice lengths: 1, exponent, exponent^2, ...
+            float exponent = Mathf.Clamp(m_cascadeSettings.DistributionExponent, 1.0f, 4.0f);
             float total = 0.0f;
-            for (int i = 0; i < 4; ++i) total += Mathf.Max(m_Splts[i], 0.0f);
+            float weight = 1.0f;
+            for (int i = 0; i < 4; ++i) { total += weight; weight *= exponent; }
             float cumulative = 0.0f;
+            weight = 1.0f;
             for (int i = 0; i < 4; ++i)
             {
-                cumulative += total > 0 ? Mathf.Max(m_Splts[i], 0.0f) / total : 0.25f;
+                cumulative += weight / total;
                 m_splitEnds[i] = cumulative;
+                weight *= exponent;
             }
             m_splitEnds[3] = 1.0f;
             Shader.SetGlobalFloat(ShaderProperties._Split0, m_splitEnds[0]);

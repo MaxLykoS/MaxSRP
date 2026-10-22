@@ -230,23 +230,45 @@ float2 PcssDiskSample(int index, int sampleCount, float2 phase)
     #define PcssDiskSample PcssLegacyDiskSample
 #endif
 
-float2 GetAverageBlockerDepth(float2 sampleUV, Texture2D shadowMap, float curDepth, float searchWidth, float2 rotation, float2 receiverGradient)
+float2 ClampShadowTileUV(float2 uv, float resolution)
+{
+    float inset = 0.5 / max(resolution, 1.0);
+    return clamp(uv, inset, 1.0 - inset);
+}
+
+float2 ShadowAtlasUV(float2 localUV, float4 tile)
+{
+    return localUV * tile.xy + tile.zw;
+}
+
+float2 GetAverageAtlasBlockerDepth(float2 sampleUV, Texture2D shadowMap, float curDepth, float searchWidth,
+    float2 rotation, float2 receiverGradient, float4 tile, float resolution)
 {
     float averageDepth = 0.0;
     int count = 0;
     [loop] for (int i = 0; i < _PcssBlockerSamples; ++i)
     {
         float2 uv = i == 0 ? sampleUV : sampleUV + PcssDiskSample(i, _PcssBlockerSamples, rotation) * searchWidth;
+        uv = ClampShadowTileUV(uv, resolution);
         float correction = dot(receiverGradient, uv - sampleUV);
-        float sampleDepth = shadowMap.SampleLevel(sampler_PointClamp, uv, 0).r;
+        float sampleDepth = shadowMap.SampleLevel(sampler_PointClamp, ShadowAtlasUV(uv, tile), 0).r;
         if (IsShadowOccluded(curDepth + correction, sampleDepth)) { averageDepth += sampleDepth - correction; ++count; }
     }
     if (count == 0) return float2(0.0, 0.0);
     return float2(averageDepth / count, count);
 }
 
-float PCSS(float4 pW, Texture2D shadowMap, SamplerComparisonState shadowSampler, float4x4 shadowVPMatrix,
-    float orthoWidth, float halfDepthRange, float2 rotation, float maxPenumbraRadius, float worldDepthBias, float2 receiverGradient)
+// Editor plane fixture: one standalone texture, same blocker implementation.
+float2 GetAverageBlockerDepth(float2 sampleUV, Texture2D shadowMap, float curDepth, float searchWidth,
+    float2 rotation, float2 receiverGradient)
+{
+    return GetAverageAtlasBlockerDepth(sampleUV, shadowMap, curDepth, searchWidth, rotation,
+        receiverGradient, float4(1, 1, 0, 0), 256.0);
+}
+
+float FilterDirectionalShadow(float4 pW, Texture2D shadowMap, SamplerComparisonState shadowSampler, float4x4 shadowVPMatrix,
+    float orthoWidth, float halfDepthRange, float2 rotation, float maxPenumbraRadius, float worldDepthBias,
+    float2 receiverGradient, float4 tile, float resolution, bool usePcss)
 {
     float4 shadowNDC = mul(shadowVPMatrix, pW);
     shadowNDC /= shadowNDC.w;
@@ -257,23 +279,46 @@ float PCSS(float4 pW, Texture2D shadowMap, SamplerComparisonState shadowSampler,
     float depthRange = 2.0 * halfDepthRange;
     float receiverDepth = ShadowDistanceFromNear(curDepth, depthRange);
     curDepth = BiasedShadowDepth(curDepth, worldDepthBias, halfDepthRange);
+    if (!usePcss)
+    {
+        // A deterministic 3x3 tent of hardware comparison samples. It filters
+        // shadow-map visibility, without screen-space blur or a second history.
+        float pcfVisibility = 0.0;
+        [unroll] for (int y = -1; y <= 1; ++y)
+        [unroll] for (int x = -1; x <= 1; ++x)
+        {
+            float weight = (x == 0 ? 2.0 : 1.0) * (y == 0 ? 2.0 : 1.0);
+            float2 sampleUV = ClampShadowTileUV(uv + float2(x, y) / resolution, resolution);
+            float correction = dot(receiverGradient, sampleUV - uv);
+            pcfVisibility += weight * shadowMap.SampleCmpLevelZero(shadowSampler, ShadowAtlasUV(sampleUV, tile), curDepth + correction);
+        }
+        return pcfVisibility / 16.0;
+    }
     float searchWidth = PCSSFilterRadius(depthRange, 0.0, _ShadowLightTanAngularRadius, maxPenumbraRadius, orthoWidth);
     if (searchWidth <= 0.0)
-        return shadowMap.SampleCmpLevelZero(shadowSampler, uv, curDepth);
-    float2 blocker = GetAverageBlockerDepth(uv, shadowMap, curDepth, searchWidth, rotation, receiverGradient);
+        return shadowMap.SampleCmpLevelZero(shadowSampler, ShadowAtlasUV(ClampShadowTileUV(uv, resolution), tile), curDepth);
+    float2 blocker = GetAverageAtlasBlockerDepth(uv, shadowMap, curDepth, searchWidth, rotation, receiverGradient, tile, resolution);
     if (blocker.y < 1.0) return 1.0;
     float blockerDepth = ShadowDistanceFromNear(blocker.x, depthRange);
     float radius = PCSSFilterRadius(receiverDepth, blockerDepth, _ShadowLightTanAngularRadius, maxPenumbraRadius, orthoWidth);
-    if (radius <= 0.0) return shadowMap.SampleCmpLevelZero(shadowSampler, uv, curDepth);
+    if (radius <= 0.0) return shadowMap.SampleCmpLevelZero(shadowSampler, ShadowAtlasUV(ClampShadowTileUV(uv, resolution), tile), curDepth);
     float visibility = 0.0;
     [loop] for (int i = 0; i < _PcssFilterSamples; ++i)
     {
-        float2 sampleUV = uv + PcssDiskSample(i, _PcssFilterSamples, rotation) * radius;
+        float2 sampleUV = ClampShadowTileUV(uv + PcssDiskSample(i, _PcssFilterSamples, rotation) * radius, resolution);
         float correction = dot(receiverGradient, sampleUV - uv);
         // Bilinear depth comparison smooths sub-texel edges without blurring geometry boundaries.
-        visibility += shadowMap.SampleCmpLevelZero(shadowSampler, sampleUV, curDepth + correction);
+        visibility += shadowMap.SampleCmpLevelZero(shadowSampler, ShadowAtlasUV(sampleUV, tile), curDepth + correction);
     }
     return visibility / _PcssFilterSamples;
+}
+
+// Standalone-texture diagnostic entry point. Production uses the atlas below.
+float PCSS(float4 pW, Texture2D shadowMap, SamplerComparisonState shadowSampler, float4x4 shadowVPMatrix,
+    float orthoWidth, float halfDepthRange, float2 rotation, float maxPenumbraRadius, float worldDepthBias, float2 receiverGradient)
+{
+    return FilterDirectionalShadow(pW, shadowMap, shadowSampler, shadowVPMatrix, orthoWidth, halfDepthRange,
+        rotation, maxPenumbraRadius, worldDepthBias, receiverGradient, float4(1, 1, 0, 0), 512.0, true);
 }
 
 float ShadowCascadeBlendWeight(float depth, float boundary, float width)
@@ -335,19 +380,32 @@ void ShadowReceiverDerivatives(float3 positionWS, out float3 receiverDx, out flo
 float SampleDirectionalCascade(int cascade, float3 positionWS, float3 normalWS, float biasScale, float2 rotation, float3 receiverDx, float3 receiverDy)
 {
     [branch] if (cascade == 0)
-        return PCSS(float4(positionWS + normalWS * _ShadingPointNormalBias0, 1), _MainShadowMap0, sampler_MainShadowMap0,
-            _ShadowVPMatrix0, _OrthoWidth0, _ShadowDepthHalfRange0, rotation, _PcssMaxRadius0, _DepthNormalBias0 * biasScale, ShadowReceiverPlaneGradient(_ShadowVPMatrix0, receiverDx, receiverDy));
+        return FilterDirectionalShadow(float4(positionWS + normalWS * _ShadingPointNormalBias0, 1), _MainShadowAtlas, sampler_MainShadowAtlas,
+            _ShadowVPMatrix0, _OrthoWidth0, _ShadowDepthHalfRange0, rotation, _PcssMaxRadius0, _DepthNormalBias0 * biasScale, ShadowReceiverPlaneGradient(_ShadowVPMatrix0, receiverDx, receiverDy), _ShadowAtlasTile0, _ShadowResolution0, cascade < _PcssCascadeCount);
     [branch] if (cascade == 1)
-        return PCSS(float4(positionWS + normalWS * _ShadingPointNormalBias1, 1), _MainShadowMap1, sampler_MainShadowMap1,
-            _ShadowVPMatrix1, _OrthoWidth1, _ShadowDepthHalfRange1, rotation, _PcssMaxRadius1, _DepthNormalBias1 * biasScale, ShadowReceiverPlaneGradient(_ShadowVPMatrix1, receiverDx, receiverDy));
+        return FilterDirectionalShadow(float4(positionWS + normalWS * _ShadingPointNormalBias1, 1), _MainShadowAtlas, sampler_MainShadowAtlas,
+            _ShadowVPMatrix1, _OrthoWidth1, _ShadowDepthHalfRange1, rotation, _PcssMaxRadius1, _DepthNormalBias1 * biasScale, ShadowReceiverPlaneGradient(_ShadowVPMatrix1, receiverDx, receiverDy), _ShadowAtlasTile1, _ShadowResolution1, cascade < _PcssCascadeCount);
     [branch] if (cascade == 2)
-        return PCSS(float4(positionWS + normalWS * _ShadingPointNormalBias2, 1), _MainShadowMap2, sampler_MainShadowMap2,
-            _ShadowVPMatrix2, _OrthoWidth2, _ShadowDepthHalfRange2, rotation, _PcssMaxRadius2, _DepthNormalBias2 * biasScale, ShadowReceiverPlaneGradient(_ShadowVPMatrix2, receiverDx, receiverDy));
-    return PCSS(float4(positionWS + normalWS * _ShadingPointNormalBias3, 1), _MainShadowMap3, sampler_MainShadowMap3,
-        _ShadowVPMatrix3, _OrthoWidth3, _ShadowDepthHalfRange3, rotation, _PcssMaxRadius3, _DepthNormalBias3 * biasScale, ShadowReceiverPlaneGradient(_ShadowVPMatrix3, receiverDx, receiverDy));
+        return FilterDirectionalShadow(float4(positionWS + normalWS * _ShadingPointNormalBias2, 1), _MainShadowAtlas, sampler_MainShadowAtlas,
+            _ShadowVPMatrix2, _OrthoWidth2, _ShadowDepthHalfRange2, rotation, _PcssMaxRadius2, _DepthNormalBias2 * biasScale, ShadowReceiverPlaneGradient(_ShadowVPMatrix2, receiverDx, receiverDy), _ShadowAtlasTile2, _ShadowResolution2, cascade < _PcssCascadeCount);
+    return FilterDirectionalShadow(float4(positionWS + normalWS * _ShadingPointNormalBias3, 1), _MainShadowAtlas, sampler_MainShadowAtlas,
+        _ShadowVPMatrix3, _OrthoWidth3, _ShadowDepthHalfRange3, rotation, _PcssMaxRadius3, _DepthNormalBias3 * biasScale, ShadowReceiverPlaneGradient(_ShadowVPMatrix3, receiverDx, receiverDy), _ShadowAtlasTile3, _ShadowResolution3, cascade < _PcssCascadeCount);
 }
 
 float4 _MaxTemporalPhase; // enabled, base-2/base-3 temporal phase, reserved
+float3 ShadowReceiverBiasNormal(float3 positionWS, float3 receiverDx, float3 receiverDy)
+{
+    // Normal maps describe BRDF detail, not the receiver's geometric surface.
+    // Using them for a world-space offset makes flat ground warp cast shadows.
+    float3 dx = receiverDx / max(length(receiverDx), 1e-12);
+    float3 dy = receiverDy / max(length(receiverDy), 1e-12);
+    float3 normal = cross(dx, dy);
+    float lengthSquared = dot(normal, normal);
+    // At discontinuities/degenerate footprints use only the existing depth bias.
+    if (!all(isfinite(normal)) || lengthSquared <= 1e-8) return float3(0, 0, 0);
+    normal *= rsqrt(lengthSquared);
+    return dot(normal, _WorldSpaceCameraPos - positionWS) < 0 ? -normal : normal;
+}
 float MainLightShadow(float3 positionWS, float3 normalWS, float3 receiverDx, float3 receiverDy)
 {
     if (_MainLightShadowsAvailable < 0.5 || _CascadeDepthRange.z <= 0.0) return 1.0;
@@ -376,15 +434,16 @@ float MainLightShadow(float3 positionWS, float3 normalWS, float3 receiverDx, flo
     if (_MaxTemporalPhase.x > 0.5) rotation = frac(rotation + _MaxTemporalPhase.yz);
 #endif
     int cascade = depth <= _Split0 ? 0 : depth <= _Split1 ? 1 : depth <= _Split2 ? 2 : 3;
-    float biasScale = 2.0 - saturate(nDotL);
-    float visibility = SampleDirectionalCascade(cascade, positionWS, normalWS, biasScale, rotation, receiverDx, receiverDy);
+    float3 biasNormal = ShadowReceiverBiasNormal(positionWS, receiverDx, receiverDy);
+    float biasScale = 2.0 - saturate(dot(biasNormal, normalize(_DirectionalLightDirection.xyz)));
+    float visibility = SampleDirectionalCascade(cascade, positionWS, biasNormal, biasScale, rotation, receiverDx, receiverDy);
     if (cascade < 3)
     {
         float boundary = cascade == 0 ? _Split0 : cascade == 1 ? _Split1 : _Split2;
         float width = cascade == 0 ? _CascadeBlendWidths.x : cascade == 1 ? _CascadeBlendWidths.y : _CascadeBlendWidths.z;
         float blend = ShadowCascadeBlendWeight(depth, boundary, width);
         [branch] if (blend > 0.0)
-            visibility = lerp(visibility, SampleDirectionalCascade(cascade + 1, positionWS, normalWS, biasScale, rotation, receiverDx, receiverDy), blend);
+            visibility = lerp(visibility, SampleDirectionalCascade(cascade + 1, positionWS, biasNormal, biasScale, rotation, receiverDx, receiverDy), blend);
     }
     return lerp(visibility, 1.0, ShadowDistanceFadeWeight(eyeDepth, _ShadowDistanceFade.x, _ShadowDistanceFade.y));
 }

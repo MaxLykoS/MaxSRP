@@ -1,0 +1,53 @@
+// Same Scene camera, temporary comparisons only; restores mesh and cascade weights.
+var camera=UnityEditor.SceneView.lastActiveSceneView.camera;
+var flags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+var pipeline=UnityEngine.Rendering.RenderPipelineManager.currentPipeline;
+var pass=pipeline.GetType().GetField("m_shadowCastPass",flags).GetValue(pipeline);
+var cascade=(MaxSRP.Cascade)pass.GetType().GetField("m_cascade",flags).GetValue(pass);
+UnityEngine.MeshFilter sphere=null;foreach(var f in UnityEngine.Object.FindObjectsOfType<UnityEngine.MeshFilter>())if(f.sharedMesh!=null&&f.sharedMesh.name=="Sphere"){sphere=f;break;}
+if(sphere==null)throw new System.Exception("No Sphere mesh found");
+var originalMesh=sphere.sharedMesh;
+var settings=((MaxSRP.MaxRendererPipelineAsset)UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline).CascadeSetting;
+float savedDistribution=settings.DistributionExponent;
+var folder="D:/UnityProject/MaxSRP/OfflineBaseline/SphereShadowReview/Current";System.IO.Directory.CreateDirectory(folder);
+var labels=new[]{"currentRaw","currentMean","currentFlatMean","tightMean","tightFlatMean","denseMeshMean"};
+var targets=new UnityEngine.RenderTexture[labels.Length];
+var material=new UnityEngine.Material(UnityEngine.Shader.Find("Hidden/MaxSRP/PcssConvergenceProbe"));
+var dense=new UnityEngine.Mesh();dense.name="Temporary dense sphere shadow diagnostic";
+const int lat=64,lon=128;var vertices=new UnityEngine.Vector3[(lat+1)*(lon+1)];var normals=new UnityEngine.Vector3[vertices.Length];var uvs=new UnityEngine.Vector2[vertices.Length];var tangents=new UnityEngine.Vector4[vertices.Length];var triangles=new int[lat*lon*6];
+for(int y=0;y<=lat;++y)for(int x=0;x<=lon;++x){int i=y*(lon+1)+x;float phi=UnityEngine.Mathf.PI*y/lat,theta=2*UnityEngine.Mathf.PI*x/lon;var n=new UnityEngine.Vector3(UnityEngine.Mathf.Sin(phi)*UnityEngine.Mathf.Cos(theta),UnityEngine.Mathf.Cos(phi),UnityEngine.Mathf.Sin(phi)*UnityEngine.Mathf.Sin(theta));vertices[i]=originalMesh.bounds.center+UnityEngine.Vector3.Scale(n,originalMesh.bounds.extents);normals[i]=n;uvs[i]=new UnityEngine.Vector2((float)x/lon,1-(float)y/lat);tangents[i]=new UnityEngine.Vector4(-UnityEngine.Mathf.Sin(theta),0,UnityEngine.Mathf.Cos(theta),-1);}
+for(int y=0;y<lat;++y)for(int x=0;x<lon;++x){int a=y*(lon+1)+x,b=a+lon+1,i=(y*lon+x)*6;triangles[i]=a;triangles[i+1]=a+1;triangles[i+2]=b;triangles[i+3]=b;triangles[i+4]=a+1;triangles[i+5]=b+1;}
+dense.vertices=vertices;dense.normals=normals;dense.uv=uvs;dense.tangents=tangents;dense.triangles=triangles;dense.RecalculateBounds();
+int variant=-1;
+System.Action<UnityEngine.Rendering.CommandBuffer,UnityEngine.Camera,UnityEngine.RenderTexture,UnityEngine.RenderTexture,UnityEngine.RenderTexture> capture=null;
+capture=(cmd,c,source,resolved,motion)=>{
+    if(c!=camera || variant<0)return;int v=variant;
+    int oldB=UnityEngine.Shader.GetGlobalInteger("_PcssBlockerSamples"),oldF=UnityEngine.Shader.GetGlobalInteger("_PcssFilterSamples");
+    cmd.SetRenderTarget(targets[v]);cmd.SetViewport(new UnityEngine.Rect(0,0,targets[v].width,targets[v].height));cmd.ClearRenderTarget(false,true,UnityEngine.Color.clear);
+    int count=v==0?1:32;
+    for(int f=0;f<count;++f){var block=new UnityEngine.MaterialPropertyBlock();block.SetFloat("_MainLightShadowsAvailable",1);block.SetMatrix("_ShadowReceiverView",camera.worldToCameraMatrix);block.SetVector("_PcssProbe",new UnityEngine.Vector4(1f/count,v==2||v==4?1:0,1,0));
+        if(count>1){cmd.SetGlobalInteger("_PcssBlockerSamples",64);cmd.SetGlobalInteger("_PcssFilterSamples",64);block.SetVector("_MaxTemporalPhase",new UnityEngine.Vector4(1,UnityEngine.Mathf.Repeat((f+.5f)*.754877666f,1),UnityEngine.Mathf.Repeat((f+.5f)*.569840296f,1),0));}
+        cmd.DrawProcedural(UnityEngine.Matrix4x4.identity,material,count>1?1:0,UnityEngine.MeshTopology.Triangles,3,1,block);
+    }cmd.SetGlobalInteger("_PcssBlockerSamples",oldB);cmd.SetGlobalInteger("_PcssFilterSamples",oldF);
+};
+var active=UnityEngine.RenderTexture.active;var reports=new System.Collections.Generic.List<string>();
+MaxSRP.MaxTemporalAAPass.EditorResolveCapture+=capture;
+try{
+    for(variant=0;variant<labels.Length;++variant){
+
+        // Compare the current distribution against a tighter geometric distribution.
+        settings.DistributionExponent=variant==3||variant==4?3:savedDistribution;
+        sphere.sharedMesh=variant==5?dense:originalMesh;
+        targets[variant]=new UnityEngine.RenderTexture(camera.pixelWidth,camera.pixelHeight,0,UnityEngine.RenderTextureFormat.ARGBFloat,UnityEngine.RenderTextureReadWrite.Linear);targets[variant].Create();
+        ((MaxSRP.MaxRenderPipeline)pipeline).ResetTemporalHistory(camera);camera.Render();
+        reports.Add(labels[variant]+" width0="+UnityEngine.Shader.GetGlobalFloat("_OrthoWidth0")+" texel="+UnityEngine.Shader.GetGlobalFloat("_OrthoWidth0")/UnityEngine.Shader.GetGlobalFloat("_ShadowResolution0"));
+        var read=new UnityEngine.Texture2D(targets[variant].width,targets[variant].height,UnityEngine.TextureFormat.RGBAFloat,false,true);
+        try{UnityEngine.RenderTexture.active=targets[variant];read.ReadPixels(new UnityEngine.Rect(0,0,read.width,read.height),0,0);read.Apply();var colors=read.GetPixels();var values=new float[colors.Length];for(int i=0;i<colors.Length;++i)values[i]=colors[i].r;var bytes=new byte[values.Length*4];System.Buffer.BlockCopy(values,0,bytes,0,bytes.Length);System.IO.File.WriteAllBytes(folder+"/"+labels[variant]+".f32",bytes);
+            var png=new UnityEngine.Texture2D(read.width,read.height,UnityEngine.TextureFormat.RGBA32,false,true);try{png.SetPixels(colors);png.Apply();System.IO.File.WriteAllBytes(folder+"/"+labels[variant]+".png",png.EncodeToPNG());}finally{UnityEngine.Object.DestroyImmediate(png);}
+        }finally{UnityEngine.Object.DestroyImmediate(read);}
+    }
+    reports.Add("size="+camera.pixelWidth+"x"+camera.pixelHeight);System.IO.File.WriteAllLines(folder+"/capture.txt",reports.ToArray());
+}finally{
+    variant=-1;MaxSRP.MaxTemporalAAPass.EditorResolveCapture-=capture;sphere.sharedMesh=originalMesh;settings.DistributionExponent=savedDistribution;UnityEngine.RenderTexture.active=active;foreach(var rt in targets)if(rt!=null)UnityEngine.Object.DestroyImmediate(rt);UnityEngine.Object.DestroyImmediate(material);UnityEngine.Object.DestroyImmediate(dense);((MaxSRP.MaxRenderPipeline)pipeline).ResetTemporalHistory(camera);for(int i=0;i<32;++i)camera.Render();
+}
+return reports.ToArray();
