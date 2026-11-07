@@ -1,0 +1,6 @@
+# Downloaded NVIDIA SDK files and their Unity-generated metadata stay local.
+/License.txt
+/License.txt.meta
+/rtxgi-sdk/
+/rtxgi-sdk.meta
+/.sdk-download-*

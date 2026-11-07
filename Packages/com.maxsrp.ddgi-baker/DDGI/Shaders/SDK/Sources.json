@@ -1,0 +1,106 @@
+{
+  "commit": "c233266e95931231961f35c842c78e7c4bdc50cf",
+  "relocationCommit": "a6c4d9917ac6223be9ee97f304b7d92c20dda970",
+  "files": [
+    {
+      "path": "License.txt",
+      "bytes": 24319,
+      "sha256": "0f74d24da3082b666de48eea9ec7ff835657575a71576281e383901f3d7c08c2"
+    },
+    {
+      "path": "rtxgi-sdk/include/rtxgi/Defines.h",
+      "bytes": 1720,
+      "sha256": "fbae027567e32c1954885cbf514c7bce62d4a598b82258d514d65fdd91d887dc"
+    },
+    {
+      "path": "rtxgi-sdk/include/rtxgi/ddgi/DDGIRootConstants.h",
+      "bytes": 1620,
+      "sha256": "f22a8c40c42622558a6cec6699dc0e5740604922a409399ddd5e5aca298e79a7"
+    },
+    {
+      "path": "rtxgi-sdk/include/rtxgi/ddgi/DDGIVolumeDescGPU.h",
+      "bytes": 15078,
+      "sha256": "be0092a9f68181f0d62a7a7b4878548e7c8c6c257886742be8e7f35babc57f97"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/Common.hlsl",
+      "bytes": 4120,
+      "sha256": "f9c40bc24069e8d975c4e148271e2f07dfbcbdfed44caa55a5a4cf1f2a780f77"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/Platform.hlsl",
+      "bytes": 728,
+      "sha256": "99f829acbe4c84ff6a48a69d762693d9cde232242768a4f334105b27cb0719b3"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/Irradiance.hlsl",
+      "bytes": 9775,
+      "sha256": "585f5ab627ce5230572f50a09c553b0969272707cd0c8a6c8e9926253ee162b8"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/ProbeBlendingCS.hlsl",
+      "bytes": 27352,
+      "sha256": "a8bc4622974926a6b4403b55609294ab55d423dfe3cb2ad14758ac9265eaa27e"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/ProbeClassificationCS.hlsl",
+      "bytes": 11327,
+      "sha256": "175ee76f6562a13de34483353448ed69b1307d3e3b930492bcd6d183ef1808f4"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/ProbeRelocationCS.hlsl",
+      "bytes": 12267,
+      "sha256": "b27909ecb4384cd3920bf5ee2e2f7cbd9a6ff8221622c84d18aaf07627573239"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/include/Common.hlsl",
+      "bytes": 2379,
+      "sha256": "b90a3e92995336aba062dce5141fb1169fcbf6ac0f8d5ac8eeacba7b14da6b14"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/include/DDGIRootConstants.hlsl",
+      "bytes": 5720,
+      "sha256": "b5fc697e7bc38c0424d3149379ac70e0d498de1cf0be842219dab0fb62127a6f"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/include/ProbeCommon.hlsl",
+      "bytes": 4079,
+      "sha256": "8fb9d5f969d63fd1eaa60f3ef92177bf609e364ccd9c76b81deb1ab65f55d160"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/include/ProbeDataCommon.hlsl",
+      "bytes": 1863,
+      "sha256": "53059acd5bb2f70f8981b94df01b91fa76ec8b85f564b33acff5dde8b49c1267"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/include/ProbeIndexing.hlsl",
+      "bytes": 13015,
+      "sha256": "b2ae643c36f6b4872aa8e676323495734fda2d8a88fd645cfa37f8d94b4471dc"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/include/ProbeOctahedral.hlsl",
+      "bytes": 2527,
+      "sha256": "62892a2ed73fb32f3c4d5b2f4169d7a58bad524559f0aafd148638ad64464e95"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/include/ProbeRayCommon.hlsl",
+      "bytes": 5428,
+      "sha256": "73e3b28a2c8d30c94baccbf7e13e587d5488e0bf78fd549108edbb1525ebe1df"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/include/validation/ProbeBlendingDefines.hlsl",
+      "bytes": 14069,
+      "sha256": "2e52f0e5d241006c66a46c54a40665944d2e11d56a2037f3cf60be93dc3c1ae9"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/include/validation/ProbeClassificationDefines.hlsl",
+      "bytes": 7938,
+      "sha256": "d6c18087cb3cf688b41c7c619a64a34ac9e50b7de96f761fb515708e0487ef8a"
+    },
+    {
+      "path": "rtxgi-sdk/shaders/ddgi/include/validation/ProbeRelocationDefines.hlsl",
+      "bytes": 7905,
+      "sha256": "7979a7eee2e2d8e291e0dac2f07e68f0366915d3ac313279704fb9c5aef60c21"
+    }
+  ]
+}

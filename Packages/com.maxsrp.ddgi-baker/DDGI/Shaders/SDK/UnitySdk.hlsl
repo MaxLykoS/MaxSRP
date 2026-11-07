@@ -1,0 +1,14 @@
+#ifndef MAXSRP_DDGI_UNITY_SDK_INCLUDED
+#define MAXSRP_DDGI_UNITY_SDK_INCLUDED
+
+// Bind the SDK's resources by name through Unity's shader reflection.
+#ifndef HLSL
+#define HLSL 1
+#endif
+#define RTXGI_COORDINATE_SYSTEM 0
+#define RTXGI_DDGI_USE_SHADER_CONFIG_FILE 0
+#define RTXGI_DDGI_RESOURCE_MANAGEMENT 0
+#define RTXGI_DDGI_SHADER_REFLECTION 1
+#define RTXGI_DDGI_BINDLESS_RESOURCES 0
+
+#endif

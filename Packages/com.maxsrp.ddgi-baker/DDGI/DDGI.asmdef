@@ -1,0 +1,6 @@
+{
+  "name": "DDGI",
+  "rootNamespace": "MaxSRP.DDGI",
+  "includePlatforms": ["Editor"],
+  "autoReferenced": false
+}

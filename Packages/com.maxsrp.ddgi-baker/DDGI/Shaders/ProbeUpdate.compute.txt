@@ -1,0 +1,43 @@
+#pragma only_renderers d3d11
+#pragma use_dxc
+
+#pragma kernel BlendIrradiance MAX_DDGI_BLEND_IRRADIANCE=1
+#pragma kernel BlendDistance MAX_DDGI_BLEND_DISTANCE=1
+#pragma kernel RelocateProbes MAX_DDGI_RELOCATE=1
+#pragma kernel ClassifyProbes MAX_DDGI_CLASSIFY=1
+
+// This software contains source code provided by NVIDIA Corporation.
+#include "SDK/UnitySdk.hlsl"
+
+#if defined(MAX_DDGI_BLEND_IRRADIANCE) || defined(MAX_DDGI_BLEND_DISTANCE)
+
+#define RTXGI_DDGI_BLEND_SHARED_MEMORY 0
+#define RTXGI_DDGI_BLEND_SCROLL_SHARED_MEMORY 0
+#define RTXGI_DDGI_DEBUG_PROBE_INDEXING 0
+#define RTXGI_DDGI_DEBUG_OCTAHEDRAL_INDEXING 0
+
+#if defined(MAX_DDGI_BLEND_IRRADIANCE)
+#define RTXGI_DDGI_BLEND_RADIANCE 1
+#define RTXGI_DDGI_PROBE_NUM_INTERIOR_TEXELS 6
+#define RTXGI_DDGI_PROBE_NUM_TEXELS 8
+#define DDGIProbeBlendingCS BlendIrradiance
+#else
+#define RTXGI_DDGI_BLEND_RADIANCE 0
+#define RTXGI_DDGI_PROBE_NUM_INTERIOR_TEXELS 14
+#define RTXGI_DDGI_PROBE_NUM_TEXELS 16
+#define DDGIProbeBlendingCS BlendDistance
+#endif
+
+#include "SDK/rtxgi-sdk/shaders/ddgi/ProbeBlendingCS.hlsl"
+
+#elif defined(MAX_DDGI_RELOCATE)
+
+#define DDGIProbeRelocationCS RelocateProbes
+#include "SDK/rtxgi-sdk/shaders/ddgi/ProbeRelocationCS.hlsl"
+
+#elif defined(MAX_DDGI_CLASSIFY)
+
+#define DDGIProbeClassificationCS ClassifyProbes
+#include "SDK/rtxgi-sdk/shaders/ddgi/ProbeClassificationCS.hlsl"
+
+#endif
