@@ -1,0 +1,98 @@
+#include "../../DDGI/Shaders/SDK/UnitySdk.hlsl"
+#include "../../DDGI/Shaders/SDK/rtxgi-sdk/shaders/ddgi/Irradiance.hlsl"
+#include "ProbeTracePayload.hlsl"
+
+#pragma max_recursion_depth 1
+
+RaytracingAccelerationStructure _Scene;
+StructuredBuffer<DDGIVolumeDescGPUPacked> DDGIVolumes;
+Texture2DArray<float4> ProbeIrradiance;
+Texture2DArray<float4> ProbeDistance;
+Texture2DArray<float4> ProbeData;
+SamplerState sampler_LinearClamp;
+RWTexture2DArray<float4> RayData;
+
+float4 _SunDirection;
+
+static const float ProbeTraceRayBias = 0.001f;
+static const float ProbeTraceDiffuseOverPi = 0.7f / 3.14159265358979323846f;
+
+RayDesc ProbeRay(float3 origin, float3 direction)
+{
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.Direction = direction;
+    ray.TMin = 0.0001f;
+    ray.TMax = 1e30f;
+    return ray;
+}
+
+bool SunVisible(float3 position, float3 geometricNormal, float3 direction)
+{
+    RayDesc ray = ProbeRay(position + geometricNormal * ProbeTraceRayBias, direction);
+    ProbeTracePayload payload = (ProbeTracePayload)0;
+    TraceRay(_Scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH |
+        RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, 0, 1, 0, ray, payload);
+    return payload.signedDistance == ProbeTraceMissDistance;
+}
+
+float3 ProbeFeedback(float3 position, float3 normal, float3 direction, DDGIVolumeDescGPU volume)
+{
+    float weight = DDGIGetVolumeBlendWeight(position, volume);
+    if (weight <= 0.0f) return 0.0f;
+
+    DDGIVolumeResources resources;
+    resources.probeIrradiance = ProbeIrradiance;
+    resources.probeDistance = ProbeDistance;
+    resources.probeData = ProbeData;
+    resources.bilinearSampler = sampler_LinearClamp;
+    float3 bias = DDGIGetSurfaceBias(normal, direction, volume);
+    return weight * DDGIGetVolumeIrradiance(position, bias, normal, volume, resources);
+}
+
+[shader("raygeneration")]
+void TraceProbes()
+{
+    DDGIVolumeDescGPU volume = UnpackDDGIVolumeDescGPU(DDGIVolumes[0]);
+    uint3 texel = DispatchRaysIndex();
+    int rayIndex = int(texel.x);
+    int probeIndex = int(texel.z) * DDGIGetProbesPerPlane(volume.probeCounts) + int(texel.y);
+    bool geometryOnly = DispatchRaysDimensions().x == RTXGI_DDGI_NUM_FIXED_RAYS;
+    bool fixedRay = (volume.probeRelocationEnabled || volume.probeClassificationEnabled)
+        && rayIndex < RTXGI_DDGI_NUM_FIXED_RAYS;
+
+    // Lighting blending skips fixed rays and inactive probes. Geometry updates must still see both faces.
+    if (!geometryOnly && (fixedRay || DDGILoadProbeState(probeIndex, ProbeData, volume) == RTXGI_DDGI_PROBE_STATE_INACTIVE))
+    {
+        RayData[texel] = float4(0.0f, 0.0f, 0.0f, ProbeTraceMissDistance);
+        return;
+    }
+
+    float3 direction = DDGIGetProbeRayDirection(rayIndex, volume);
+    float3 origin = DDGIGetProbeWorldPosition(DDGIGetProbeCoords(probeIndex, volume), volume, ProbeData);
+    RayDesc ray = ProbeRay(origin, direction);
+    ProbeTracePayload payload = (ProbeTracePayload)0;
+    TraceRay(_Scene, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 1, 0, ray, payload);
+
+    float3 radiance = 0.0f;
+    if (!geometryOnly && payload.signedDistance > 0.0f && payload.signedDistance < ProbeTraceMissDistance)
+    {
+        float3 position = origin + direction * payload.signedDistance;
+        radiance = ProbeFeedback(position, payload.normal, direction, volume);
+        float cosine = dot(payload.normal, _SunDirection.xyz);
+        if (cosine > 0.0f && dot(payload.geometricNormal, _SunDirection.xyz) > 0.0f &&
+            SunVisible(position, payload.geometricNormal, _SunDirection.xyz))
+            radiance += cosine;
+
+        // Both source irradiance terms use the same normalized gray Lambert reflectance.
+        radiance *= ProbeTraceDiffuseOverPi;
+    }
+
+    RayData[texel] = float4(radiance, payload.signedDistance);
+}
+
+[shader("miss")]
+void ProbeMiss(inout ProbeTracePayload payload : SV_RayPayload)
+{
+    payload.signedDistance = ProbeTraceMissDistance;
+}

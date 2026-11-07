@@ -1,0 +1,6 @@
+{
+  "name": "Baker",
+  "rootNamespace": "MaxSRP.DDGIBaker.Editor",
+  "references": ["DDGI"],
+  "includePlatforms": ["Editor"]
+}
