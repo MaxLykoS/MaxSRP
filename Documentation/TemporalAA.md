@@ -36,9 +36,12 @@ TAA 是 MaxSRP 的公共基础设施。各 Pass 必须遵守本文件约定；�
 - 刚体使用 `unity_MatrixPreviousM`；蒙皮通过引擎 `unity_MotionVectorsParams.x` 和 TEXCOORD4 旧顶点。需要开启 Renderer 对应的运动向量及蒙皮旧位置输出。自定义顶点动画、风、顶点位移必须自行实现相同的上一帧变形。
 - ForceNoMotion 对当前几何体拒绝历史。Unity 会省略 Camera-only 对象的物体 MotionVectors 绘制，此时仅在 GBuffer1.a 声明支持时使用深度重建的相机运动；`unity_MotionVectorsParams.w=0` 表示 camera-only，1 表示有物体运动。静止几何体仍须包含相机运动。
 - 天空使用方向向量（w=0）重投影，忽略相机平移。正交天空在相机朝向改变时拒绝天空历史。
+- 单层平面云继续使用这份方向重投影与颜色历史。共享解析结合风位移和相机世界位置/高度变化，查询当前/上一时刻云覆盖，并限制变化区域的历史权重（上限 0.25）；不把晴空和有限高度云的混合像素假设为单一速度。云参数、启停变化或相机穿越云面时拒绝天空历史；风和相机均静止时恢复普通天空累积。无额外云颜色历史或低分辨率颜色重建。
+- 六向主云在晴空之后、共享 TAA 之前绘制，使用同一 jitter VP，保留背景深度与颜色 alpha。风或相机平移时保守限制整个天空的历史权重至 0.25，静止时恢复正常累积；云内容与启停变化沿用云 revision 拒绝天空历史。该版没有逐云反应性掩码，不向混合的天空像素写入不准确的单一云速度，也不增加独立历史。见 `Documentation/SixWayClouds.md`。
 - **颜色历史是解析后的规范像素网格**：`historyUV = uv − Motion.xy`，不再加入 jitter 差。
 - **深度历史是原始栅格位置的数据**：`previousDepthUV = historyUV + previousJitter − currentJitter`。不能把颜色与原始深度历史的坐标约定混用。
-- GBuffer2.rg 仍为保留通道，不再被误读为已实现的速度；速度真值来自独立 MotionVectors 纹理。
+- GBuffer2.r/g 分别保存天空可见度与 Lightmap 有效性；不得作为速度读取。速度真值来自独立 MotionVectors 纹理。无烘焙数据的材质写入天空可见度 1、有效性 0。
+- 静态人工光 Lightmap 在 jitter GBuffer 中按 UV2 采样，已乘接收材质的间接出射亮度与自发光合并写入 GBuffer3.rgb。Lighting 与实时直射、天空 IBL 合成后进入雾及共享 TAA，不新增 GI 历史。更换烘焙数据时显式清空受影响相机历史。
 
 ## 历史有效性和生命周期
 
@@ -69,7 +72,7 @@ TAA 是 MaxSRP 的公共基础设施。各 Pass 必须遵守本文件约定；�
 
 当前支持单相机输出的 Game/Scene、透视/正交、原生分辨率及局部视窗。相同输出在同一次 Render 中有多个相机时整组旁路；Depth/Nothing 叠加相机、XR、反射、Preview 旁路。多投影相机堆叠需要合成层面的运动/深度设计，不允许直接共享一份历史。
 
-验证工具：`Tools/ValidateShaders.ps1`、`ValidateLightingShaderRetention.ps1`、`ValidateSceneShadows.ps1`、`ValidateColorOutput.ps1`；Unity MCP 执行 `Tools/UnityMcp/ValidateTemporalAA.cs.txt`（实际生产 Shader GPU 夹具）、`ValidateTemporalLifecycle.cs.txt`（真实 Unity 资源/矩阵生命周期）、`CaptureTemporalAA.cs.txt`（当前 Scene 同帧 HDR 输入输出与运动纹理）。结果输出到 git 忽略的 `OfflineBaseline/TemporalAA`。
+当前验证入口：`Tools/ValidateShaders.ps1`（生产 Shader 编译及变体）、`Tools/ValidateLightingShaderRetention.ps1`（保留引用与程序集检查），并在 Unity 刷新编译后检查 Console、目标场景的运动与历史失效行为。旧版 `ValidateTemporalAA`、`ValidateTemporalLifecycle`、`CaptureTemporalAA`、阴影及输出专项夹具已随工具清理移除；历史结果保存在本地 `OfflineBaseline/`，不代表当前版本已重跑这些测试。
 
 当前实现优先建立正确的基线，新增持久 RT 逻辑存储约 40 字节/像素（1920×1080 约 79.1 MiB/启用相机，不含驱动开销）。移动端上线前须评估历史深度/计数打包、运动纹理格式与实际带宽，不把这版宣称为手机性能已达标。
 

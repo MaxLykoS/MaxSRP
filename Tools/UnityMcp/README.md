@@ -2,7 +2,7 @@
 
 项目使用 [MCP for Unity](https://github.com/CoplayDev/unity-mcp) 10.3.0，仓库中的 Unity 包引用固定为 `https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#aa5fc638d623f56178d50329d9ad8c541a57fe66`，锁文件也固定到相同提交。
 
-当前机器的工作副本保留 `file:C:/Users/pc/.codex/unity-mcp/MCPForUnity`，其 checkout 为同一提交，避免已打开的 Unity 再次下载整个上游仓库。这个本机覆盖没有提交：`git status` 中 `Packages/manifest.json` 和 `Packages/packages-lock.json` 的差异是预期的本机包路径。换机器使用仓库的 Git 引用即可，但 Codex 服务端仍需单独安装和配置。
+工程包引用与锁文件均使用上述固定 Git 提交，避免将本机绝对路径提交到仓库。若本机需要临时覆盖，整理提交前恢复这两个文件。Codex 服务端仍需单独安装和配置。
 
 - Unity 包：`Packages/manifest.json`。
 - 自动连接：`Assets/MaxRendererPipeline/Editor/MaxUnityMcpBootstrap.cs`，仅 Editor 生效，每次程序集重载后恢复本机 stdio 桥接。
@@ -18,7 +18,6 @@ $unityMcpPython = 'C:/Users/pc/.codex/unity-mcp/Server/.venv/Scripts/python.exe'
 & $unityMcpPython Tools/UnityMcp/client.py read 'mcpforunity://editor/state'
 & $unityMcpPython Tools/UnityMcp/client.py call refresh_unity '{"mode":"force","scope":"all","compile":"request","wait_for_ready":true}'
 & $unityMcpPython Tools/UnityMcp/client.py call read_console '{"action":"get","types":["error","warning"],"count":"20","format":"detailed"}'
-& $unityMcpPython Tools/UnityMcp/client.py call execute_menu_item '{"menu_path":"MaxSRP/Diagnostics/Capture Final Output And Editor"}'
 ```
 
 执行刷新后检查 `editor/state` 与控制台，不能仅凭刷新请求成功断言编译通过。首次安装需要 Unity 解析包并完成编译；之后的刷新和诊断菜单通过 MCP 触发。屏幕截图诊断仍要求被测视图可见、无遮挡，这与后台脚本编译是两个条件。
