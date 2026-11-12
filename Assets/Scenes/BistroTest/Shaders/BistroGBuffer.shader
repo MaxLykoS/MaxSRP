@@ -2,13 +2,16 @@ Shader "MaxSRP/Bistro GBuffer"
 {
     Properties
     {
-        _BaseColorMap("Base Color / Opacity", 2D) = "white" {}
+        [MainTexture] _BaseColorMap("Base Color / Opacity", 2D) = "white" {}
+        [HideInInspector] _MainTex("Lightmapper Opacity Alias", 2D) = "white" {}
+        [HideInInspector] _Color("Lightmapper Opacity Color", Color) = (1, 1, 1, 1)
         _MaskMap("AO (R), Roughness (G), Metalness (B)", 2D) = "white" {}
         [Normal] _NormalMap("Normal Map", 2D) = "bump" {}
         _EmissionMap("Emission Color", 2D) = "black" {}
         _EmissionNits("Emission Luminance Scale (cd/m2)", Float) = 0
         _Cutoff("Alpha Cutoff (0 = Opaque)", Range(0, 1)) = 0
         [Enum(UnityEngine.Rendering.CullMode)] _Cull("Cull", Float) = 2
+        [HideInInspector] _MaxSkyVisibilitySlice("Sky Visibility Slice", Float) = -1
     }
 
     SubShader
@@ -28,6 +31,21 @@ Shader "MaxSRP/Bistro GBuffer"
             #pragma target 5.0
             #pragma vertex BistroGBufferVertex
             #pragma fragment BistroGBufferFragment
+            #pragma multi_compile _ LIGHTMAP_ON
+            #pragma multi_compile _ DIRLIGHTMAP_COMBINED
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "META"
+            Tags { "LightMode" = "Meta" }
+            Cull Off
+            HLSLPROGRAM
+            #pragma target 5.0
+            #pragma vertex BistroMetaVertex
+            #pragma fragment BistroMetaFragment
+            #include "BistroMetaPass.hlsl"
             ENDHLSL
         }
 

@@ -4,13 +4,23 @@ using UnityEngine;
 
 namespace MaxSRP.DDGIBaker.Editor
 {
+    internal enum DdgiBakeMaterialMode
+    {
+        SceneMaterials,
+        GrayNativeParity
+    }
+
     [Serializable]
     internal sealed class DdgiBakeSettings
     {
+        [Tooltip("Use scene textures for diffuse transport. Gray Native Parity is for the NativeGI comparison.")]
+        public DdgiBakeMaterialMode materialMode;
+        [Tooltip("Use a large single volume with half-float lighting atlases and export packed probes.")]
+        public bool compactVolume;
         public Vector3 origin;
         public Vector3Int counts = new Vector3Int(8, 4, 8);
-        public float spacing = 1.5f;
-        public float[] hours = { 9f, 10.5f, 12f, 13.5f, 15f };
+        public float spacing = 2f;
+        public float[] hours = HalfDayHours();
         public int rays = 512;
         public int iterations = 64;
         public int geometryPasses = 4;
@@ -22,6 +32,10 @@ namespace MaxSRP.DDGIBaker.Editor
         public float distanceExponent = 16f;
         public float minFrontfaceDistance = .2f;
         public float fixedBackfaceThreshold = .1f;
+        [Tooltip("Optional coarse bake directory or report.json. Use the same geometry and matching TOD keys.")]
+        public string coarseFeedbackReport;
+        [Tooltip("Width of the coarse-to-fine feedback transition inside the fine volume, along X and Z.")]
+        public float coarseFeedbackFadeMeters = 3f;
 
         internal bool Relocation => geometryPasses > 0;
         internal int ProbeCount => counts.x * counts.y * counts.z;
@@ -38,13 +52,19 @@ namespace MaxSRP.DDGIBaker.Editor
 
         internal void Validate()
         {
+            if (materialMode != DdgiBakeMaterialMode.SceneMaterials && materialMode != DdgiBakeMaterialMode.GrayNativeParity)
+                throw new ArgumentException("Invalid probe bake material mode.");
+            int rows = compactVolume ? counts.y : counts.z;
+            int layers = compactVolume ? counts.z : counts.y;
+            long probes = (long)counts.x * counts.y * counts.z;
+            int probeLimit = compactVolume ? 65535 * 32 : 65536;
             if (!Finite(origin.x) || !Finite(origin.y) || !Finite(origin.z) ||
                 counts.x < 2 || counts.y < 2 || counts.z < 2 ||
                 counts.x > 1023 || counts.y > 1023 || counts.z > 1023 ||
-                (long)counts.x * counts.y * counts.z > 65536 ||
-                16 * Mathf.Max(counts.x, counts.z) > SystemInfo.maxTextureSize ||
-                counts.x * counts.z > SystemInfo.maxTextureSize ||
-                counts.y > SystemInfo.maxTextureArraySlices)
+                probes > probeLimit ||
+                16 * Mathf.Max(counts.x, rows) > SystemInfo.maxTextureSize ||
+                counts.x * rows > SystemInfo.maxTextureSize ||
+                layers > SystemInfo.maxTextureArraySlices)
                 throw new ArgumentException("The probe grid exceeds the atlas or probe-count limits.");
             if (rays < 64 || rays > 4096 || rays % 32 != 0 || rays > SystemInfo.maxTextureSize ||
                 iterations < 1 || iterations > 512 || geometryPasses < 0 || geometryPasses > 16 ||
@@ -55,11 +75,36 @@ namespace MaxSRP.DDGIBaker.Editor
                 !Finite(minFrontfaceDistance) || minFrontfaceDistance <= 0 ||
                 !Finite(fixedBackfaceThreshold) || fixedBackfaceThreshold < 0 || fixedBackfaceThreshold > 1)
                 throw new ArgumentException("Invalid probe bake sampling or layout settings.");
+            if (compactVolume)
+            {
+                const long resourceLimit = 4L * 1024 * 1024 * 1024;
+                long rayBytes = probes * rays * 16;
+                long distanceBytes = probes * 16 * 16 * 4;
+                long otherBytes = probes * (16 + 8 * 8 * (8 + 4)); // ProbeData, irradiance, variability.
+                if (rayBytes >= resourceLimit || distanceBytes >= resourceLimit ||
+                    (SystemInfo.graphicsMemorySize > 0 &&
+                        rayBytes + distanceBytes + otherBytes > SystemInfo.graphicsMemorySize * 1024L * 1024L))
+                    throw new ArgumentException("The compact bake atlases exceed the DX12 resource size or reported GPU memory. Reduce the ray count or grid size.");
+                if (!string.IsNullOrWhiteSpace(coarseFeedbackReport))
+                    throw new ArgumentException("Compact volume baking uses one global feedback field and does not take a coarse bake.");
+            }
             if (hours == null || hours.Length < 1 || hours.Length > 25)
                 throw new ArgumentException("Specify 1 to 25 TOD keys.");
+            if (!string.IsNullOrWhiteSpace(coarseFeedbackReport) &&
+                (!Finite(coarseFeedbackFadeMeters) || coarseFeedbackFadeMeters <= 0f))
+                throw new ArgumentException("Coarse feedback needs a positive transition width in meters.");
             for (int i = 0; i < hours.Length; i++)
-                if (!Finite(hours[i]) || hours[i] < 9f || hours[i] > 15f || (i > 0 && hours[i] <= hours[i - 1]))
-                    throw new ArgumentException("TOD keys must be strictly increasing, from 9 to 15 solar hours.");
+                if (!Finite(hours[i]) || hours[i] < 6f || hours[i] > 18f || (i > 0 && hours[i] <= hours[i - 1]))
+                    throw new ArgumentException("TOD keys must be strictly increasing, from 6 to 18 solar hours.");
+        }
+
+        internal static float[] HalfDayHours()
+        {
+            // Preserve the existing winter solar orbit and add zero-light horizon
+            // endpoints so time interpolation cannot turn on GI before sunrise.
+            float halfDay = Mathf.Acos(-Mathf.Tan(39.9f * Mathf.Deg2Rad) * Mathf.Tan(-20f * Mathf.Deg2Rad))
+                * (12f / Mathf.PI);
+            return new[] { 6f, 12f - halfDay, 7.5f, 9f, 10.5f, 12f, 13.5f, 15f, 16.5f, 12f + halfDay, 18f };
         }
 
         internal static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);

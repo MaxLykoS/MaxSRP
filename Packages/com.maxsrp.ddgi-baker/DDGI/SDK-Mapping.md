@@ -54,7 +54,7 @@ Baker 使用前 32 条固定射线做布局，在最终偏移位置重新分类�
 ## 复核
 
 1. 在工程根目录运行下方命令安装依赖。随后用 `-VerifyOnly` 核对本地每个文件的字节数和 SHA-256。
-2. 用 DX12 按 [TinyBistro 说明](../README.md#reproduce-the-tinybistro-comparison) 烘焙正午对照。比较 encoded irradiance、距离矩、偏移、分类和解码后的线性辐照度。
+2. 用 DX12 按 [NativeGI 对照说明](../README.md#reproduce-a-nativegi-comparison) 烘焙正午对照。比较 encoded irradiance、距离矩、偏移、分类和解码后的线性辐照度。
 3. 固定几何、采样和设备时，可对拆分前后的 `official_irradiance_0.ngatlas`、`shared_distance.ngatlas`、`shared_probe_data.ngatlas` 直接比较 SHA-256。当前基线在 RTX 3080 Ti 上三份数据均与拆分前逐字节一致，对 NativeGI 的 2,048 个线性辐照度查询相对 RMSE 为 0.0000708%，Probe 分类差异为 0。
 
 ```powershell

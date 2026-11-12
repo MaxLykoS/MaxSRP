@@ -6,16 +6,8 @@
 #include "GlobalIllumination.hlsl"
 #include "AtomsphereScattering/RayMarching.hlsl"
 #include "Shadow.hlsl"
-
-// Editor comparison camera only. Zero preserves normal rendering.
-float _MaxLightingDiagnosticMode;
-
-float3 GetSurfaceViewDirection(float3 positionWS)
-{
-    if (unity_OrthoParams.w > 0.5)
-        return normalize(mul((float3x3)unity_MatrixInvV, float3(0.0, 0.0, 1.0)));
-    return normalize(_WorldSpaceCameraPos - positionWS);
-}
+#include "MaxViewDirection.hlsl"
+#include "MaxLightingDiagnostics.hlsl"
 
 float3 PBR_DirectLitDirectionalLight(Surface surface)
 {
@@ -62,7 +54,7 @@ float3 PBR_DirectLitPointLight(Surface surface)
     return Lo;
 }
 
-float3 PBR_IndirectLit(Surface surface)
+float3 PBR_IndirectLit(Surface surface, float skyVisibility)
 {
     // indirect lighting
     // diffuse (from light probe SH)
@@ -72,10 +64,10 @@ float3 PBR_IndirectLit(Surface surface)
     float NdotV = saturate(dot(surface.N, surface.V));
 
     float3 kS = fresnelSchlickRoughness(NdotV, surface.F0, surface.roughness);
-    float3 kD = 1.0 - kS;
-    kD = kD * (1.0 - surface.metalness);
+    float3 kD = MaxIndirectDiffuseWeight(NdotV, surface.F0, surface.roughness, surface.metalness);
 
-    float3 indirectDiffuse = GetDiffuseIBL(surface.N, NdotV, surface.F0, surface.roughness, surface.albedo, kD);
+    float3 indirectDiffuse = GetDiffuseIBL(surface.N, NdotV, surface.F0, surface.roughness, surface.albedo, kD)
+        * saturate(skyVisibility);
     float3 indirectSpec = GetSpecularIBL(reflectDir, surface.roughness, NdotV, kS);
     if (_MaxLightingDiagnosticMode == 3.0) return indirectDiffuse;
     if (_MaxLightingDiagnosticMode == 4.0) return indirectSpec;
@@ -83,10 +75,16 @@ float3 PBR_IndirectLit(Surface surface)
     return Lo;
 }
 
-// ×Ü¹âÕÕº¯Êý
-float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float roughness, float2 uv, float visibility)
+float3 PBR_IndirectLit(Surface surface)
 {
-    // surfaceµÄL¸³Öµ·Åµ½¸÷¸öº¯ÊýÀï
+    return PBR_IndirectLit(surface, 1.0);
+}
+
+// æ€»å…‰ç…§å‡½æ•°
+float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float roughness, float2 uv, float visibility,
+    float skyVisibility)
+{
+    // surfaceçš„Lèµ‹å€¼æ”¾åˆ°å„ä¸ªå‡½æ•°é‡Œ
     Surface surface;
     surface.P = Pw;
     surface.V = GetSurfaceViewDirection(Pw);
@@ -100,12 +98,18 @@ float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float ro
 
     float3 c_dirDirLight = PBR_DirectLitDirectionalLight(surface);
     float3 c_dirPointLight = PBR_DirectLitPointLight(surface);
-    float3 c_indirLit = PBR_IndirectLit(surface);
+    float3 c_indirLit = PBR_IndirectLit(surface, skyVisibility);
 
     if (_MaxLightingDiagnosticMode == 5.0) return c_dirDirLight + c_dirPointLight;
     if (_MaxLightingDiagnosticMode >= 2.0 && _MaxLightingDiagnosticMode <= 4.0) return c_indirLit;
 
     if (_MaxLightingDiagnosticMode == 1.0) return c_dirDirLight * visibility + c_dirPointLight;
     return c_dirDirLight * visibility + c_dirPointLight + c_indirLit;
+}
+
+// Existing numerical fixtures and non-lightmapped callers retain unoccluded sky.
+float3 PBR_Shading(float3 Pw, float3 N, float3 albedo, float metalness, float roughness, float2 uv, float visibility)
+{
+    return PBR_Shading(Pw, N, albedo, metalness, roughness, uv, visibility, 1.0);
 }
 #endif

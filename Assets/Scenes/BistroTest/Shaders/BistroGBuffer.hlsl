@@ -3,13 +3,17 @@
 
 #include "../../../MaxRendererPipeline/ShaderLibrary/Realtime/SpaceTransform.hlsl"
 #include "../../../MaxRendererPipeline/ShaderLibrary/Realtime/Packing.hlsl"
+#include "../../../MaxRendererPipeline/ShaderLibrary/Realtime/MaxBakedLighting.hlsl"
 #include "../../../MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl"
 
 CBUFFER_START(UnityPerMaterial)
 float4 _BaseColorMap_ST;
+float4 _MainTex_ST;
+float4 _Color;
 float _EmissionNits;
 float _Cutoff;
 float _Cull;
+float _MaxSkyVisibilitySlice;
 CBUFFER_END
 
 UNITY_DECLARE_TEX2D(_BaseColorMap);
@@ -34,6 +38,8 @@ struct BistroAttributes
 {
     float4 position : POSITION;
     float2 uv : TEXCOORD0;
+    float2 lightmapUV : TEXCOORD1;
+    float2 dynamicUV : TEXCOORD2;
     float3 normal : NORMAL;
     float4 tangent : TANGENT;
 };
@@ -44,6 +50,8 @@ struct BistroVaryings
     float2 uv : TEXCOORD0;
     float3 normal : TEXCOORD1;
     float4 tangent : TEXCOORD2;
+    float2 lightmapUV : TEXCOORD3;
+    float3 positionWS : TEXCOORD4;
 };
 
 BistroVaryings BistroGBufferVertex(BistroAttributes input)
@@ -54,6 +62,8 @@ BistroVaryings BistroGBufferVertex(BistroAttributes input)
     output.normal = TransformObjectToWorldNormal(input.normal);
     output.tangent = float4(normalize(TransformObjectToWorldDir(input.tangent.xyz)),
         input.tangent.w * unity_WorldTransformParams.w);
+    output.lightmapUV = MaxLightmapUV(input.lightmapUV);
+    output.positionWS = TransformObjectToWorld(input.position.xyz);
     return output;
 }
 
@@ -78,10 +88,13 @@ void BistroGBufferFragment(BistroVaryings input, bool frontFace : SV_IsFrontFace
     GBuffer0 = albedo;
     // Same temporal contract as the production PBR material, including camera-only motion.
     GBuffer1 = float4(mappedNormal * 0.5 + 0.5, 1.0);
-    GBuffer2 = float4(0.0, 0.0, saturate(mask.g), saturate(mask.b));
+    GBuffer2 = float4(MaxSampleSkyVisibility(input.lightmapUV, _MaxSkyVisibilitySlice),
+        MaxHasBakedLightmap(), saturate(mask.g), saturate(mask.b));
     // Scene HDR is luminance / LightPhotometry.HDRScale, before the shared exposure.
     float3 emission = UNITY_SAMPLE_TEX2D(_EmissionMap, input.uv).rgb * (max(_EmissionNits, 0.0) / 100000.0);
-    GBuffer3 = float4(emission, saturate(mask.r));
+    float3 bakedDiffuse = MaxSampleBakedDiffuse(input.lightmapUV, input.positionWS,
+        mappedNormal, albedo.rgb, mask.b, mask.g, frontFace ? normal : -normal);
+    GBuffer3 = float4(MaxDiagnosticGBufferLighting(bakedDiffuse, emission), saturate(mask.r));
 }
 
 struct BistroShadowAttributes

@@ -72,3 +72,35 @@ __pycache__/
 !/Assets/ThirdParty/Bistro/**/
 !/Assets/ThirdParty/Bistro/**/*.meta
 
+# Locally generated Bistro lighting and TOD preview outputs.
+/Assets/Scenes/**/LightingData.asset
+/Assets/Scenes/**/LightingData.asset.meta
+/Assets/Scenes/BistroTest/**/Lightmap-*_comp_light.exr
+/Assets/Scenes/BistroTest/**/Lightmap-*_comp_light.exr.meta
+/Assets/Scenes/BistroTest/**/Lightmap-*_comp_dir.png
+/Assets/Scenes/BistroTest/**/Lightmap-*_comp_dir.png.meta
+/Assets/Scenes/BistroTest/**/BistroSkyVisibility.asset
+/Assets/Scenes/BistroTest/**/BistroSkyVisibility.asset.meta
+/Assets/Scenes/BistroTest/TODProbePreview/
+/Assets/Scenes/BistroTest/TODProbePreview.meta
+/Assets/LocalGIBakes/
+/Assets/LocalGIBakes.meta
+# Generated solar GI frames used by runtime streaming stay local.
+/Assets/StreamingAssets/MaxSRP/SolarTOD/
+/Assets/StreamingAssets/MaxSRP/SolarTOD.meta
+/Tools/NativeGI/
+
+# Native bake outputs may appear beside a scene before being relocated.
+/Assets/Scenes/**/Lightmap-*
+/Assets/Scenes/**/ReflectionProbe-*
+/Assets/Scenes/BistroTest/BistroTest/
+/Assets/Scenes/BistroTest/BistroTest.meta
+/Assets/Scenes/BistroTest/BistroTOD/
+/Assets/Scenes/BistroTest/BistroTOD.meta
+
+# Keep reference sources/checksums in Git; download large documents locally.
+/Documentation/References/**/*.pdf
+
+# Per-machine editor state is not project configuration.
+/UserSettings/
+

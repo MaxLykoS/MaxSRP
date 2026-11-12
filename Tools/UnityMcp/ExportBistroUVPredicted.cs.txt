@@ -1,0 +1,72 @@
+// Read-only snapshot of actual imported UV2 at the EXPECTED next native tile size.
+// Never uses the old renderer.lightmapScaleOffset as a geometry transform.
+if (UnityEditor.Lightmapping.isRunning || MaxSRP.EditorTools.MaxBistroSkyVisibilityBaker.IsRunning) throw new System.Exception("Bake active.");
+var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+if (scene.path != "Assets/Scenes/BistroTest/BistroTest.unity") throw new System.Exception("Open BistroTest first.");
+MaxSRP.EditorTools.MaxBistroLightmapUV.Validate(scene);
+string directory = "OfflineBaseline/BistroLightmap/UVPredicted/" + System.DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+System.IO.Directory.CreateDirectory(directory);
+string recipeHash;
+using (var sha = System.Security.Cryptography.SHA256.Create()) recipeHash = System.BitConverter.ToString(sha.ComputeHash(System.IO.File.ReadAllBytes(MaxSRP.EditorTools.MaxBistroLightmapUV.RecipePath))).Replace("-", "").ToLowerInvariant();
+var culture = System.Globalization.CultureInfo.InvariantCulture;
+System.Func<double,string> f = value => value.ToString("G17", culture);
+System.Func<string,string> q = value => "\"" + value.Replace("\"", "\"\"") + "\"";
+string manifestPath = directory + "/manifest.json";
+System.IO.File.WriteAllText(manifestPath, "{\"complete\":false,\"recipeHash\":\"" + recipeHash + "\"}");
+var csv = new System.Text.StringBuilder("file,renderer,mesh,worldArea,uvArea,expectedNativeScale,assignedNativeScale,predictedSide,surfaceDensity,vertices,triangles\n");
+int count = 0;
+double rectangleTexels = 0, maximumSide = 0;
+foreach (var renderer in scene.GetRootGameObjects().SelectMany(g => g.GetComponentsInChildren<UnityEngine.MeshRenderer>(true)).OrderBy(r => r.name, System.StringComparer.Ordinal))
+{
+    if (!renderer.enabled || !renderer.gameObject.activeInHierarchy || !renderer.sharedMaterials.Any(m => m && (!m.HasProperty("_Cutoff") || m.GetFloat("_Cutoff") <= 1))) continue;
+    var filter = renderer.GetComponent<UnityEngine.MeshFilter>();
+    if (!filter || !filter.sharedMesh || UnityEditor.AssetDatabase.GetAssetPath(filter.sharedMesh) != MaxSRP.EditorTools.MaxBistroLightmapUV.ModelPath) continue;
+    var mesh = filter.sharedMesh;
+    if (renderer.isPartOfStaticBatch || (renderer.additionalVertexStreams && renderer.additionalVertexStreams.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord1))) throw new System.Exception("Overridden UV geometry: " + renderer.name);
+    double nativeScale = MaxSRP.EditorTools.MaxBistroLightmapUV.GetScale(renderer);
+    using (var array = UnityEditor.MeshUtility.AcquireReadOnlyMeshData(mesh))
+    using (var positions = new Unity.Collections.NativeArray<UnityEngine.Vector3>(mesh.vertexCount, Unity.Collections.Allocator.Temp))
+    using (var uv = new Unity.Collections.NativeArray<UnityEngine.Vector2>(mesh.vertexCount, Unity.Collections.Allocator.Temp))
+    {
+        var data = array[0]; data.GetVertices(positions); data.GetUVs(1, uv);
+        var indicesBySubmesh = new System.Collections.Generic.List<int[]>();
+        double worldArea = 0, uvArea = 0; int triangleCount = 0;
+        var matrix = renderer.localToWorldMatrix;
+        for (int submesh = 0; submesh < data.subMeshCount; ++submesh)
+        {
+            var descriptor = data.GetSubMesh(submesh);
+            if (descriptor.topology != UnityEngine.MeshTopology.Triangles || descriptor.indexCount % 3 != 0) throw new System.Exception("Non-triangle mesh: " + renderer.name);
+            using (var indices = new Unity.Collections.NativeArray<int>(descriptor.indexCount, Unity.Collections.Allocator.Temp))
+            {
+                data.GetIndices(indices, submesh, true);
+                indicesBySubmesh.Add(indices.ToArray());
+                for (int i = 0; i < indices.Length; i += 3)
+                {
+                    int ia = indices[i], ib = indices[i + 1], ic = indices[i + 2];
+                    worldArea += UnityEngine.Vector3.Cross(matrix.MultiplyVector(positions[ib] - positions[ia]), matrix.MultiplyVector(positions[ic] - positions[ia])).magnitude * 0.5;
+                    var ab = uv[ib] - uv[ia]; var ac = uv[ic] - uv[ia];
+                    uvArea += System.Math.Abs((double)ab.x * ac.y - (double)ab.y * ac.x) * 0.5;
+                    ++triangleCount;
+                }
+            }
+        }
+        double side = System.Math.Sqrt(worldArea) * MaxSRP.EditorTools.MaxBistroLightmapUV.Density * nativeScale;
+        if (double.IsNaN(side) || double.IsInfinity(side) || side <= 0) throw new System.Exception("Invalid predicted tile: " + renderer.name);
+        string fileName = count.ToString("D4", culture) + ".bin";
+        using (var writer = new System.IO.BinaryWriter(System.IO.File.Create(directory + "/" + fileName)))
+        {
+            // Compatible binary layout: vertexCount, submeshCount, four float pseudo-ST,
+            // float3 positions, float2 UV2, then each int indexCount plus applied indices.
+            writer.Write(mesh.vertexCount); writer.Write(data.subMeshCount);
+            writer.Write((float)(side / 2048.0)); writer.Write((float)(side / 2048.0)); writer.Write(0.0f); writer.Write(0.0f);
+            foreach (var p in positions) { writer.Write(p.x); writer.Write(p.y); writer.Write(p.z); }
+            foreach (var v in uv) { writer.Write(v.x); writer.Write(v.y); }
+            foreach (int[] indices in indicesBySubmesh) { writer.Write(indices.Length); foreach (int index in indices) writer.Write(index); }
+        }
+        csv.AppendLine(string.Join(",", new[] { fileName, q(renderer.name), q(mesh.name), f(worldArea), f(uvArea), f(nativeScale), f(renderer.scaleInLightmap), f(side), f(System.Math.Sqrt(side * side * uvArea / worldArea)), mesh.vertexCount.ToString(culture), triangleCount.ToString(culture) }));
+        rectangleTexels += side * side; maximumSide = System.Math.Max(maximumSide, side); ++count;
+    }
+}
+System.IO.File.WriteAllText(directory + "/receivers.csv", csv.ToString(), new System.Text.UTF8Encoding(false));
+System.IO.File.WriteAllText(manifestPath, "{\"complete\":true,\"utc\":\"" + System.DateTime.UtcNow.ToString("O") + "\",\"recipeHash\":\"" + recipeHash + "\",\"renderers\":" + count + ",\"rectangleTexels\":" + f(rectangleTexels) + ",\"maximumSide\":" + f(maximumSide) + ",\"coordinates\":\"UV2 * predictedSide; no old lightmapST; binary pseudo-ST is side/2048\"}");
+return "Exported " + count + " actual imported UV snapshots to " + directory + "; recipeHash=" + recipeHash + "; rectangleTexels=" + f(rectangleTexels) + "; largestPredictedTile=" + f(maximumSide) + ". No scene, material or importer changes.";

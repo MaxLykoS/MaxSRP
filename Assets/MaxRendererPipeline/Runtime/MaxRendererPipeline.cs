@@ -37,6 +37,7 @@ namespace MaxSRP
             m_setting = setting;
             try
             {
+                MaxLightmapping.Setup();
                 m_LightPass = new MaxLightPass(setting.LightingShader);
                 m_clusteredLightingPass = new MaxClusteredLightingPass(setting.ClusteredLightingCS);
                 m_colorOutputPass = new MaxColorOutputPass(setting.ColorOutput);
@@ -89,8 +90,11 @@ namespace MaxSRP
 
         private void RenderCamera(ScriptableRenderContext context, Camera camera, SunLightData sun)
         {
+            var bakedSolar = MaxBakedSolarGI.FindForCamera(camera);
+            if (bakedSolar) sun = bakedSolar.AlignSun(sun);
+            int lightingHistoryKey = bakedSolar ? bakedSolar.HistoryKey : 0;
             MaxTemporalAAPass.CameraHistory temporal = m_temporalAA.Begin(camera, m_setting.TemporalAA,
-                m_outputCameraCounts[GetOutputKey(camera)] == 1, sun);
+                m_outputCameraCounts[GetOutputKey(camera)] == 1, sun, lightingHistoryKey);
             context.SetupCameraProperties(camera);
             if (!camera.TryGetCullingParameters(out var cullingParams))
                 return;
@@ -156,6 +160,7 @@ namespace MaxSRP
                 cmd.SetGlobalTexture("_GDepth", resources.Depth);
                 for (int i = 0; i < resources.Buffers.Length; ++i)
                     cmd.SetGlobalTexture("_GBuffer" + i, resources.Buffers[i]);
+                MaxBakedLightingData.BindForCamera(cmd, camera);
                 context.ExecuteCommandBuffer(cmd);
                 output.NeedsClear = false;
             }
@@ -185,7 +190,8 @@ namespace MaxSRP
                 m_proceduralSkyboxPass.EnvironmentRevision, m_setting.SkyIBL);
             var localLights = m_clusteredLightingPass.Prepare(context, camera, width, height,
                 m_lightConfigurator, m_setting.ClusteredLighting);
-            m_LightPass.Execute(context, camera, output.Color, output.Depth, viewport, m_iblGIPass, hasShadows, localLights);
+            m_LightPass.Execute(context, camera, output.Color, output.Depth, viewport, m_iblGIPass, hasShadows, localLights,
+                bakedSolar, sun);
 
             if (camera.clearFlags == CameraClearFlags.Skybox)
             {
@@ -216,7 +222,8 @@ namespace MaxSRP
                 context.DrawGizmos(camera, GizmoSubset.PreImageEffects);
             }
 #endif
-            m_colorOutputPass.Execute(context, camera, output.Color, output.Depth, target, outputDepth, m_setting.ColorOutput);
+            m_colorOutputPass.Execute(context, camera, output.Color, output.Depth, target, outputDepth,
+                m_setting.ColorOutput);
 #if UNITY_EDITOR
             if (Handles.ShouldRenderGizmos())
             {
@@ -332,6 +339,7 @@ namespace MaxSRP
             m_iblGIPass?.Dispose();
             m_shadowCastPass?.Dispose();
             m_proceduralSkyboxPass?.Dispose();
+            MaxLightmapping.Reset();
             base.Dispose(disposing);
         }
 

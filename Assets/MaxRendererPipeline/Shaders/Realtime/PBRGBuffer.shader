@@ -2,10 +2,11 @@ Shader "Unlit/PBRGBuffer"
 {
     Properties
     {
-        _AlbedoMap("Albedo", 2D) = "white" {}
+        [MainTexture] _AlbedoMap("Albedo", 2D) = "white" {}
         _MetalnessMap("Metallic", 2D) = "black" {}
         _RoughnessMap("Roughness",2D) = "black" {}
         [Normal] _NormalMap("Normal Map",2D) = "bump" {}
+        [HideInInspector] _MaxSkyVisibilitySlice("Sky Visibility Slice", Float) = -1
     }
     SubShader
     {
@@ -26,7 +27,22 @@ Shader "Unlit/PBRGBuffer"
             #pragma target 5.0
             #pragma vertex PBRGBufferVertex
             #pragma fragment PBRGBufferFragment
+            #pragma multi_compile _ LIGHTMAP_ON
+            #pragma multi_compile _ DIRLIGHTMAP_COMBINED
     
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "META"
+            Tags { "LightMode" = "Meta" }
+            Cull Off
+            HLSLPROGRAM
+            #pragma target 5.0
+            #pragma vertex PBRMetaVertex
+            #pragma fragment PBRMetaFragment
+            #include "PBRMetaPass.hlsl"
             ENDHLSL
         }
 

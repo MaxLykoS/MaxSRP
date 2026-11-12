@@ -1,0 +1,14 @@
+if(UnityEngine.Application.dataPath.Replace('\\','/')!="D:/UnityProject/MaxSRP/Assets")throw new System.Exception("Wrong Unity project");
+if(UnityEditor.Lightmapping.isRunning||MaxSRP.EditorTools.MaxBistroSkyVisibilityBaker.IsRunning)throw new System.Exception("Bake active");
+string manifest="Assets/ThirdParty/Bistro/LightmapUV/manifest.json";
+if(!System.IO.File.Exists(manifest))throw new System.Exception("Complete UV cache must be installed first");
+string hash;
+using(var sha=System.Security.Cryptography.SHA256.Create())hash=System.BitConverter.ToString(sha.ComputeHash(System.IO.File.ReadAllBytes(manifest))).Replace("-","").ToLowerInvariant();
+var importer=(UnityEditor.ModelImporter)UnityEditor.AssetImporter.GetAtPath("Assets/ThirdParty/Bistro/BistroExterior.fbx");
+string line="MaxSRP.BistroLightmapUVLayout=v1:"+hash;
+string previous=importer.userData??"";
+string pattern=@"(?m)^MaxSRP\.BistroLightmapUVLayout=[^\r\n]*";
+importer.userData=System.Text.RegularExpressions.Regex.IsMatch(previous,pattern)?System.Text.RegularExpressions.Regex.Replace(previous,pattern,line):previous.TrimEnd('\r','\n')+"\n"+line;
+importer.generateSecondaryUV=false;
+UnityEditor.AssetDatabase.WriteImportSettingsIfDirty("Assets/ThirdParty/Bistro/BistroExterior.fbx");
+return "Cache marker prepared; layoutHash="+hash+". No explicit import or refresh. Caller must balance its existing auto-refresh hold once before compiling.";

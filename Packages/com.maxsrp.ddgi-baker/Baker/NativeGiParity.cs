@@ -23,6 +23,8 @@ namespace MaxSRP.DDGIBaker.Editor
             public string scene;
             public string device;
             public string ray_backend;
+            public string material_mode;
+            public int material_count;
             public string baked_atlas_directory;
             public bool baked_atlases_written;
             public bool hardware_raytracing;
@@ -36,8 +38,17 @@ namespace MaxSRP.DDGIBaker.Editor
             public float[] albedo, sun_normal_illuminance, volume_origin, camera_position, camera_forward;
             public bool legacy_probes, classification, relocation, rotating_directions, layout_validation;
             public double bake_seconds;
+            public string coarse_feedback_report;
+            public float coarse_feedback_fade_meters;
             public Key[] keys;
         }
+
+        internal static bool IsGrayReport(BakeReport report) =>
+            (string.IsNullOrEmpty(report.material_mode) || report.material_mode == nameof(DdgiBakeMaterialMode.GrayNativeParity)) &&
+            IsUniformRgb(report.albedo, .7f);
+
+        internal static bool IsUniformRgb(float[] rgb, float expected) => rgb != null && rgb.Length == 3 &&
+            Array.TrueForAll(rgb, value => Mathf.Abs(value - expected) <= 1e-6f);
 
         internal sealed class Atlas
         {
@@ -119,6 +130,7 @@ namespace MaxSRP.DDGIBaker.Editor
         {
             private readonly string reportPath, atlasDirectory;
             public BakeReport Report { get; }
+            internal string AtlasDirectory => atlasDirectory;
 
             internal Reference(string reportPath, string atlasDirectory, BakeReport report)
             {

@@ -8,6 +8,7 @@ struct ProbeTracePayload
     float3 normal;
     float3 geometricNormal;
     float signedDistance;
+    float3 diffuseReflectance;
 };
 
 #endif

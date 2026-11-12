@@ -24,6 +24,19 @@ namespace MaxSRP
             LinearColor = LightPhotometry.LinearFilter(source) * (source.intensity / LuxPerUnit);
         }
 
+        private SunLightData(Light source, Vector4 direction, Color linearColor)
+        {
+            Source = source;
+            Direction = direction;
+            LinearColor = linearColor;
+        }
+
+        internal SunLightData WithDirection(Vector3 direction) =>
+            new SunLightData(Source, direction, LinearColor);
+
+        internal SunLightData WithLighting(Vector3 direction, Color linearColor) =>
+            new SunLightData(Source, direction, linearColor);
+
         public static SunLightData Capture()
         {
             Light sun = RenderSettings.sun;

@@ -1,2 +1,6 @@
 /ProbeTrace.raytrace
 /ProbeTrace.raytrace.meta
+/CompactProbeTrace.raytrace
+/CompactProbeTrace.raytrace.meta
+/CompactProbeUpdate.compute
+/CompactProbeUpdate.compute.meta

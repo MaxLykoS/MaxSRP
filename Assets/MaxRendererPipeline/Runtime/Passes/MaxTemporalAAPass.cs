@@ -38,6 +38,7 @@ namespace MaxSRP
             public int DestinationId;
             public Vector4 SunDirection;
             public Color SunColor;
+            public int LightingHistoryKey;
             public double LastRenderTime;
             public bool Valid;
             public DepthTextureMode AddedDepthModes;
@@ -63,7 +64,8 @@ namespace MaxSRP
             m_material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
         }
 
-        public CameraHistory Begin(Camera camera, TemporalAASettings settings, bool exclusiveOutput, SunLightData sun = default)
+        public CameraHistory Begin(Camera camera, TemporalAASettings settings, bool exclusiveOutput,
+            SunLightData sun = default, int lightingHistoryKey = 0)
         {
             // A multi-projection camera stack cannot share a single camera's motion/depth.
             bool eligible = settings.Enabled && exclusiveOutput && !camera.stereoEnabled &&
@@ -108,8 +110,10 @@ namespace MaxSRP
                 state.Viewport != viewport || MatrixChanged(projection, state.PreviousProjection, 0.00001f) ||
                 state.DestinationId != destinationId ||
                 Vector3.Distance(camera.transform.position, state.Position) > Mathf.Max(2.0f, camera.nearClipPlane * 20) ||
-                Quaternion.Angle(camera.transform.rotation, state.Rotation) > 45)
+                Quaternion.Angle(camera.transform.rotation, state.Rotation) > 45 ||
+                state.LightingHistoryKey != lightingHistoryKey)
                 state.Valid = false;
+            state.LightingHistoryKey = lightingHistoryKey;
             if (!state.Valid) state.Sample = 0;
             state.Jitter = new Vector2((Halton((state.Sample & 7) + 1, 2) - 0.5f) / size.x,
                 (Halton((state.Sample & 7) + 1, 3) - 0.5f) / size.y);

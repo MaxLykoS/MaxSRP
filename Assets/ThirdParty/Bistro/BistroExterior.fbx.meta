@@ -61,12 +61,12 @@ ModelImporter:
     meshOptimizationFlags: -1
     indexFormat: 0
     secondaryUVAngleDistortion: 8
-    secondaryUVAreaDistortion: 15.000001
+    secondaryUVAreaDistortion: 15
     secondaryUVHardAngle: 88
     secondaryUVMarginMethod: 1
-    secondaryUVMinLightmapResolution: 40
-    secondaryUVMinObjectScale: 1
-    secondaryUVPackMargin: 4
+    secondaryUVMinLightmapResolution: 4
+    secondaryUVMinObjectScale: 0.89
+    secondaryUVPackMargin: 8
     useFileScale: 1
     strictVertexDataChecks: 0
   tangentSpace:
@@ -104,6 +104,8 @@ ModelImporter:
   importBlendShapeDeformPercent: 1
   remapMaterialsIfMaterialImportModeIsNone: 0
   additionalBone: 0
-  userData: 
+  userData: 'MaxSRP.BistroLightmapUV=v1:b185ee67edcb35404f83583c47691c4b7ceaab2f8792daf070fb87247e8ebbe2
+
+    MaxSRP.BistroLightmapUVLayout=v1:e4f1d932fab4a2fe928988492ed29ac1652f0da71bcb5739739059d288e111fb'
   assetBundleName: 
   assetBundleVariant: 

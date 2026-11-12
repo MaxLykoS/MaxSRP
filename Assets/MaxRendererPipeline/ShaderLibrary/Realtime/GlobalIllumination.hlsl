@@ -2,6 +2,7 @@
 #define GLOBAL_ILLUMINATION_INCLUDED
 
 #include "IBLValidation.hlsl"
+#include "MaxDiffuseResponse.hlsl"
 
 float4 c0;
 float4 c1;
@@ -19,13 +20,6 @@ UNITY_DECLARE_TEX2D(_BRDFLUT);
 
 int _MaxMipCount;
 #define MIN_REFLECTIVITY 0.04
-
-float3 fresnelSchlickRoughness(float NdotV, float3 F0, float roughness)
-{
-	float f = 1.0 - saturate(NdotV);
-    float f2 = f * f;
-    return F0 + (max(float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness), F0) - F0) * (f2 * f2 * f);
-}
 
 float3 GetSpecularIBL(float3 reflectDir, float roughness, float NdotV, float3 kS)
 {

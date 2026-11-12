@@ -23,7 +23,9 @@ namespace MaxSRP
             //设置物体渲染排序标准
             sortingSetting.criteria = SortingCriteria.CommonOpaque;
             var drawingSetting = new DrawingSettings(m_shaderTag, sortingSetting);
-            drawingSetting.perObjectData |= PerObjectData.None;
+            // Unity supplies the atlas textures and per-renderer UV transform and
+            // selects LIGHTMAP_ON / DIRLIGHTMAP_COMBINED for lightmapped draws.
+            drawingSetting.perObjectData |= PerObjectData.Lightmaps;
             return drawingSetting;
         }
     }

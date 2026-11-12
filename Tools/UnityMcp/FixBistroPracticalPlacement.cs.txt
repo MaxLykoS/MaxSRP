@@ -1,0 +1,159 @@
+// Explicit one-shot correction of demonstration point-light proxies enclosed by opaque fixtures.
+// Re-running cannot accumulate offsets: a persisted placement record blocks a second search.
+const string scenePath = "Assets/Scenes/BistroTest/BistroTest.unity";
+const string recordPath = "Assets/Scenes/BistroTest/Lighting/PracticalLightPlacement.json";
+var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+if (scene.path != scenePath || UnityEditor.Lightmapping.isRunning) throw new System.Exception("Open idle BistroTest before correcting light proxies.");
+if (System.IO.File.Exists(recordPath)) throw new System.Exception("Placement correction already recorded. Scene has persistent corrected positions; do not accumulate another offset. See " + recordPath);
+var lights = scene.GetRootGameObjects().SelectMany(r => r.GetComponentsInChildren<UnityEngine.Light>(true))
+    .Where(l => l.isActiveAndEnabled && l.type == UnityEngine.LightType.Point && l.lightmapBakeType == UnityEngine.LightmapBakeType.Mixed &&
+        (l.name.Contains("Streetlight_Support_Bulb") || l.name.Contains("Shopsign_Book_Store_Emissive") || l.name.Contains("Shopsign_Pharmacy_Emissive")))
+    .OrderBy(l => l.name).ToArray();
+if (lights.Length != 30) throw new System.Exception("Expected exactly 28 enclosed streetlights and two signs; got " + lights.Length);
+var renderers = scene.GetRootGameObjects().SelectMany(r => r.GetComponentsInChildren<UnityEngine.MeshRenderer>(true))
+    .Where(r => r.enabled && r.gameObject.activeInHierarchy && r.GetComponent<UnityEngine.MeshFilter>() && r.GetComponent<UnityEngine.MeshFilter>().sharedMesh).ToArray();
+var cache = new System.Collections.Generic.Dictionary<UnityEngine.Mesh, System.Tuple<UnityEngine.Vector3[], int[][]>>();
+var proposals = new System.Collections.Generic.List<System.Tuple<UnityEngine.Light, UnityEngine.Vector3, UnityEngine.Vector3, int, int, float, int>>();
+const int samples = 96;
+var directions = new UnityEngine.Vector3[samples];
+for (int ray = 0; ray < samples; ++ray)
+{
+    float y = 1 - 2 * ((ray + 0.5f) / samples);
+    float radius = UnityEngine.Mathf.Sqrt(UnityEngine.Mathf.Max(0, 1 - y * y));
+    float phi = ray * 2.39996323f;
+    directions[ray] = new UnityEngine.Vector3(UnityEngine.Mathf.Cos(phi) * radius, y, UnityEngine.Mathf.Sin(phi) * radius);
+}
+foreach (var light in lights)
+{
+    var position = light.transform.position;
+    var triangles = new System.Collections.Generic.List<System.Tuple<UnityEngine.Vector3, UnityEngine.Vector3, UnityEngine.Vector3>>();
+    int skippedCutout = 0;
+    foreach (var renderer in renderers)
+    {
+        if (renderer.bounds.SqrDistance(position) > 4) continue;
+        var mesh = renderer.GetComponent<UnityEngine.MeshFilter>().sharedMesh;
+        if (!cache.TryGetValue(mesh, out var cpu))
+        {
+            using (var dataArray = UnityEditor.MeshUtility.AcquireReadOnlyMeshData(mesh))
+            using (var vertices = new Unity.Collections.NativeArray<UnityEngine.Vector3>(mesh.vertexCount, Unity.Collections.Allocator.Temp))
+            {
+                var data = dataArray[0]; data.GetVertices(vertices);
+                var indices = new int[data.subMeshCount][];
+                for (int submesh = 0; submesh < data.subMeshCount; ++submesh)
+                {
+                    var descriptor = data.GetSubMesh(submesh);
+                    if (descriptor.topology != UnityEngine.MeshTopology.Triangles) { indices[submesh] = System.Array.Empty<int>(); continue; }
+                    using (var index = new Unity.Collections.NativeArray<int>(descriptor.indexCount, Unity.Collections.Allocator.Temp))
+                    { data.GetIndices(index, submesh, true); indices[submesh] = index.ToArray(); }
+                }
+                cpu = System.Tuple.Create(vertices.ToArray(), indices); cache.Add(mesh, cpu);
+            }
+        }
+        var matrix = renderer.localToWorldMatrix;
+        var materials = renderer.sharedMaterials;
+        for (int submesh = 0; submesh < cpu.Item2.Length; ++submesh)
+        {
+            if (submesh >= materials.Length || !materials[submesh]) continue;
+            var material = materials[submesh];
+            float cutoff = material.HasProperty("_Cutoff") ? material.GetFloat("_Cutoff") : 0;
+            if (cutoff > 1) continue;
+            int[] indices = cpu.Item2[submesh];
+            if (cutoff > 0) { skippedCutout += indices.Length / 3; continue; }
+            for (int index = 0; index + 2 < indices.Length; index += 3)
+            {
+                var a = matrix.MultiplyPoint3x4(cpu.Item1[indices[index]]);
+                var b = matrix.MultiplyPoint3x4(cpu.Item1[indices[index + 1]]);
+                var c = matrix.MultiplyPoint3x4(cpu.Item1[indices[index + 2]]);
+                var bounds = new UnityEngine.Bounds(a, UnityEngine.Vector3.zero); bounds.Encapsulate(b); bounds.Encapsulate(c);
+                if (bounds.SqrDistance(position) <= 4) triangles.Add(System.Tuple.Create(a, b - a, c - a));
+            }
+        }
+    }
+    // Return open sphere directions, open lower-hemisphere directions, and distance to the closest surface.
+    System.Func<UnityEngine.Vector3, System.Tuple<int, int, float>> measure = point =>
+    {
+        int open = 0, lowerOpen = 0;
+        float nearest = float.PositiveInfinity;
+        foreach (var direction in directions)
+        {
+            float first = 1.0001f;
+            foreach (var triangle in triangles)
+            {
+                var p = UnityEngine.Vector3.Cross(direction, triangle.Item3);
+                float determinant = UnityEngine.Vector3.Dot(triangle.Item2, p);
+                if (UnityEngine.Mathf.Abs(determinant) < 1e-9f) continue;
+                float inverse = 1 / determinant;
+                var delta = point - triangle.Item1;
+                float u = UnityEngine.Vector3.Dot(delta, p) * inverse;
+                if (u < -1e-6f || u > 1.000001f) continue;
+                var q = UnityEngine.Vector3.Cross(delta, triangle.Item2);
+                float v = UnityEngine.Vector3.Dot(direction, q) * inverse;
+                if (v < -1e-6f || u + v > 1.000001f) continue;
+                float distance = UnityEngine.Vector3.Dot(triangle.Item3, q) * inverse;
+                if (distance >= 0.0001f && distance < first) first = distance;
+            }
+            if (first <= 1) nearest = UnityEngine.Mathf.Min(nearest, first);
+            else { ++open; if (direction.y < 0) ++lowerOpen; }
+        }
+        return System.Tuple.Create(open, lowerOpen, nearest);
+    };
+    var before = measure(position);
+    if (before.Item1 != 0) throw new System.Exception("Original closed-proxy assumption changed for " + light.name + ". Nothing was applied.");
+    bool street = light.name.Contains("Streetlight_Support_Bulb");
+    UnityEngine.Vector3 selected = position;
+    System.Tuple<int, int, float> selectedMeasure = null;
+    var candidateLog = new System.Collections.Generic.List<string>();
+    int maximumStep = street ? 8 : 16;
+    for (int step = 1; step <= maximumStep; ++step)
+    {
+        float distance = step * 0.05f;
+        int azimuths = street ? 17 : 16;
+        for (int angle = 0; angle < azimuths; ++angle)
+        {
+            float radians = (street ? angle - 1 : angle) * UnityEngine.Mathf.PI * 2 / 16;
+            var offset = street && angle == 0 ? UnityEngine.Vector3.down * distance : new UnityEngine.Vector3(UnityEngine.Mathf.Cos(radians), 0, UnityEngine.Mathf.Sin(radians)) * distance;
+            var candidate = position + offset;
+            var measured = measure(candidate);
+            candidateLog.Add("step=" + step + ",angle=" + angle + ",open=" + measured.Item1 + ",lower=" + measured.Item2 + ",nearest=" + measured.Item3);
+            if (measured.Item1 < 32 || (street && measured.Item2 < 32) || measured.Item3 < 0.005f) continue;
+            if (selectedMeasure == null || measured.Item1 > selectedMeasure.Item1)
+            { selected = candidate; selectedMeasure = measured; }
+        }
+        if (selectedMeasure != null) break; // Minimum 5 cm displacement increment, then best open direction.
+    }
+    if (selectedMeasure == null) throw new System.Exception("No safe minimum-displacement candidate for " + light.name + ". No lights have been moved. " + string.Join("; ", candidateLog));
+    proposals.Add(System.Tuple.Create(light, position, selected, selectedMeasure.Item1, selectedMeasure.Item2, selectedMeasure.Item3, skippedCutout));
+}
+string timestamp = System.DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+string backup = "OfflineBaseline/BistroLightmap/PlacementBackup/" + timestamp;
+System.IO.Directory.CreateDirectory(backup);
+System.IO.File.Copy(scenePath, backup + "/BistroTest.unity", false);
+var culture = System.Globalization.CultureInfo.InvariantCulture;
+System.Func<UnityEngine.Vector3, string> vector = p => "[" + p.x.ToString("R", culture) + "," + p.y.ToString("R", culture) + "," + p.z.ToString("R", culture) + "]";
+var rows = new System.Collections.Generic.List<string>();
+foreach (var proposal in proposals)
+{
+    var light = proposal.Item1;
+    rows.Add("{\"name\":\"" + light.name.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\",\"original\":" + vector(proposal.Item2) +
+        ",\"target\":" + vector(proposal.Item3) + ",\"displacementMeters\":" + (proposal.Item3 - proposal.Item2).magnitude.ToString("R", culture) +
+        ",\"openDirections\":" + proposal.Item4 + ",\"lowerHemisphereOpenDirections\":" + proposal.Item5 +
+        ",\"minimumHitDistance\":" + (float.IsInfinity(proposal.Item6) ? "null" : proposal.Item6.ToString("R", culture)) +
+        ",\"ignoredCutoutTriangles\":" + proposal.Item7 + ",\"intensityUnchanged\":" + light.intensity.ToString("R", culture) +
+        ",\"rangeUnchanged\":" + light.range.ToString("R", culture) + "}");
+}
+string report = "{\"version\":1,\"utc\":\"" + System.DateTime.UtcNow.ToString("o") + "\",\"algorithm\":\"Explicit demo proxy correction; 5cm steps; 96 sphere rays, 1m visibility, >=1/3 open, street >=2/3 lower hemisphere open; original intensities/ranges/colors preserved.\",\"lights\":[" + string.Join(",", rows) + "]}";
+System.IO.File.WriteAllText(backup + "/proposed_positions.json", report);
+foreach (var proposal in proposals)
+{
+    proposal.Item1.transform.position = proposal.Item3;
+    UnityEditor.PrefabUtility.RecordPrefabInstancePropertyModifications(proposal.Item1.transform);
+    UnityEditor.EditorUtility.SetDirty(proposal.Item1.transform);
+}
+UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
+if (!UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene)) throw new System.Exception("Failed to save corrected light positions; original scene backup exists at " + backup);
+System.IO.File.WriteAllText(recordPath, report);
+UnityEditor.AssetDatabase.ImportAsset(recordPath, UnityEditor.ImportAssetOptions.ForceSynchronousImport);
+if (UnityEngine.Rendering.RenderPipelineManager.currentPipeline is MaxSRP.MaxRenderPipeline pipeline)
+    foreach (var camera in UnityEngine.Resources.FindObjectsOfTypeAll<UnityEngine.Camera>())
+        if (camera.cameraType == UnityEngine.CameraType.SceneView || camera.gameObject.scene == scene) pipeline.ResetTemporalHistory(camera);
+return new { applied = proposals.Count, backup, record = recordPath, changedOnly = "Light Transform.position; intensity/range/color/shadow settings and all geometry preserved" };

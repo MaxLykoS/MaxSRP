@@ -6,6 +6,7 @@
 #include "../../ShaderLibrary/Realtime/SpaceTransform.hlsl"
 #include "../../ShaderLibrary/Realtime/Packing.hlsl"
 #include "../../ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl"
+#include "BakedSolarProbeGI.hlsl"
 
 struct a2v
 {
@@ -62,20 +63,22 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
 	float3 normal = normalize(GBuffer1.rgb * 2 - 1);
 
 	// gb2
-	float2 motionVec = GBuffer2.rg;
+	// R/G are baked sky visibility / lightmap validity. Object motion has its
+	// own texture. Older and unlightmapped materials retain unoccluded sky.
+	float skyVisibility = GBuffer2.g > 0.5 ? saturate(GBuffer2.r) : 1.0;
 	float roughness = GBuffer2.b;
 	roughness = max(roughness, 0.05);
 	float metalness = GBuffer2.a;
 
 	// gb3
-	float3 emission = GBuffer3.rgb;
+	float3 emissionAndBakedDiffuse = GBuffer3.rgb;
 	float occlusion = GBuffer3.a;
 
 	// depth buffer
 	float depth = GDepth;
 	depthOut = depth;
 
-	// reprojection 计算世界坐标
+	// reprojection 璁＄畻涓栫晫鍧愭爣
 	float4 pNDC = float4(o.uv * 2 - 1, DeviceDepthToClipDepth(depth), 1);
 #if UNITY_UV_STARTS_AT_TOP
     pNDC.y = -pNDC.y;
@@ -93,10 +96,36 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
         return _CameraBackgroundColor;
     }
 
+    // Bake diagnostics expose the linear component before atmosphere, exposure
+    // and output tone mapping. Their GBuffer draw uses the same global mode.
+    if (MaxIsGBufferLightingDiagnosticMode())
+        return float4(emissionAndBakedDiffuse, 1.0);
+    if (_MaxLightingDiagnosticMode == 8.0)
+        return float4(skyVisibility.xxx, 1.0);
+
+    float3 solarIndirect = 0.0f;
+    [branch]
+    if (_MaxLightingDiagnosticMode == 0.0f && any(_MaxSolarProbeSettings.xy > 0.5f))
+    {
+        float receiverUp = _MaxSolarFineReceiverCenter.w < 1.0f
+            ? ShadowReceiverBiasNormal(pW.xyz, receiverDx, receiverDy).y : 0.0f;
+        float3 solarIrradiance = MaxSampleBakedSolarProbeGI(pW.xyz, normal, receiverUp);
+        float3 F0 = lerp(float3(0.04f, 0.04f, 0.04f), albedo.rgb, saturate(metalness));
+        float NdotV = saturate(dot(normal, GetSurfaceViewDirection(pW.xyz)));
+        float3 diffuseReflectance = albedo.rgb * MaxIndirectDiffuseWeight(NdotV, F0, roughness, saturate(metalness));
+        // NativeGI normalizes the sun to unit normal illuminance. Apply the
+        // live sun's linear color and the pipeline's existing HDR scale here.
+        solarIndirect = solarIrradiance * _DirectionalLightColor.rgb * diffuseReflectance
+            * (_MaxSolarProbeSettings.z / PI);
+    }
+    if (_MaxLightingDiagnosticMode == 0.0f && _MaxSolarProbeSettings.w > 0.5f)
+        return float4(solarIndirect, 1.0f);
+
     if (_MaxLightingDiagnosticMode < 2.0 || _MaxLightingDiagnosticMode > 5.0)
         visibility = MainLightShadow(pW.xyz, normal, receiverDx, receiverDy);
-    float3 c = PBR_Shading(pW.xyz, normal, albedo.rgb, metalness, roughness, o.uv, visibility);
-    c += emission;
+    float3 c = PBR_Shading(pW.xyz, normal, albedo.rgb, metalness, roughness, o.uv, visibility, skyVisibility);
+    c += emissionAndBakedDiffuse;
+    c += solarIndirect;
 
 	// Perspective LUT depth is ray length; orthographic rays start on the camera plane.
     float atmosphereDistance = unity_OrthoParams.w > 0.5

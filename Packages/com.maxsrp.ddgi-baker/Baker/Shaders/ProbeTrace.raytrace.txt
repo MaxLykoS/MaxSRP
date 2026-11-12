@@ -13,6 +13,17 @@ SamplerState sampler_LinearClamp;
 RWTexture2DArray<float4> RayData;
 
 float4 _SunDirection;
+int _SceneMaterials;
+#if defined(MAX_DDGI_COMPACT_TRACE)
+int _ProbeDispatchSliceOffset;
+#endif
+float4 _CoarseFeedbackOriginAndFade;
+float4 _CoarseFeedbackSpacingAndGamma;
+float4 _CoarseFeedbackCountsAndBias;
+int _CoarseFeedbackFlags;
+Texture2DArray<float4> _CoarseFeedbackIrradiance;
+Texture2DArray<float4> _CoarseFeedbackDistance;
+Texture2DArray<float4> _CoarseFeedbackProbeData;
 
 static const float ProbeTraceRayBias = 0.001f;
 static const float ProbeTraceDiffuseOverPi = 0.7f / 3.14159265358979323846f;
@@ -31,7 +42,8 @@ bool SunVisible(float3 position, float3 geometricNormal, float3 direction)
 {
     RayDesc ray = ProbeRay(position + geometricNormal * ProbeTraceRayBias, direction);
     ProbeTracePayload payload = (ProbeTracePayload)0;
-    TraceRay(_Scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH |
+    uint materialFlags = _SceneMaterials != 0 ? RAY_FLAG_NONE : RAY_FLAG_FORCE_OPAQUE;
+    TraceRay(_Scene, materialFlags | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH |
         RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, 0, 1, 0, ray, payload);
     return payload.signedDistance == ProbeTraceMissDistance;
 }
@@ -50,11 +62,89 @@ float3 ProbeFeedback(float3 position, float3 normal, float3 direction, DDGIVolum
     return weight * DDGIGetVolumeIrradiance(position, bias, normal, volume, resources);
 }
 
+bool HasFeedbackProbes(float3 biasedPosition, DDGIVolumeDescGPU volume, Texture2DArray<float4> probeData)
+{
+    if (!volume.probeClassificationEnabled) return true;
+
+    // Match the SDK's query neighborhood, including the biased lookup and volume edges.
+    int3 baseCoords = DDGIGetBaseProbeGridCoords(biasedPosition, volume);
+    [loop]
+    for (int corner = 0; corner < 8; ++corner)
+    {
+        int3 offset = int3(corner, corner >> 1, corner >> 2) & 1;
+        int3 coords = clamp(baseCoords + offset, int3(0, 0, 0), volume.probeCounts - 1);
+        int index = DDGIGetScrollingProbeIndex(coords, volume);
+        if (DDGILoadProbeState(index, probeData, volume) != RTXGI_DDGI_PROBE_STATE_INACTIVE)
+            return true;
+    }
+    return false;
+}
+
+float3 ProbeFeedbackWithCoarse(float3 position, float3 normal, float3 direction, DDGIVolumeDescGPU fine)
+{
+    float fineCoverage = DDGIGetVolumeBlendWeight(position, fine);
+    float finePriority = 0.0f;
+    if (fineCoverage > 0.0f)
+    {
+        float3 center = fine.origin + fine.probeScrollOffsets * fine.probeSpacing;
+        float3 local = RTXGIQuaternionRotate(position - center, RTXGIQuaternionConjugate(fine.rotation));
+        float2 edgeMeters = (fine.probeSpacing.xz * (fine.probeCounts.xz - 1)) * 0.5f - abs(local.xz);
+        finePriority = smoothstep(0.0f, _CoarseFeedbackOriginAndFade.w, min(edgeMeters.x, edgeMeters.y));
+        // Keep the core on the fine field, including its original probe classification.
+        if (fineCoverage == 1.0f && finePriority == 1.0f)
+            return ProbeFeedback(position, normal, direction, fine);
+
+        float3 fineBias = DDGIGetSurfaceBias(normal, direction, fine);
+        if (!HasFeedbackProbes(position + fineBias, fine, ProbeData))
+            fineCoverage = 0.0f;
+    }
+
+    DDGIVolumeDescGPU coarse = (DDGIVolumeDescGPU)0;
+    coarse.origin = _CoarseFeedbackOriginAndFade.xyz;
+    coarse.rotation = float4(0.0f, 0.0f, 0.0f, 1.0f);
+    coarse.probeSpacing = _CoarseFeedbackSpacingAndGamma.xyz;
+    coarse.probeCounts = int3(_CoarseFeedbackCountsAndBias.xyz);
+    coarse.probeNormalBias = _CoarseFeedbackCountsAndBias.w;
+    coarse.probeIrradianceEncodingGamma = _CoarseFeedbackSpacingAndGamma.w;
+    coarse.probeNumIrradianceInteriorTexels = 6;
+    coarse.probeNumDistanceInteriorTexels = 14;
+    coarse.probeIrradianceFormat = RTXGI_DDGI_VOLUME_TEXTURE_FORMAT_F32x4;
+    coarse.probeRelocationEnabled = (_CoarseFeedbackFlags & 1) != 0;
+    coarse.probeClassificationEnabled = (_CoarseFeedbackFlags & 2) != 0;
+
+    float coarseCoverage = DDGIGetVolumeBlendWeight(position, coarse);
+    float3 coarseBias = DDGIGetSurfaceBias(normal, direction, coarse);
+    if (coarseCoverage > 0.0f && !HasFeedbackProbes(position + coarseBias, coarse, _CoarseFeedbackProbeData))
+        coarseCoverage = 0.0f;
+
+    // Share the overlap and keep each volume's fade into uncovered space.
+    // The two effective weights sum to fineCoverage + coarseCoverage * (1 - fineCoverage).
+    float3 irradiance = 0.0f;
+    float fineScale = 1.0f - coarseCoverage * (1.0f - finePriority);
+    if (fineCoverage > 0.0f && fineScale > 0.0f)
+        irradiance = fineScale * ProbeFeedback(position, normal, direction, fine);
+
+    float coarseWeight = coarseCoverage * (1.0f - fineCoverage * finePriority);
+    if (coarseWeight > 0.0f)
+    {
+        DDGIVolumeResources resources;
+        resources.probeIrradiance = _CoarseFeedbackIrradiance;
+        resources.probeDistance = _CoarseFeedbackDistance;
+        resources.probeData = _CoarseFeedbackProbeData;
+        resources.bilinearSampler = sampler_LinearClamp;
+        irradiance += coarseWeight * DDGIGetVolumeIrradiance(position, coarseBias, normal, coarse, resources);
+    }
+    return irradiance;
+}
+
 [shader("raygeneration")]
 void TraceProbes()
 {
     DDGIVolumeDescGPU volume = UnpackDDGIVolumeDescGPU(DDGIVolumes[0]);
     uint3 texel = DispatchRaysIndex();
+#if defined(MAX_DDGI_COMPACT_TRACE)
+    texel.z += uint(_ProbeDispatchSliceOffset);
+#endif
     int rayIndex = int(texel.x);
     int probeIndex = int(texel.z) * DDGIGetProbesPerPlane(volume.probeCounts) + int(texel.y);
     bool geometryOnly = DispatchRaysDimensions().x == RTXGI_DDGI_NUM_FIXED_RAYS;
@@ -72,20 +162,28 @@ void TraceProbes()
     float3 origin = DDGIGetProbeWorldPosition(DDGIGetProbeCoords(probeIndex, volume), volume, ProbeData);
     RayDesc ray = ProbeRay(origin, direction);
     ProbeTracePayload payload = (ProbeTracePayload)0;
-    TraceRay(_Scene, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 1, 0, ray, payload);
+    uint materialFlags = _SceneMaterials != 0 ? RAY_FLAG_NONE : RAY_FLAG_FORCE_OPAQUE;
+    TraceRay(_Scene, materialFlags, 0xFF, 0, 1, 0, ray, payload);
 
     float3 radiance = 0.0f;
     if (!geometryOnly && payload.signedDistance > 0.0f && payload.signedDistance < ProbeTraceMissDistance)
     {
         float3 position = origin + direction * payload.signedDistance;
-        radiance = ProbeFeedback(position, payload.normal, direction, volume);
+        [branch]
+        if (_CoarseFeedbackOriginAndFade.w > 0.0f)
+            radiance = ProbeFeedbackWithCoarse(position, payload.normal, direction, volume);
+        else
+            radiance = ProbeFeedback(position, payload.normal, direction, volume);
         float cosine = dot(payload.normal, _SunDirection.xyz);
-        if (cosine > 0.0f && dot(payload.geometricNormal, _SunDirection.xyz) > 0.0f &&
+        if (_SunDirection.y > 0.000001f && cosine > 0.0f && dot(payload.geometricNormal, _SunDirection.xyz) > 0.0f &&
             SunVisible(position, payload.geometricNormal, _SunDirection.xyz))
             radiance += cosine;
 
-        // Both source irradiance terms use the same normalized gray Lambert reflectance.
-        radiance *= ProbeTraceDiffuseOverPi;
+        // Convert incident irradiance to diffuse outgoing radiance exactly once.
+        if (_SceneMaterials != 0)
+            radiance *= payload.diffuseReflectance / 3.14159265358979323846f;
+        else
+            radiance *= ProbeTraceDiffuseOverPi;
     }
 
     RayData[texel] = float4(radiance, payload.signedDistance);

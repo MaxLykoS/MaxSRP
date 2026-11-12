@@ -13,9 +13,12 @@ namespace MaxSRP.DDGIBaker.Editor
         internal static NativeGiParity.Comparison Run(BakeGeometry geometry, DdgiBakeSettings settings, string destination,
             NativeGiParity.Reference reference = null, int referenceKey = 0)
         {
+            geometry.RequireMaterialMode(settings.materialMode);
             string path = Path.GetFullPath(destination);
             if (Directory.Exists(path) || File.Exists(path))
                 throw new IOException("Choose a new output directory: " + path);
+            if (reference != null && (settings.compactVolume || settings.materialMode != DdgiBakeMaterialMode.GrayNativeParity))
+                throw new InvalidOperationException("NativeGI parity requires the dense Gray Native Parity bake.");
             if (reference != null && (reference.Report.vertices != geometry.VertexCount || reference.Report.triangles != geometry.TriangleCount))
                 throw new InvalidDataException("The input geometry counts differ from the NativeGI reference.");
 
@@ -25,6 +28,24 @@ namespace MaxSRP.DDGIBaker.Editor
             NativeGiParity.Comparison comparison = null;
             try
             {
+                if (settings.compactVolume)
+                {
+                    using (var gpu = new DdgiGpuBake(geometry, settings))
+                    {
+                        var exporter = new CompactProbeExport(staging, settings, geometry, gpu.BuildLayoutTexture());
+                        for (int key = 0; key < settings.hours.Length; key++)
+                        {
+                            gpu.BakeLighting(key);
+                            exporter.WriteIrradiance(key, gpu.IrradianceTexture);
+                            if (key == 0) exporter.WriteDistance(gpu.DistanceTexture);
+                        }
+                    }
+                    Directory.Move(staging, path);
+                    Debug.Log($"[DDGI Baker] Baked {settings.hours.Length} compact TOD key(s), " +
+                        $"{settings.ProbeCount:N0} probe positions in {timer.Elapsed.TotalSeconds:F2}s. {path}");
+                    return null;
+                }
+
                 Directory.CreateDirectory(atlases);
                 NativeGiParity.Atlas layout;
                 using (var gpu = new DdgiGpuBake(geometry, settings))
@@ -69,10 +90,12 @@ namespace MaxSRP.DDGIBaker.Editor
             var report = reference.Report;
             if ((uint)keyIndex >= report.keys.Length)
                 throw new ArgumentOutOfRangeException(nameof(keyIndex));
-            if (report.legacy_probes || report.layout_validation || report.view_bias != 0f || !report.hardware_raytracing)
+            if (report.legacy_probes || report.layout_validation || report.view_bias != 0f || !report.hardware_raytracing ||
+                !NativeGiParity.IsGrayReport(report))
                 throw new InvalidDataException("Choose a modern, unfiltered NativeGI hardware bake with zero view bias.");
             var settings = new DdgiBakeSettings
             {
+                materialMode = DdgiBakeMaterialMode.GrayNativeParity,
                 origin = DdgiBakeSettings.ReadVector(report.volume_origin),
                 counts = new Vector3Int(report.grid[0], report.grid[1], report.grid[2]),
                 spacing = report.spacing,
@@ -132,7 +155,9 @@ namespace MaxSRP.DDGIBaker.Editor
                 distance_exponent = settings.distanceExponent,
                 min_frontface_distance = settings.minFrontfaceDistance,
                 fixed_ray_backface_threshold = settings.fixedBackfaceThreshold,
-                albedo = new[] { .7f, .7f, .7f },
+                material_mode = settings.materialMode.ToString(),
+                material_count = geometry.MaterialCount,
+                albedo = settings.materialMode == DdgiBakeMaterialMode.GrayNativeParity ? new[] { .7f, .7f, .7f } : null,
                 sun_normal_illuminance = new[] { 1f, 1f, 1f },
                 volume_origin = new[] { settings.origin.x, settings.origin.y, settings.origin.z },
                 camera_position = reference?.camera_position,
@@ -140,6 +165,10 @@ namespace MaxSRP.DDGIBaker.Editor
                 classification = settings.classification,
                 relocation = settings.Relocation,
                 rotating_directions = settings.rotatingDirections,
+                coarse_feedback_report = string.IsNullOrWhiteSpace(settings.coarseFeedbackReport)
+                    ? null : Path.GetFullPath(settings.coarseFeedbackReport),
+                coarse_feedback_fade_meters = string.IsNullOrWhiteSpace(settings.coarseFeedbackReport)
+                    ? 0f : settings.coarseFeedbackFadeMeters,
                 bake_seconds = seconds,
                 keys = settings.hours.Select(hour => new NativeGiParity.Key { hour = hour }).ToArray()
             };

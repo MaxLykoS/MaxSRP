@@ -107,6 +107,7 @@ namespace MaxSRP.EditorTools
                 var practical = new GameObject("Practical Lights (Showcase)");
                 practical.transform.SetParent(environment.transform, false);
                 int practicalCount = CreatePracticalLights(renderers, practical.transform);
+                MaxBistroLightmapBaker.ApplySavedPracticalPlacements(scene);
                 var stress = new GameObject("Stress Tests (Enable One Child Only)");
                 stress.transform.SetParent(environment.transform, false);
                 foreach (int count in new[] { 128, 256, 512 })

@@ -14,6 +14,9 @@ function Expand-TaskShader([string]$path){
  $s=$pattern.Replace($s,[System.Text.RegularExpressions.MatchEvaluator]{param($m)
   $include=Join-Path $directory $m.Groups[1].Value
   if(-not(Test-Path -LiteralPath $include)){$include=Join-Path $taskCgRoot $m.Groups[1].Value}
+  # Optional upstream debug includes can sit inside inactive #if branches.
+  # Leave unresolved includes to the compiler so active missing includes still fail.
+  if(-not(Test-Path -LiteralPath $include)){return $m.Value}
   return (Expand-TaskShader $include)
  })
  $taskCache[$path]=$s
@@ -48,22 +51,14 @@ $taskDefines="#define SHADER_API_D3D11 1`n#define UNITY_COMPILER_HLSL 1`n#define
 $taskChecks=@(
  @('Assets/MaxRendererPipeline/Shaders/Realtime/ClusteredLighting.compute','PrepareLights','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/ClusteredLighting.compute','BuildClusters','cs_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','ConvergenceFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','PlaneFixtureFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','BiasNormalFixtureFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','AtlasDepthFixtureFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','AtlasFilterFixtureFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','AtlasInspectFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','CascadeDebugFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxPcssConvergenceProbe.hlsl','ShadowWorldFixtureFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxBistroSkyVisibility.compute','TraceSky','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxBistroSkyVisibility.compute','TraceSurface','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Editor/MaxBistroSkyVisibility.compute','FinishSky','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaVertex','vs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaResolve','ps_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaCopy','ps_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionVertex','vs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxSkyHaloDiagnostics.compute','SkyHaloComparison','cs_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxAtmosphereReferenceProbes.compute','AtmosphereReferenceProbes','cs_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxImportedTextureExport.compute','ExportImportedMip','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeDiffuse','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeSpec','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeBRDFLut','cs_5_0'),
@@ -73,11 +68,12 @@ $taskChecks=@(
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','BuildDynamicBRDF','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRLitPass.hlsl','PBRVertex','vs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRLitPass.hlsl','PBRFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxPcssPatternProbe.hlsl','PatternRawFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxPcssPatternProbe.hlsl','PatternFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxPcssReuseFixture.hlsl','ReuseFixtureFragment','ps_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferVertex','vs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferFragment','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRMetaPass.hlsl','PBRMetaVertex','vs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRMetaPass.hlsl','PBRMetaFragment','ps_5_0'),
+ @('Assets/Scenes/BistroTest/Shaders/BistroMetaPass.hlsl','BistroMetaVertex','vs_5_0'),
+ @('Assets/Scenes/BistroTest/Shaders/BistroMetaPass.hlsl','BistroMetaFragment','ps_5_0'),
  @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroGBufferVertex','vs_5_0'),
  @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroGBufferFragment','ps_5_0'),
  @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroShadowVertex','vs_5_0'),
@@ -116,6 +112,25 @@ foreach($variant in @('OrdinaryGLDepth','RGBNormal','ASTCNormal')) {
   else{$source="#define UNITY_ASTC_NORMALMAP_ENCODING 1`n"+$source}
   [MaxSrpNativeShaderCheck]::Compile($source,$check[0],$check[1],'ps_5_0')
   Write-Output ('PASS: '+$variant+' '+$check[1])
+ }
+}
+
+# Exercise native lightmap decoding, including directional data and mobile encodings.
+foreach($lightmapVariant in @(
+ @('LightmapHDR',"#define LIGHTMAP_ON 1`n"),
+ @('DirectionalLightmapHDR',"#define LIGHTMAP_ON 1`n#define DIRLIGHTMAP_COMBINED 1`n"),
+ @('DirectionalLightmapRGBM',"#define LIGHTMAP_ON 1`n#define DIRLIGHTMAP_COMBINED 1`n#define UNITY_LIGHTMAP_RGBM_ENCODING 1`n"),
+ @('DirectionalLightmapDLDR',"#define LIGHTMAP_ON 1`n#define DIRLIGHTMAP_COMBINED 1`n#define UNITY_LIGHTMAP_DLDR_ENCODING 1`n")
+)) {
+ foreach($check in @(
+  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferVertex','vs_5_0'),
+  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferFragment','ps_5_0'),
+  @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroGBufferVertex','vs_5_0'),
+  @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroGBufferFragment','ps_5_0')
+ )) {
+  $source=$taskDefines+$lightmapVariant[1]+(Expand-TaskShader (Join-Path $taskRoot $check[0]))
+  [MaxSrpNativeShaderCheck]::Compile($source,$check[0],$check[1],$check[2])
+  Write-Output ('PASS: '+$lightmapVariant[0]+' '+$check[1])
  }
 }
 

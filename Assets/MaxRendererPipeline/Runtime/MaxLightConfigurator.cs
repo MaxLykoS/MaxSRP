@@ -38,6 +38,10 @@ namespace MaxSRP
                         switch (light.lightType)
                         {
                             case LightType.Point:
+                                // Mixed/BakedIndirect keeps realtime direct lighting. A fully
+                                // baked light must not be evaluated a second time here.
+                                if (light.light != null && light.light.lightmapBakeType == LightmapBakeType.Baked)
+                                    break;
                                 if (pointLightCount == m_pointLights.Length)
                                     System.Array.Resize(ref m_pointLights, m_pointLights.Length * 2);
                                 Vector4 positionAndRange = light.light.transform.position;
