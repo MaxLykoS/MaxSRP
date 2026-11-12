@@ -1,0 +1,215 @@
+#pragma kernel PrefilterDepths
+#pragma kernel EvaluateGTAO
+#pragma kernel DenoiseGTAO
+#pragma target 5.0
+
+#include "UnityCG.cginc"
+
+// Intel XeGTAO, https://github.com/GameTechDev/XeGTAO/tree/a5b1686c7ea37788eeb3576b5be47f7c03db532c
+// MIT license in LICENSE.txt. The Unity wrapper supplies projection/normal
+// conventions, partial-block handling, and a normalized floating-point output.
+#define VA_SATURATE saturate
+#define XE_GTAO_FP32_DEPTHS
+#define XE_GTAO_USE_HALF_FLOAT_PRECISION 0
+#define XE_GTAO_MAXSRP_FLOAT_OUTPUT
+#include "XeGTAO.hlsl"
+
+Texture2D<float> _GDepth;
+Texture2D<float4> _GBuffer1;
+
+float4 _GTAOViewport;
+float4x4 _GTAOInvProjection;
+float4x4 _GTAOView;
+float _GTAORadius;
+int _GTAONoiseIndex;
+int _GTAOQuality;
+
+RWTexture2D<float> _GTAODepthMip0;
+RWTexture2D<float> _GTAODepthMip1;
+RWTexture2D<float> _GTAODepthMip2;
+RWTexture2D<float> _GTAODepthMip3;
+RWTexture2D<float> _GTAODepthMip4;
+
+Texture2D<lpfloat> _GTAOViewDepth;
+RWTexture2D<uint> _GTAORawAO;
+RWTexture2D<unorm float> _GTAOEdges;
+
+Texture2D<uint> _GTAORawAOInput;
+Texture2D<lpfloat> _GTAOEdgesInput;
+RWTexture2D<float> _GTAOOutput;
+
+SamplerState gtao_point_clamp_sampler;
+groupshared float MaxGTAOScratch[8][8];
+
+bool MaxGTAOIsBackground(float depth)
+{
+#if defined(UNITY_REVERSED_Z)
+    return depth <= 0.0;
+#else
+    return depth >= 1.0;
+#endif
+}
+
+float4 MaxGTAOViewPosition(float2 uv, float depth)
+{
+    float2 ndc = uv * 2.0 - 1.0;
+#if UNITY_UV_STARTS_AT_TOP
+    ndc.y = -ndc.y;
+#endif
+#if !defined(UNITY_REVERSED_Z)
+    depth = lerp(UNITY_NEAR_CLIP_VALUE, 1.0, depth);
+#endif
+    return mul(_GTAOInvProjection, float4(ndc, depth, 1.0));
+}
+
+float2 MaxGTAOViewRay(float2 uv)
+{
+    float4 position = MaxGTAOViewPosition(uv, 0.5);
+    return position.xy / -position.z;
+}
+
+GTAOConstants MaxGTAOConstants(out float2 axisSign)
+{
+    float2 ray00 = MaxGTAOViewRay(float2(0.0, 0.0));
+    float2 ray11 = MaxGTAOViewRay(float2(1.0, 1.0));
+    float2 rayExtent = ray11 - ray00;
+    // XeGTAO uses +X right, +Y up, and positive depth in view space.
+    // Apply the same reflection to position and normal if the GPU projection is flipped.
+    axisSign = sign(rayExtent) * float2(1.0, -1.0);
+    GTAOConstants constants = (GTAOConstants)0;
+    constants.ViewportSize = int2(_GTAOViewport.xy);
+    constants.ViewportPixelSize = _GTAOViewport.zw;
+    constants.CameraTanHalfFOV = abs(rayExtent) * 0.5;
+    constants.NDCToViewMul = rayExtent * axisSign;
+    constants.NDCToViewAdd = ray00 * axisSign;
+    constants.NDCToViewMul_x_PixelSize = constants.NDCToViewMul * constants.ViewportPixelSize;
+    constants.EffectRadius = _GTAORadius;
+    constants.EffectFalloffRange = XE_GTAO_DEFAULT_FALLOFF_RANGE;
+    constants.RadiusMultiplier = XE_GTAO_DEFAULT_RADIUS_MULTIPLIER;
+    constants.FinalValuePower = XE_GTAO_DEFAULT_FINAL_VALUE_POWER;
+    constants.DenoiseBlurBeta = 1.2;
+    constants.SampleDistributionPower = XE_GTAO_DEFAULT_SAMPLE_DISTRIBUTION_POWER;
+    constants.ThinOccluderCompensation = XE_GTAO_DEFAULT_THIN_OCCLUDER_COMPENSATION;
+    constants.DepthMIPSamplingOffset = XE_GTAO_DEFAULT_DEPTH_MIP_SAMPLING_OFFSET;
+    constants.NoiseIndex = _GTAONoiseIndex;
+    return constants;
+}
+
+float MaxGTAOLinearDepth(uint2 pixel)
+{
+    float depth = _GDepth.Load(int3(pixel, 0));
+    float4 position = MaxGTAOViewPosition((pixel + 0.5) * _GTAOViewport.zw, depth);
+    return clamp(-position.z / max(position.w, 1e-20), 0.001, 1e6);
+}
+
+float MaxGTAOReduceDepth(uint2 thread, uint stride, GTAOConstants constants)
+{
+    return XeGTAO_DepthMIPFilter(
+        MaxGTAOScratch[thread.x][thread.y],
+        MaxGTAOScratch[thread.x + stride][thread.y],
+        MaxGTAOScratch[thread.x][thread.y + stride],
+        MaxGTAOScratch[thread.x + stride][thread.y + stride],
+        constants);
+}
+
+// Each group builds the five levels of a 16x16 block. Threads beyond the image
+// replicate the last texel in shared memory and still participate in each barrier.
+[numthreads(8, 8, 1)]
+void PrefilterDepths(uint2 id : SV_DispatchThreadID, uint2 thread : SV_GroupThreadID)
+{
+    float2 axisSign;
+    GTAOConstants constants = MaxGTAOConstants(axisSign);
+    uint2 size = uint2(constants.ViewportSize);
+    uint2 p0 = id * 2;
+    uint2 p1 = p0 + uint2(1, 0);
+    uint2 p2 = p0 + uint2(0, 1);
+    uint2 p3 = p0 + uint2(1, 1);
+    float d0 = MaxGTAOLinearDepth(min(p0, size - 1));
+    float d1 = MaxGTAOLinearDepth(min(p1, size - 1));
+    float d2 = MaxGTAOLinearDepth(min(p2, size - 1));
+    float d3 = MaxGTAOLinearDepth(min(p3, size - 1));
+    if (all(p0 < size)) _GTAODepthMip0[p0] = d0;
+    if (all(p1 < size)) _GTAODepthMip0[p1] = d1;
+    if (all(p2 < size)) _GTAODepthMip0[p2] = d2;
+    if (all(p3 < size)) _GTAODepthMip0[p3] = d3;
+
+    float mip1 = XeGTAO_DepthMIPFilter(d0, d1, d2, d3, constants);
+    if (all(id < (size >> 1))) _GTAODepthMip1[id] = mip1;
+    MaxGTAOScratch[thread.x][thread.y] = mip1;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (all((thread & 1u) == 0))
+    {
+        float mip2 = MaxGTAOReduceDepth(thread, 1, constants);
+        uint2 dst = id >> 1;
+        if (all(dst < (size >> 2))) _GTAODepthMip2[dst] = mip2;
+        MaxGTAOScratch[thread.x][thread.y] = mip2;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (all((thread & 3u) == 0))
+    {
+        float mip3 = MaxGTAOReduceDepth(thread, 2, constants);
+        uint2 dst = id >> 2;
+        if (all(dst < (size >> 3))) _GTAODepthMip3[dst] = mip3;
+        MaxGTAOScratch[thread.x][thread.y] = mip3;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (all(thread == 0))
+    {
+        uint2 dst = id >> 3;
+        if (all(dst < (size >> 4))) _GTAODepthMip4[dst] = MaxGTAOReduceDepth(thread, 4, constants);
+    }
+}
+
+float2 MaxGTAONoise(uint2 pixel, uint noiseIndex)
+{
+    uint index = HilbertIndex(pixel.x, pixel.y) + 288u * (noiseIndex % 64u);
+    return frac(0.5 + index * float2(0.75487766624669276, 0.56984029099805327));
+}
+
+[numthreads(8, 8, 1)]
+void EvaluateGTAO(uint2 pixel : SV_DispatchThreadID)
+{
+    if (any(pixel >= uint2(_GTAOViewport.xy))) return;
+    if (MaxGTAOIsBackground(_GDepth.Load(int3(pixel, 0))))
+    {
+        _GTAORawAO[pixel] = 170; // Visibility 1 in the upstream packed working format.
+        _GTAOEdges[pixel] = 0;
+        return;
+    }
+
+    float2 axisSign;
+    GTAOConstants constants = MaxGTAOConstants(axisSign);
+    float3 worldNormal = normalize(_GBuffer1.Load(int3(pixel, 0)).rgb * 2.0 - 1.0);
+    float3 viewNormal = mul((float3x3)_GTAOView, worldNormal) * float3(axisSign, -1.0);
+    float2 noise = MaxGTAONoise(pixel, constants.NoiseIndex);
+    [branch]
+    if (_GTAOQuality == 0)
+        XeGTAO_MainPass(pixel, 1, 2, noise, viewNormal, constants, _GTAOViewDepth,
+            gtao_point_clamp_sampler, _GTAORawAO, _GTAOEdges);
+    else if (_GTAOQuality == 1)
+        XeGTAO_MainPass(pixel, 2, 2, noise, viewNormal, constants, _GTAOViewDepth,
+            gtao_point_clamp_sampler, _GTAORawAO, _GTAOEdges);
+    else
+        XeGTAO_MainPass(pixel, 3, 3, noise, viewNormal, constants, _GTAOViewDepth,
+            gtao_point_clamp_sampler, _GTAORawAO, _GTAOEdges);
+}
+
+[numthreads(8, 8, 1)]
+void DenoiseGTAO(uint2 id : SV_DispatchThreadID)
+{
+    uint2 pixel = id * uint2(2, 1);
+    uint2 size = uint2(_GTAOViewport.xy);
+    if (any(pixel >= size)) return;
+
+    float2 axisSign;
+    GTAOConstants constants = MaxGTAOConstants(axisSign);
+    XeGTAO_Denoise(pixel, constants, _GTAORawAOInput, _GTAOEdgesInput,
+        gtao_point_clamp_sampler, _GTAOOutput, true);
+    if (MaxGTAOIsBackground(_GDepth.Load(int3(pixel, 0)))) _GTAOOutput[pixel] = 1.0;
+    pixel.x++;
+    if (pixel.x < size.x && MaxGTAOIsBackground(_GDepth.Load(int3(pixel, 0)))) _GTAOOutput[pixel] = 1.0;
+}
+

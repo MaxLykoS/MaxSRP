@@ -26,6 +26,8 @@ UNITY_DECLARE_TEX2D(_GBuffer1);
 UNITY_DECLARE_TEX2D(_GBuffer2);
 UNITY_DECLARE_TEX2D(_GBuffer3);
 
+Texture2D<float> _MaxGTAOTexture;
+float4 _MaxGTAOParams; // strength, AO-only display, buffer width, buffer height
 float4 _MaxTaaJitter;
 float4 _CameraBackgroundColor;
 int _CameraClearFlags;
@@ -93,6 +95,8 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
     {
         if (_CameraClearFlags == 4) discard; // Nothing: preserve previous color/depth.
         if (_CameraClearFlags == 3) return float4(0, 0, 0, 0); // Depth only.
+        if (_MaxGTAOParams.y > 0.5f && _MaxLightingDiagnosticMode == 0.0f)
+            return 1.0f;
         return _CameraBackgroundColor;
     }
 
@@ -102,6 +106,25 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
         return float4(emissionAndBakedDiffuse, 1.0);
     if (_MaxLightingDiagnosticMode == 8.0)
         return float4(skyVisibility.xxx, 1.0);
+
+    float solarProbeVisibility = 1.0f;
+    [branch]
+    if (_MaxLightingDiagnosticMode == 0.0f && any(_MaxGTAOParams.xy > 0.0f))
+    {
+        float visibilityAO = 1.0f;
+        [branch]
+        if (_MaxGTAOParams.x > 0.0f)
+        {
+            int2 size = int2(_MaxGTAOParams.zw);
+            int2 pixel = clamp(int2(o.uv * size), 0, size - 1);
+            visibilityAO = saturate(_MaxGTAOTexture.Load(int3(pixel, 0)));
+        }
+        if (_MaxGTAOParams.y > 0.5f)
+            return float4(visibilityAO.xxx, 1.0f);
+        // The baked visibility and screen estimate may represent the same occluder.
+        skyVisibility = lerp(skyVisibility, min(skyVisibility, visibilityAO), _MaxGTAOParams.x);
+        solarProbeVisibility = lerp(1.0f, visibilityAO, _MaxGTAOParams.x);
+    }
 
     float3 solarIndirect = 0.0f;
     [branch]
@@ -116,7 +139,7 @@ float4 PBRFragment(v2f o, out float depthOut : SV_Depth) : SV_Target
         // NativeGI normalizes the sun to unit normal illuminance. Apply the
         // live sun's linear color and the pipeline's existing HDR scale here.
         solarIndirect = solarIrradiance * _DirectionalLightColor.rgb * diffuseReflectance
-            * (_MaxSolarProbeSettings.z / PI);
+            * (_MaxSolarProbeSettings.z / PI) * solarProbeVisibility;
     }
     if (_MaxLightingDiagnosticMode == 0.0f && _MaxSolarProbeSettings.w > 0.5f)
         return float4(solarIndirect, 1.0f);

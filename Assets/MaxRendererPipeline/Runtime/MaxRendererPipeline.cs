@@ -92,7 +92,9 @@ namespace MaxSRP
         {
             var bakedSolar = MaxBakedSolarGI.FindForCamera(camera);
             if (bakedSolar) sun = bakedSolar.AlignSun(sun);
-            int lightingHistoryKey = bakedSolar ? bakedSolar.HistoryKey : 0;
+            var gtao = MaxGTAOSettings.FindForCamera(camera);
+            int lightingHistoryKey = unchecked((bakedSolar ? bakedSolar.HistoryKey : 0) * 31 +
+                (gtao ? gtao.HistoryKey : 0));
             MaxTemporalAAPass.CameraHistory temporal = m_temporalAA.Begin(camera, m_setting.TemporalAA,
                 m_outputCameraCounts[GetOutputKey(camera)] == 1, sun, lightingHistoryKey);
             context.SetupCameraProperties(camera);
@@ -190,10 +192,16 @@ namespace MaxSRP
                 m_proceduralSkyboxPass.EnvironmentRevision, m_setting.SkyIBL);
             var localLights = m_clusteredLightingPass.Prepare(context, camera, width, height,
                 m_lightConfigurator, m_setting.ClusteredLighting);
+            var gtaoVisibility = resources.GTAO.Execute(context, camera, gtao, resources.Depth,
+                resources.Buffers[1], output.Color, temporal);
             m_LightPass.Execute(context, camera, output.Color, output.Depth, viewport, m_iblGIPass, hasShadows, localLights,
-                bakedSolar, sun);
+                bakedSolar, sun, gtao, gtaoVisibility);
 
-            if (camera.clearFlags == CameraClearFlags.Skybox)
+            bool showAOOnly = gtao && gtao.AOOnly;
+#if UNITY_EDITOR
+            showAOOnly &= camera != MaxLightPass.DiagnosticCamera || MaxLightPass.DiagnosticLightingMode == 0.0f;
+#endif
+            if (camera.clearFlags == CameraClearFlags.Skybox && !showAOOnly)
             {
                 cmd = CommandBufferPool.Get("Procedural Skybox");
                 try
@@ -223,7 +231,7 @@ namespace MaxSRP
             }
 #endif
             m_colorOutputPass.Execute(context, camera, output.Color, output.Depth, target, outputDepth,
-                m_setting.ColorOutput);
+                m_setting.ColorOutput, showAOOnly);
 #if UNITY_EDITOR
             if (Handles.ShouldRenderGizmos())
             {
@@ -349,6 +357,7 @@ namespace MaxSRP
             public RenderTexture Depth;
             public readonly RenderTexture[] Buffers = new RenderTexture[4];
             public readonly RenderTargetIdentifier[] BufferIDs = new RenderTargetIdentifier[4];
+            public readonly MaxGTAOPass GTAO = new MaxGTAOPass();
             public CameraResources(Camera camera)
             {
                 Camera = camera;
@@ -395,6 +404,7 @@ namespace MaxSRP
 
             public void Dispose()
             {
+                GTAO.Dispose();
                 ReleaseBuffers();
             }
         }

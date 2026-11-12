@@ -49,6 +49,9 @@ public static class MaxSrpNativeShaderCheck {
 "@
 $taskDefines="#define SHADER_API_D3D11 1`n#define UNITY_COMPILER_HLSL 1`n#define SHADER_TARGET 50`n#define UNITY_VERSION 202230`n"
 $taskChecks=@(
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','PrefilterDepths','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','EvaluateGTAO','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','DenoiseGTAO','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/ClusteredLighting.compute','PrepareLights','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/ClusteredLighting.compute','BuildClusters','cs_5_0'),
  @('Assets/MaxRendererPipeline/Editor/MaxBistroSkyVisibility.compute','TraceSky','cs_5_0'),

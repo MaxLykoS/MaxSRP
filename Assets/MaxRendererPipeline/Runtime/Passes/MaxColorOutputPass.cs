@@ -50,19 +50,19 @@ namespace MaxSRP
 
         public void Execute(ScriptableRenderContext context, Camera camera, RenderTexture color,
             RenderTexture sceneDepth, RenderTargetIdentifier target, RenderTargetIdentifier targetDepth,
-            ColorOutputSettings settings)
+            ColorOutputSettings settings, bool showLinearMask = false)
         {
             CommandBuffer cmd = CommandBufferPool.Get("HDR Color Output");
             try
             {
                 cmd.SetGlobalTexture(ColorID, color);
                 cmd.SetGlobalTexture(DepthID, sceneDepth);
-                float exposure = MaxSceneExposure.GetExposureMultiplier(camera, settings);
+                float exposure = showLinearMask ? 1.0f : MaxSceneExposure.GetExposureMultiplier(camera, settings);
                 // Our scene is always rendered into a texture. The backbuffer uses a different
                 // projection convention on top-origin APIs; RT destinations keep the source convention.
                 float flipToBackbuffer = !IsTextureDestination(camera) && SystemInfo.graphicsUVStartsAtTop ? 1.0f : 0.0f;
                 float ditherMode = 0.0f;
-                if (settings.Dithering)
+                if (settings.Dithering && !showLinearMask)
                 {
                     RenderTexture destination = camera.targetTexture;
                     // Scene view may use a floating-point intermediate, but is ultimately
@@ -75,7 +75,9 @@ namespace MaxSRP
                         destination.format == RenderTextureFormat.BGRA32)
                         ditherMode = 1.0f;
                 }
-                var parameters = new Vector4(exposure, (float)settings.ToneMapping, flipToBackbuffer, ditherMode);
+                var parameters = new Vector4(exposure,
+                    showLinearMask ? (float)ToneMappingMode.None : (float)settings.ToneMapping,
+                    flipToBackbuffer, ditherMode);
                 cmd.SetGlobalVector(ParametersID, parameters);
                 cmd.SetRenderTarget(target, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store,
                     targetDepth, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store);
