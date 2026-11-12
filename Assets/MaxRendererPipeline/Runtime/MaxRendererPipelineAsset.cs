@@ -47,6 +47,12 @@ namespace MaxSRP
         [SerializeField] private SkyIBLSettings m_skyIBLSettings = new SkyIBLSettings();
         public SkyIBLSettings SkyIBL => m_skyIBLSettings;
 
+        [SerializeField] private CloudLayerSettings m_cloudLayerSettings = new CloudLayerSettings();
+        public CloudLayerSettings CloudLayer => m_cloudLayerSettings;
+
+        [SerializeField] private SixWayCloudSettings m_sixWayCloudSettings = new SixWayCloudSettings();
+        public SixWayCloudSettings SixWayCloud => m_sixWayCloudSettings;
+
         [SerializeField]
         private ComputeShader m_iblCS;
         public ComputeShader IBLCS

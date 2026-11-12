@@ -64,6 +64,36 @@ MonoBehaviour:
     SpecularResolution: 128
     DiffuseSamples: 128
     SpecularSamples: 128
+  m_cloudLayerSettings:
+    Enabled: 0
+    DensityMap: {fileID: 2800000, guid: abb01011e95c49b69a01cf6a05a09097, type: 3}
+    LightingShader: {fileID: 4800000, guid: 4d51ca7c0f764543bd48d6f5668554aa, type: 3}
+    Coverage: 0.52
+    Density: 3
+    Altitude: 2000
+    Thickness: 700
+    TileSize: 16000
+    WindDirection: 30
+    WindSpeed: 12
+    AmbientStrength: 0.8
+    LightingResolution: 256
+    LightingSteps: 16
+    SunUpdateAngle: 0.5
+    EnvironmentUpdateInterval: 1
+  m_sixWayCloudSettings:
+    Enabled: 1
+    PositiveAxes: {fileID: 2800000, guid: 1a01eae80611e6748be32878d5d52012, type: 3}
+    NegativeAxes: {fileID: 2800000, guid: 5a89988919c4c84458fa32e5aa178d15, type: 3}
+    Shader: {fileID: 4800000, guid: c60bdc4b2c5fb81498403ac7aeaa8344, type: 3}
+    Altitude: 2200
+    FieldSize: 30000
+    CloudWidth: 4200
+    WindDirection: 30
+    WindSpeed: 12
+    DirectStrength: 1
+    AmbientStrength: 0.8
+    Opacity: 1
+    EnvironmentUpdateInterval: 1
   m_iblCS: {fileID: 7200000, guid: e2b8bb07b144234449da79ec0190d9c9, type: 3}
   m_atmosphereScatteringSetting:
     _SeaLevel: 0

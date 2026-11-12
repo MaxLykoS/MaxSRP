@@ -1,0 +1,32 @@
+// Configure the official sample maps and select six-way main clouds.
+if(UnityEngine.Application.dataPath!="D:/UnityProject/MaxSRP/Assets") throw new System.Exception("Wrong Unity project");
+foreach(var suffix in new[]{"P","N"}) {
+    string path="Assets/ThirdParty/UnitySixWayClouds/Clouds_"+suffix+".png";
+    var importer=(UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(path);
+    importer.textureType=UnityEditor.TextureImporterType.Default;
+    importer.sRGBTexture=false; importer.mipmapEnabled=true;
+    importer.alphaSource=suffix=="P" ? UnityEditor.TextureImporterAlphaSource.FromInput : UnityEditor.TextureImporterAlphaSource.None;
+    importer.alphaIsTransparency=false; importer.wrapMode=UnityEngine.TextureWrapMode.Clamp;
+    importer.filterMode=UnityEngine.FilterMode.Trilinear; importer.maxTextureSize=2048;
+    importer.textureCompression=UnityEditor.TextureImporterCompression.Uncompressed;
+    foreach(var platform in new[]{"Android","iPhone"}) {
+        var settings=importer.GetPlatformTextureSettings(platform);
+        settings.name=platform;settings.overridden=true;settings.maxTextureSize=2048;
+        settings.format=UnityEditor.TextureImporterFormat.ASTC_6x6;
+        importer.SetPlatformTextureSettings(settings);
+    }
+    importer.SaveAndReimport();
+}
+var asset=(MaxSRP.MaxRendererPipelineAsset)UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+asset.CloudLayer.Enabled=false;
+var clouds=asset.SixWayCloud;
+clouds.Enabled=true;
+clouds.PositiveAxes=UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Texture2D>("Assets/ThirdParty/UnitySixWayClouds/Clouds_P.png");
+clouds.NegativeAxes=UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Texture2D>("Assets/ThirdParty/UnitySixWayClouds/Clouds_N.png");
+clouds.Shader=UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Shader>("Assets/MaxRendererPipeline/Shaders/Realtime/SixWayCloud.shader");
+if(clouds.Shader==null||!clouds.Shader.isSupported)throw new System.Exception("Six-way shader missing/unsupported");
+UnityEditor.EditorUtility.SetDirty(asset);
+UnityEditor.AssetDatabase.SaveAssetIfDirty(asset);
+UnityEditor.SceneView.RepaintAll();
+UnityEditor.EditorApplication.QueuePlayerLoopUpdate();
+return new {singleLayer=asset.CloudLayer.Enabled,sixWay=clouds.Enabled,positive=clouds.PositiveAxes.name,negative=clouds.NegativeAxes.name};

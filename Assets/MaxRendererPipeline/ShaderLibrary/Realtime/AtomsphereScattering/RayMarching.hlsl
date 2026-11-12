@@ -15,7 +15,7 @@ float3 TransmittanceToAtmosphere(in AtmosphereParameter param, float3 p, float3 
     // need a sphere interval and entry shift.
     if (length(p) > topRadius)
     {
-        float entry, exit;
+        float entry = 0.0, exit = 0.0;
         if (!AtmosphereRayInterval(topRadius, p, dir, entry, exit)) return float3(1.0, 1.0, 1.0);
         p += dir * entry;
     }

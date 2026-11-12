@@ -2,6 +2,10 @@
 #define MAX_DYNAMIC_SKY_IBL_INCLUDED
 
 #include "../../ShaderLibrary/Realtime/IBLValidation.hlsl"
+#include "../../ShaderLibrary/Realtime/SpaceTransform.hlsl"
+#include "../../ShaderLibrary/Realtime/AtomsphereScattering/Raymarching.hlsl"
+#include "CloudLayer.hlsl"
+#include "SixWayCloudCommon.hlsl"
 
 // GPU-only dynamic path. The legacy structured-buffer kernels remain available
 // for the separate offline probe utilities.
@@ -42,6 +46,39 @@ void SkyToEnvironment(uint3 id : SV_DispatchThreadID)
     // SkyView contains scattered sky radiance. The analytic solar disk is
     // deliberately absent: direct sunlight is evaluated by the directional BRDF.
     float3 radiance = _EnvironmentSky.SampleLevel(sampler_EnvironmentSky, DynamicSkyUV(direction), 0).rgb;
+    if (_MaxCloudShape.x > 0.5)
+    {
+        AtmosphereParameter atmosphere = GetAtmosphereParameter();
+        float3 position = float3(0, atmosphere.PlanetRadius + _MaxCloudGeometry.x, 0);
+        float3 cloudLightDirection = _AtmosphereSunDirection;
+        float3 solar = atmosphere.SolarIrradiance * TransmittanceToSun(atmosphere, position, cloudLightDirection);
+        float3 ambient = _EnvironmentSky.SampleLevel(sampler_EnvironmentSky, float2(0.5, 1), 0).rgb;
+        float4 cloud = EvaluateMaxCloudLayer(direction, cloudLightDirection, solar, ambient);
+        radiance = cloud.rgb + cloud.a * radiance;
+    }
+    // Match the raster cards in the low-frequency environment. The cards are
+    // sorted far-to-near; only actual bounded ray/quad intersections sample maps.
+    for (int card = 0; card < _MaxSixWayCount; ++card)
+    {
+        float3 right = _MaxSixWayRight[card].xyz, up = _MaxSixWayUp[card].xyz;
+        float3 normal = cross(right, up);
+        float denominator = dot(direction, normal);
+        if (abs(denominator) < 1e-5) continue;
+        float3 offset = _MaxSixWayCentres[card].xyz - _MaxSixWayObserver;
+        float t = dot(offset, normal) / denominator;
+        if (t <= 0) continue;
+        float3 hit = direction * t - offset;
+        float width = _MaxSixWayRight[card].w;
+        float2 uv = float2(dot(hit, right) / width, dot(hit, up) / (width * 0.5)) * 0.5 + 0.5;
+        if (any(uv < 0) || any(uv > 1)) continue;
+        AtmosphereParameter atmosphere = GetAtmosphereParameter();
+        float3 position = float3(0, atmosphere.PlanetRadius + max(1, _MaxSixWayCentres[card].y - _MaxSixWaySeaLevel), 0);
+        float3 cloudLightDirection = _AtmosphereSunDirection;
+        float3 solar = atmosphere.SolarIrradiance * TransmittanceToSun(atmosphere, position, cloudLightDirection);
+        float3 ambient = _EnvironmentSky.SampleLevel(sampler_EnvironmentSky, float2(0.5, 1), 0).rgb;
+        float4 cloud = MaxSixWayShade(uv, card, cloudLightDirection, solar, ambient);
+        radiance = cloud.rgb + (1 - cloud.a) * radiance;
+    }
     // The array/cube uses half storage; finite float values can overflow on store.
     _DynamicOutput[id] = float4(min(FiniteIBLColor(radiance), 65504.0), 1.0);
 }

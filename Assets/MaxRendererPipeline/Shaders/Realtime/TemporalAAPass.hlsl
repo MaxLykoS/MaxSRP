@@ -1,6 +1,11 @@
 #ifndef MAX_TEMPORAL_AA_INCLUDED
 #define MAX_TEMPORAL_AA_INCLUDED
 #include "../../ShaderLibrary/Realtime/SpaceTransform.hlsl"
+#define MAX_CLOUD_FRAGMENT_SAMPLING
+#include "CloudLayer.hlsl"
+float4 _MaxCloudTemporal;
+float3 _MaxCloudObserverDelta;
+float4 _MaxSixWayTemporal;
 
 Texture2D<float4> _TaaSource, _TaaHistory, _TaaMotion, _TaaResolved;
 Texture2D<float4> _GBuffer1;
@@ -153,6 +158,28 @@ TaaOutput TaaResolve(TaaVaryings input)
     }
     float3 centerColor = TaaWorking(current.rgb), result = centerColor;
     float count = 1;
+    float cloudHistoryCap = 1;
+    if (sky && _MaxSixWayTemporal.x > 0.5) cloudHistoryCap = 0.25;
+    // Also reject after disabling clouds, when the enabled branch is bypassed.
+    if (sky && _MaxCloudTemporal.z > 0.5) valid = false;
+    if (sky && _MaxCloudShape.x > 0.5)
+    {
+        float3 direction = normalize(world.xyz - _WorldSpaceCameraPos * world.w);
+        if (unity_OrthoParams.w > 0.5) direction = mul((float3x3)unity_MatrixInvV, float3(0, 0, -1));
+        // Stationary sky and moving clouds share one color sample. Limit history
+        // instead of assigning this mixture an inaccurate single cloud velocity.
+        float2 delta = _MaxCloudTemporal.xy + _MaxCloudObserverDelta.xz -
+            direction.xz * (_MaxCloudObserverDelta.y / max(direction.y, 0.02));
+        bool above = _MaxCloudObserver.y >= _MaxCloudGeometry.x;
+        bool previousAbove = _MaxCloudObserver.y + _MaxCloudObserverDelta.y * _MaxCloudShape.w >= _MaxCloudGeometry.x;
+        if (above != previousAbove) valid = false;
+        if (dot(delta, delta) > 1e-16)
+        {
+            float present = MaxCloudOpacity(direction, _MaxCloudWind.xy);
+            float old = MaxCloudOpacity(direction, _MaxCloudWind.xy + delta);
+            if (max(present, old) > 0.001) cloudHistoryCap = 0.25;
+        }
+    }
     if (valid)
     {
         float3 minimum = centerColor, maximum = centerColor, sum = 0, sum2 = 0;
@@ -175,7 +202,7 @@ TaaOutput TaaResolve(TaaVaryings input)
         float confidence = 1 - saturate(change);
         float pixels = length(motion * _TaaSize.xy);
         float cap = lerp(_TaaSettings.y, min(_TaaSettings.y, 0.8), saturate(pixels / 8));
-        float weight = min(cap, oldDepthCount.y / (oldDepthCount.y + 1)) * confidence;
+        float weight = min(min(cap, cloudHistoryCap), oldDepthCount.y / (oldDepthCount.y + 1)) * confidence;
         result = lerp(centerColor, clipped, weight);
         count = min(32, 1 / max(1 - weight, 1e-4));
     }

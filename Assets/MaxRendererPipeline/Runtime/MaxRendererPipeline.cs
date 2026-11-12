@@ -26,6 +26,8 @@ namespace MaxSRP
         private MaxIBLGIPass m_iblGIPass;
         private MaxShadowCasterPass m_shadowCastPass;
         private MaxProceduralSkyboxPass m_proceduralSkyboxPass;
+        private MaxCloudLayerPass m_cloudLayerPass;
+        private MaxSixWayCloudPass m_sixWayCloudPass;
         private readonly MaxRendererPipelineAsset m_setting;
 
         // Call on explicit camera cuts/teleports or discontinuous scene changes.
@@ -45,6 +47,8 @@ namespace MaxSRP
                 m_shadowCastPass = new MaxShadowCasterPass(setting.CascadeSetting, setting.AtmosphereScatteringSetting);
                 m_proceduralSkyboxPass = new MaxProceduralSkyboxPass(setting.AtmosphereScatteringSetting);
                 m_iblGIPass = new MaxIBLGIPass(setting.IBLCS);
+                m_cloudLayerPass = new MaxCloudLayerPass(setting.CloudLayer, setting.IBLCS);
+                m_sixWayCloudPass = new MaxSixWayCloudPass(setting.SixWayCloud, setting.IBLCS);
             }
             catch
             {
@@ -185,11 +189,16 @@ namespace MaxSRP
             // never read a previously tone-mapped image as their scene background.
             // Fog LUTs must be generated for this camera before Lighting consumes them.
             m_proceduralSkyboxPass.PrepareAtmosphere(context, camera, sun, m_setting.SkyIBL.ReferenceHeight);
+            m_cloudLayerPass.Prepare(context, camera, sun, sun, m_setting.AtmosphereScatteringSetting,
+                m_proceduralSkyboxPass.TransmittanceLUT, m_setting.SkyIBL.ReferenceHeight);
+            m_sixWayCloudPass.Prepare(context, camera, sun, m_setting.AtmosphereScatteringSetting,
+                m_proceduralSkyboxPass.TransmittanceLUT, m_proceduralSkyboxPass.EnvironmentSky,
+                temporal == null ? camera.transform.position : temporal.Position);
             // LUT generation intentionally uses an unjittered projection; restore the
             // raster matrices before reconstructing depth and drawing the procedural sky.
             MaxTemporalAAPass.Bind(context, camera, temporal);
             m_iblGIPass.Execute(context, m_proceduralSkyboxPass.EnvironmentSky,
-                m_proceduralSkyboxPass.EnvironmentRevision, m_setting.SkyIBL);
+                m_sixWayCloudPass.EnvironmentRevision(m_cloudLayerPass.EnvironmentRevision(m_proceduralSkyboxPass.EnvironmentRevision)), m_setting.SkyIBL);
             var localLights = m_clusteredLightingPass.Prepare(context, camera, width, height,
                 m_lightConfigurator, m_setting.ClusteredLighting);
             var gtaoVisibility = resources.GTAO.Execute(context, camera, gtao, resources.Depth,
@@ -207,13 +216,16 @@ namespace MaxSRP
                 try
                 {
                     m_proceduralSkyboxPass.DrawSkybox(context, camera, cmd, output.Color, output.Depth, viewport);
+                    m_sixWayCloudPass.Draw(context, output.Color, output.Depth, viewport);
                 }
                 finally
                 {
                     CommandBufferPool.Release(cmd);
                 }
             }
-            m_temporalAA.Resolve(context, camera, temporal, output.Color, resources.Depth, m_setting.TemporalAA);
+            m_temporalAA.Resolve(context, camera, temporal, output.Color, resources.Depth, m_setting.TemporalAA,
+                temporal == null ? Vector2.zero : m_cloudLayerPass.WindDelta(temporal.LastRenderTime), m_cloudLayerPass.ContentRevision + m_sixWayCloudPass.ContentRevision,
+                temporal == null ? Vector3.zero : m_cloudLayerPass.ObserverDelta(temporal.Position, camera.transform.position));
 #if UNITY_EDITOR
             if (Handles.ShouldRenderGizmos())
             {
@@ -342,6 +354,8 @@ namespace MaxSRP
             m_outputSizes.Clear();
             m_colorOutputPass?.Dispose();
             m_temporalAA?.Dispose();
+            m_cloudLayerPass?.Dispose();
+            m_sixWayCloudPass?.Dispose();
             m_LightPass?.Dispose();
             m_clusteredLightingPass?.Dispose();
             m_iblGIPass?.Dispose();

@@ -35,6 +35,7 @@ namespace MaxSRP
             public Quaternion Rotation;
             public Rect Viewport;
             public int Index, Sample, Width, Height, SettleFrames;
+            public int CloudRevision;
             public int DestinationId;
             public Vector4 SunDirection;
             public Color SunColor;
@@ -188,7 +189,8 @@ namespace MaxSRP
         }
 
         public void Resolve(ScriptableRenderContext context, Camera camera, CameraHistory state,
-            RenderTexture color, RenderTexture depth, TemporalAASettings settings)
+            RenderTexture color, RenderTexture depth, TemporalAASettings settings, Vector2 cloudWindDelta = default, int cloudRevision = 0,
+            Vector3 cloudObserverDelta = default)
         {
             if (state == null) return;
             int next = 1 - state.Index;
@@ -198,6 +200,9 @@ namespace MaxSRP
                 cmd.SetGlobalTexture("_TaaSource", color);
                 cmd.SetGlobalTexture("_TaaDepth", depth);
                 cmd.SetGlobalTexture("_TaaMotion", state.Motion);
+                cmd.SetGlobalVector("_MaxCloudTemporal", new Vector4(cloudWindDelta.x, cloudWindDelta.y,
+                    state.CloudRevision != cloudRevision ? 1 : 0, 0));
+                cmd.SetGlobalVector("_MaxCloudObserverDelta", cloudObserverDelta);
                 cmd.SetGlobalTexture("_TaaHistory", state.Colors[state.Index]);
                 cmd.SetGlobalTexture("_TaaPreviousDepth", state.Depths[state.Index]);
                 Rect v = state.Viewport;
@@ -229,6 +234,7 @@ namespace MaxSRP
             }
             finally { CommandBufferPool.Release(cmd); }
             state.Index = next;
+            state.CloudRevision = cloudRevision;
             state.Valid = true;
             state.PreviousVP = state.ViewProjection;
             state.PreviousView = camera.worldToCameraMatrix;

@@ -7,6 +7,8 @@
 #include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl"
 #include "../../../ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereParameter.hlsl"
 #include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Raymarching.hlsl"
+#define MAX_CLOUD_FRAGMENT_SAMPLING
+#include "../CloudLayer.hlsl"
 
 struct v2f
 {
@@ -68,6 +70,15 @@ float4 frag(v2f i) : SV_Target
 
 	color.rgb += UNITY_SAMPLE_TEX2D(_SkyviewLUT, ViewDirToUV(viewDir)).rgb;
 	color.rgb += GetSunDisk(param, eyePos, viewDir, lightDir);
+    if (_MaxCloudShape.x > 0.5)
+    {
+        float3 cloudPosition = float3(0, param.PlanetRadius + _MaxCloudGeometry.x, 0);
+        float3 cloudLightDirection = lightDir;
+        float3 solar = param.SolarIrradiance * TransmittanceToSun(param, cloudPosition, cloudLightDirection);
+        float3 ambient = UNITY_SAMPLE_TEX2D_LOD(_SkyviewLUT, float2(0.5, 1), 0).rgb;
+        float4 cloud = EvaluateMaxCloudLayer(viewDir, cloudLightDirection, solar, ambient);
+        color.rgb = cloud.rgb + cloud.a * color.rgb;
+    }
 
 	return color;
 }

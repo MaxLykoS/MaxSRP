@@ -15,6 +15,7 @@ namespace MaxSRP
         private ViewKey m_environmentKey;
         private SunLightData m_sun;
         public RenderTexture EnvironmentSky => m_environmentSkyviewLUT;
+        public RenderTexture TransmittanceLUT => m_transmittanceLUT;
         public int EnvironmentRevision { get; private set; }
         private readonly Dictionary<int, CameraLuts> m_cameraLuts = new Dictionary<int, CameraLuts>();
         private readonly List<int> m_unusedCameraLuts = new List<int>();
