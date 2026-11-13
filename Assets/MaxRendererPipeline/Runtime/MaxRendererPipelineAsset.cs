@@ -63,6 +63,13 @@ namespace MaxSRP
             }
         }
 
+        [SerializeField, Tooltip("Planetary atmosphere configuration. Ground reflectance is edited on this asset.")]
+        private MaxAtmosphereConfig m_atmosphereConfiguration;
+        public MaxAtmosphereConfig AtmosphereConfiguration => m_atmosphereConfiguration;
+        [SerializeField, Tooltip("Required native 3D aerial perspective generator; retained in Player builds.")]
+        private ComputeShader m_aerialPerspectiveCompute;
+        public ComputeShader AerialPerspectiveCompute => m_aerialPerspectiveCompute;
+
         [SerializeField]
         private MaxProceduralSkyboxPass.AtmosphereSettings m_atmosphereScatteringSetting = new MaxProceduralSkyboxPass.AtmosphereSettings();
         public MaxProceduralSkyboxPass.AtmosphereSettings AtmosphereScatteringSetting

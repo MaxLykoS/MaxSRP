@@ -10,6 +10,9 @@
 #define MAX_CLOUD_FRAGMENT_SAMPLING
 #include "../CloudLayer.hlsl"
 
+float4 _AtmosphereSkyViewRight;
+float4 _AtmosphereSkyViewForward;
+
 struct v2f
 {
     float2 ndc : TEXCOORD0;
@@ -66,16 +69,23 @@ float4 frag(v2f i) : SV_Target
         viewDir = normalize(mul((float3x3)unity_MatrixInvV, float3(0.0, 0.0, -1.0)));
 
 	float3 lightDir = normalize(_AtmosphereSunDirection);
-	float3 eyePos = AtmosphereCameraPosition(_WorldSpaceCameraPos.y, param.SeaLevel, param.PlanetRadius);
+	float3 eyePos = AtmosphereCameraPosition(_WorldSpaceCameraPos.y * ATMOSPHERE_METRES_TO_KM, param.SeaLevel, param.PlanetRadius);
 
-	color.rgb += UNITY_SAMPLE_TEX2D(_SkyviewLUT, ViewDirToUV(viewDir)).rgb;
+	// Legacy lookup: UNITY_SAMPLE_TEX2D(_SkyviewLUT, ViewDirToUV(viewDir)).rgb;
+    float3 localViewDir = float3(dot(viewDir, _AtmosphereSkyViewRight.xyz), viewDir.y,
+        dot(viewDir, _AtmosphereSkyViewForward.xyz));
+	float2 skyUV = SkyViewLutLocalDirToUV(localViewDir, eyePos.y, param.PlanetRadius, _AtmosphereSkyViewSizeAndInvSize);
+	color.rgb += UNITY_SAMPLE_TEX2D(_SkyviewLUT, skyUV).rgb;
 	color.rgb += GetSunDisk(param, eyePos, viewDir, lightDir);
     if (_MaxCloudShape.x > 0.5)
     {
-        float3 cloudPosition = float3(0, param.PlanetRadius + _MaxCloudGeometry.x, 0);
+        float3 cloudPosition = float3(0, param.PlanetRadius + _MaxCloudGeometry.x * ATMOSPHERE_METRES_TO_KM, 0);
         float3 cloudLightDirection = lightDir;
         float3 solar = param.SolarIrradiance * TransmittanceToSun(param, cloudPosition, cloudLightDirection);
-        float3 ambient = UNITY_SAMPLE_TEX2D_LOD(_SkyviewLUT, float2(0.5, 1), 0).rgb;
+        // Legacy uniform map sampled zenith at float2(0.5, 1).
+        float2 zenithUV = SkyViewLutLocalDirToUV(float3(0, 1, 0), eyePos.y,
+            param.PlanetRadius, _AtmosphereSkyViewSizeAndInvSize);
+        float3 ambient = UNITY_SAMPLE_TEX2D_LOD(_SkyviewLUT, zenithUV, 0).rgb;
         float4 cloud = EvaluateMaxCloudLayer(viewDir, cloudLightDirection, solar, ambient);
         color.rgb = cloud.rgb + cloud.a * color.rgb;
     }

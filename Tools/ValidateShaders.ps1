@@ -49,6 +49,7 @@ public static class MaxSrpNativeShaderCheck {
 "@
 $taskDefines="#define SHADER_API_D3D11 1`n#define UNITY_COMPILER_HLSL 1`n#define SHADER_TARGET 50`n#define UNITY_VERSION 202230`n"
 $taskChecks=@(
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute','BuildAerialPerspective','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','PrefilterDepths','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','EvaluateGTAO','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','DenoiseGTAO','cs_5_0'),
@@ -102,6 +103,19 @@ foreach($check in $taskChecks){
  [MaxSrpNativeShaderCheck]::Compile($source,$check[0],$check[1],$check[2])
  Write-Output ('PASS: HLSL '+$check[1]+' ('+$check[2]+')')
 }
+
+# Compile the complete Mobile numerical/phase/closure profile as one local variant.
+foreach($name in @('TransmittanceLUT','MultiscatteringLUT','SkyviewLUT','AerialPerspectiveLUT')) {
+ $path='Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/'+$name+'Pass.hlsl'
+ $source="#define MAX_ATMOSPHERE_MOBILE 1`n"+$taskDefines+(Expand-TaskShader (Join-Path $taskRoot $path))
+ [MaxSrpNativeShaderCheck]::Compile($source,$path,'frag','ps_5_0')
+ Write-Output ('PASS: AtmosphereMobile '+$name)
+}
+
+$taskMobileAerialPath='Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute'
+$taskMobileAerial="#define MAX_ATMOSPHERE_MOBILE 1`n"+$taskDefines+(Expand-TaskShader (Join-Path $taskRoot $taskMobileAerialPath))
+[MaxSrpNativeShaderCheck]::Compile($taskMobileAerial,$taskMobileAerialPath,'BuildAerialPerspective','cs_5_0')
+Write-Output 'PASS: AtmosphereMobile BuildAerialPerspective'
 
 # Compile actual non-default branches too. GL depth is emulated with ordinary Z
 # and [-1,1] clip depth under the HLSL compiler; this is not a native GLSL/GPU test.

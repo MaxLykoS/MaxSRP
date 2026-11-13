@@ -142,7 +142,8 @@ namespace MaxSRP
             properties.SetInteger("_MaxMipCount", m_mipCount);
         }
 
-        public void Execute(ScriptableRenderContext context, Texture environmentSky, int environmentRevision, SkyIBLSettings settings)
+        public void Execute(ScriptableRenderContext context, Texture environmentSky, int environmentRevision, SkyIBLSettings settings,
+            float environmentViewHeight, Vector4 skyViewSizeAndInvSize)
         {
             if (environmentSky == null) throw new ArgumentNullException(nameof(environmentSky));
             int resolution = Mathf.ClosestPowerOfTwo(Mathf.Clamp(settings.SpecularResolution, 32, 256));
@@ -169,6 +170,8 @@ namespace MaxSRP
                 if (update)
                 {
                     cmd.BeginSample("Sky Environment");
+                    cmd.SetComputeFloatParam(m_cs, "_AtmosphereEnvironmentSkyViewHeight", environmentViewHeight);
+                    cmd.SetComputeVectorParam(m_cs, "_AtmosphereSkyViewSizeAndInvSize", skyViewSizeAndInvSize);
                     cmd.SetComputeTextureParam(m_cs, m_skyKernel, "_EnvironmentSky", environmentSky);
                     DispatchFaces(cmd, m_skyKernel, resolution, m_environment, 0);
                     cmd.GenerateMips(m_environment);

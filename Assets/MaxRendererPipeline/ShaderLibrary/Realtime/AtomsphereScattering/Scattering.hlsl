@@ -7,7 +7,9 @@
 
 struct AtmosphereParameter
 {
+    // All lengths are km; scattering / absorption coefficients are per km.
     float SeaLevel;
+    float3 GroundAlbedo;
     float PlanetRadius;
     float AtmosphereHeight;
     float3 SolarIrradiance;
@@ -34,7 +36,7 @@ float3 SolarDiskRadiance(in AtmosphereParameter param)
 }
 float3 RayleighCoefficient(in AtmosphereParameter param, float h)
 {
-    const float3 sigma = float3(5.802, 13.558, 33.1) * 1e-6;
+    const float3 sigma = float3(5.802, 13.558, 33.1) * 1e-3;
     float H_R = param.RayleighScatteringScalarHeight;
     float rho_h = exp(-(h / H_R));
     return sigma * rho_h * max(param.RayleighScatteringScale, 0.0);
@@ -47,7 +49,7 @@ float RayleiPhase(in AtmosphereParameter param, float cos_theta)
 
 float3 MieCoefficient(in AtmosphereParameter param, float h)
 {
-    const float3 sigma = (3.996 * 1e-6).xxx;
+    const float3 sigma = (3.996 * 1e-3).xxx;
     float H_M = param.MieScatteringScalarHeight;
     float rho_h = exp(-(h / H_M));
     return sigma * rho_h * max(param.MieScatteringScale, 0.0);
@@ -57,19 +59,27 @@ float MiePhase(in AtmosphereParameter param, float cos_theta)
 {
     float g = param.MieAnisotropy;
 
+#if defined(MAX_ATMOSPHERE_MOBILE)
+    // Henyey-Greenstein, using cos_theta between the view direction and direction
+    // toward the light. This equals UE's HG(G, -cos_theta) direction convention.
+    float denominator = 1.0 + g * g - 2.0 * g * cos_theta;
+    return (1.0 - g * g) / (4.0 * PI * denominator * sqrt(denominator));
+#else
+    // PC preserves the existing Cornette-Shanks phase function.
     float a = 3.0 / (8.0 * PI);
     float b = (1.0 - g * g) / (2.0 + g * g);
     float c = 1.0 + cos_theta * cos_theta;
     float d = pow(1.0 + g * g - 2 * g * cos_theta, 1.5);
 
     return a * b * (c / d);
+#endif
 }
 
 // Mie scale changes aerosol density: scattering and absorption scale together.
 float3 MieAbsorption(in AtmosphereParameter param, float h)
 {
-    // Absorption = extinction (4.440) - scattering (3.996), in 1/metre.
-    const float3 sigma = ((4.440 - 3.996) * 1e-6).xxx;
+    // Absorption = extinction (4.440) - scattering (3.996), in 1/kilometre.
+    const float3 sigma = ((4.440 - 3.996) * 1e-3).xxx;
     float H_M = param.MieScatteringScalarHeight;
     float rho_h = exp(-(h / H_M));
     return sigma * rho_h * max(param.MieScatteringScale, 0.0);
@@ -77,7 +87,7 @@ float3 MieAbsorption(in AtmosphereParameter param, float h)
 
 float3 OzoneAbsorption(in AtmosphereParameter param, float h)
 {
-#define sigma_lambda (float3(0.650f, 1.881f, 0.085f)) * 1e-6
+#define sigma_lambda (float3(0.650f, 1.881f, 0.085f)) * 1e-3
     float center = param.OzoneLevelCenterHeight;
     float width = param.OzoneLevelWidth;
     float rho = max(0, 1.0 - (abs(h - center) / width));

@@ -174,14 +174,16 @@ def main():
     atmosphere = spawn(u.SkyAtmosphere, "UE SkyAtmosphere - matched MaxSRP coefficients")
     sky = atmosphere.get_component_by_class(u.SkyAtmosphereComponent)
     p = MANIFEST["atmosphere"]
-    for name, value in {"bottom_radius": p["_PlanetRadius"]/1000, "atmosphere_height": p["_AtmosphereHeight"]/1000,
-                        "rayleigh_exponential_distribution": p["_RayleighScatteringScalarHeight"]/1000,
+    # New MaxSRP manifests use km; older scene exports used metres.
+    to_km = 1.0 if p.get("LengthUnitVersion", 0) >= 1 else 0.001
+    for name, value in {"bottom_radius": p["_PlanetRadius"]*to_km, "atmosphere_height": p["_AtmosphereHeight"]*to_km,
+                        "rayleigh_exponential_distribution": p["_RayleighScatteringScalarHeight"]*to_km,
                         "rayleigh_scattering_scale": p["_RayleighScatteringScale"], "rayleigh_scattering": lc([.005802,.013558,.0331]),
-                        "mie_exponential_distribution": p["_MieScatteringScalarHeight"]/1000,
+                        "mie_exponential_distribution": p["_MieScatteringScalarHeight"]*to_km,
                         "mie_scattering_scale": p["_MieScatteringScale"], "mie_absorption_scale": p["_MieScatteringScale"],
                         "mie_scattering": lc([.003996]*3), "mie_absorption": lc([.000444]*3),
                         "mie_anisotropy": p["_MieAnisotropy"], "other_absorption_scale": p["_OzoneAbsorptionScale"],
-                        "other_absorption": lc([.000650,.001881,.000085]), "ground_albedo": u.Color(0,0,0,255)}.items():
+                        "other_absorption": lc([.000650,.001881,.000085]), "ground_albedo": u.Color(*MANIFEST.get("atmosphere_ground_albedo_srgb8", [0,0,0,255]))}.items():
         prop(sky, name, value)
     csm = MANIFEST["csm"]
     for light in MANIFEST["lights"]:

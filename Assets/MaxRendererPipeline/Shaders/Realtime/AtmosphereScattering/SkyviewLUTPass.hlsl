@@ -10,6 +10,8 @@
 #include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Raymarching.hlsl"
 
 float _AtmosphereCameraY;
+float4 _AtmosphereSkyViewRight;
+float4 _AtmosphereSkyViewForward;
 
 struct appdata
 {
@@ -37,7 +39,11 @@ float4 frag(v2f i) : SV_Target
 
 	float4 color = float4(0, 0, 0, 1);
 	float2 uv = i.uv;
-	float3 viewDir = UVToViewDir(uv);
+	// Legacy generator: float3 viewDir = UVToViewDir(uv);
+	float viewHeight = AtmosphereCameraPosition(_AtmosphereCameraY, param.SeaLevel, param.PlanetRadius).y;
+	float3 localViewDir = SkyViewLutUVToLocalDir(uv, viewHeight, param.PlanetRadius, _AtmosphereSkyViewSizeAndInvSize);
+    float3 viewDir = _AtmosphereSkyViewRight.xyz * localViewDir.x + float3(0, 1, 0) * localViewDir.y +
+        _AtmosphereSkyViewForward.xyz * localViewDir.z;
 
 	float3 lightDir = _AtmosphereSunDirection;
 

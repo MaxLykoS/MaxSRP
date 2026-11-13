@@ -34,11 +34,14 @@ SixWayVaryings SixWayVertex(uint vertex : SV_VertexID, uint instance : SV_Instan
 float4 SixWayFragment(SixWayVaryings input) : SV_Target
 {
     AtmosphereParameter atmosphere = GetAtmosphereParameter();
-    float altitude = max(1, _MaxSixWayCentres[input.index].y - _SeaLevel);
-    float3 position = float3(0, atmosphere.PlanetRadius + altitude, 0);
+    float altitude = max(1, _MaxSixWayCentres[input.index].y - _SeaLevel * ATMOSPHERE_KM_TO_METRES);
+    float3 position = float3(0, atmosphere.PlanetRadius + altitude * ATMOSPHERE_METRES_TO_KM, 0);
     float3 cloudLightDirection = _AtmosphereSunDirection;
     float3 solar = atmosphere.SolarIrradiance * TransmittanceToSun(atmosphere, position, cloudLightDirection);
-    float3 ambient = _MaxSixWaySky.SampleLevel(sampler_MaxSixWaySky, float2(0.5, 1), 0).rgb;
+    // Legacy uniform environment map sampled zenith at float2(0.5, 1).
+    float2 zenithUV = SkyViewLutLocalDirToUV(float3(0, 1, 0), _AtmosphereEnvironmentSkyViewHeight,
+        atmosphere.PlanetRadius, _AtmosphereSkyViewSizeAndInvSize);
+    float3 ambient = _MaxSixWaySky.SampleLevel(sampler_MaxSixWaySky, zenithUV, 0).rgb;
     return MaxSixWayShade(input.uv, input.index, cloudLightDirection, solar, ambient);
 }
 #endif

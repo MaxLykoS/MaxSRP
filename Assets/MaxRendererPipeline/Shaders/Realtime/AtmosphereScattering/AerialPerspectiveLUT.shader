@@ -19,6 +19,7 @@ Shader "MaxSRP/Hidden/AerialPerspectiveLUT"
 
             HLSLPROGRAM
             #pragma target 5.0
+            #pragma multi_compile_local_fragment _ MAX_ATMOSPHERE_MOBILE
             #pragma vertex vert
             #pragma fragment frag
             ENDHLSL

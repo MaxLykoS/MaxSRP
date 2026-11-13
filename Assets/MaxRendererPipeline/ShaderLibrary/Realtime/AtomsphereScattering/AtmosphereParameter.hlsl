@@ -1,6 +1,8 @@
 #ifndef MAX_ATMOSPHERE_PARAMETER
 #define MAX_ATMOSPHERE_PARAMETER
 
+// Length uniforms are kilometres; radiometric/photometric scaling is unchanged.
+float3 _GroundAlbedo;
 float _SeaLevel;
 float _PlanetRadius;
 float _AtmosphereHeight;
@@ -28,6 +30,7 @@ AtmosphereParameter GetAtmosphereParameter()
     AtmosphereParameter param;
 
     param.SeaLevel = _SeaLevel;
+    param.GroundAlbedo = _GroundAlbedo;
     param.PlanetRadius = _PlanetRadius;
     param.AtmosphereHeight = _AtmosphereHeight;
     param.SolarIrradiance = _SolarIrradiance;

@@ -212,8 +212,17 @@ def main():
     setting_path = ROOT / 'Assets/MaxRendererPipeline/Max Renderer Pipeline Asset.asset'
     track(setting_path)
     settings = next(iter(documents(setting_path).values()))['MonoBehaviour']
+    ground_srgb8 = [170, 170, 170, 255]
+    config_ref = settings.get('m_atmosphereConfiguration', {})
+    if config_ref.get('guid') in assets:
+        config_path = assets[config_ref['guid']]
+        track(config_path)
+        config = next(iter(documents(config_path).values()))['MonoBehaviour']
+        colour = config['m_groundAlbedo']
+        ground_srgb8 = [int(round(max(0.0, min(1.0, colour[k])) * 255)) for k in ('r', 'g', 'b')] + [255]
     result = {'source_scene': str(scene_path), 'objects': objects, 'lights': lights, 'cameras': cameras,
               'materials': materials, 'atmosphere': settings['m_atmosphereScatteringSetting'],
+              'atmosphere_ground_albedo_srgb8': ground_srgb8,
               'exposure': settings['m_colorOutputSettings'], 'resolution': [1920, 1080], 'source_sha256': sources}
     (out / 'manifest.json').write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding='utf-8')
     print(json.dumps({'objects': [o['name'] for o in objects], 'lights': len(lights), 'materials': len(materials),

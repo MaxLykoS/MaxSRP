@@ -4,6 +4,20 @@
 #include "Helper.hlsl"
 #include "Scattering.hlsl"
 #include "AtmosphereParameter.hlsl"
+#include "AtmosphereSampling.hlsl"
+
+// UE encodes all transmittance LUT formats as sqrt(T), then squares filtered
+// samples. The nonlinear encoding improves low-value precision in RGBA8.
+// Legacy MaxSRP stored raw T in RGBA32F: bypass BOTH helpers together to restore it.
+float3 AtmosphereEncodeTransmittance(float3 transmittance)
+{
+    return sqrt(transmittance);
+}
+
+float3 AtmosphereDecodeTransmittance(float3 encodedTransmittance)
+{
+    return encodedTransmittance * encodedTransmittance;
+}
 
 // 查表计算任意点 p 沿着任意方向 dir 到大气层边缘的 transmittance
 float3 TransmittanceToAtmosphere(in AtmosphereParameter param, float3 p, float3 dir)
@@ -25,7 +39,8 @@ float3 TransmittanceToAtmosphere(in AtmosphereParameter param, float3 p, float3 
 
     float2 uv = GetTransmittanceLutUv(bottomRadius, topRadius, cos_theta, r);
     // Ray-march lookups have no meaningful screen-space derivatives.
-    return UNITY_SAMPLE_TEX2D_LOD(_TransmittanceLUT, uv, 0.0).rgb;
+    float3 encodedTransmittance = UNITY_SAMPLE_TEX2D_LOD(_TransmittanceLUT, uv, 0.0).rgb;
+    return AtmosphereDecodeTransmittance(encodedTransmittance);
 }
 
 // Solar rays that intersect the planet receive no direct sunlight.
@@ -45,16 +60,18 @@ float3 TransmittanceToSun(in AtmosphereParameter param, float3 p, float3 lightDi
 // 积分计算任意两点 p1, p2 之间的 transmittance
 float3 Transmittance(in AtmosphereParameter param, float3 p1, float3 p2)
 {
-    const int N_SAMPLE = 32;
-
-    float3 dir = normalize(p2 - p1);
+    const int N_SAMPLE = ATMOSPHERE_TRANSMITTANCE_SAMPLE_COUNT;
     float distance = length(p2 - p1);
+    if (distance <= 0.0) return float3(1.0, 1.0, 1.0);
+    float3 dir = (p2 - p1) / distance;
     float ds = distance / float(N_SAMPLE);
     float3 sum = 0.0;
-    float3 p = p1 + (dir * ds) * 0.5;
 
+    // Legacy MaxSRP: N_SAMPLE=32, ds=distance/32, sample at (i+0.5)*ds.
+    // Restore that midpoint rule and count together to reconstruct the old path.
     for (int i = 0; i < N_SAMPLE; i++)
     {
+        float3 p = p1 + dir * ((float(i) + ATMOSPHERE_SAMPLE_OFFSET) * ds);
         float h = max(0.0, length(p) - param.PlanetRadius);
 
         float3 scattering = RayleighCoefficient(param, h) + MieCoefficient(param, h);
@@ -62,7 +79,6 @@ float3 Transmittance(in AtmosphereParameter param, float3 p1, float3 p2)
         float3 extinction = scattering + absorption;
 
         sum += extinction * ds;
-        p += dir * ds;
     }
 
     return exp(-sum);
@@ -73,7 +89,7 @@ float3 Transmittance(in AtmosphereParameter param, float3 p1, float3 p2)
 float3 SurfaceSunTransmittance(float3 positionWS, float3 lightDir)
 {
     AtmosphereParameter param = GetAtmosphereParameter();
-    float3 p = AtmosphereCameraPosition(positionWS.y, param.SeaLevel, param.PlanetRadius);
+    float3 p = AtmosphereCameraPosition(positionWS.y * ATMOSPHERE_METRES_TO_KM, param.SeaLevel, param.PlanetRadius);
     return TransmittanceToSun(param, p, lightDir);
 }
 
@@ -97,6 +113,12 @@ float3 AtmosphereStepIntegral(float3 extinction, float ds)
 float3 IntegralMultiScattering(
     in AtmosphereParameter param, float3 samplePoint, float3 lightDir)
 {
+    const int N_DIRECTION = ATMOSPHERE_MULTI_DIRECTION_COUNT;
+    const int N_SAMPLE = ATMOSPHERE_MULTI_SAMPLE_COUNT;
+#if 0
+    // Legacy MaxSRP direction/sample baseline, retained for reconstruction.
+    // Always 64 fixed directions below, each traced using 32 equal intervals at
+    // (j+0.5)*ds. Angular weights were 4*pi/64 and uniform_phase=1/(4*pi).
     const int N_DIRECTION = 64;
     const int N_SAMPLE = 32;
     float3 RandomSphereSamples[64] = {
@@ -165,6 +187,7 @@ float3 IntegralMultiScattering(
         float3(0.803855,-0.0902273,0.587942),
         float3(-0.0555802,-0.374602,-0.925519),
     };
+#endif
     const float uniform_phase = 1.0 / (4.0 * PI);
     const float sphereSolidAngle = 4.0 * PI / float(N_DIRECTION);
 
@@ -174,40 +197,88 @@ float3 IntegralMultiScattering(
     for (int i = 0; i < N_DIRECTION; i++)
     {
         // 光线和大气层求交
-        float3 viewDir = RandomSphereSamples[i];
+        float3 viewDir = AtmosphereMultiSampleDirection(i);
         float dis = RayIntersectSphere(float3(0, 0, 0), param.PlanetRadius + param.AtmosphereHeight, samplePoint, viewDir);
         float d = RayIntersectGroundSphere(param.PlanetRadius, samplePoint, viewDir);
+        bool hitGround = d >= 0.0 && d <= dis;
         if (dis <= 0.0) continue;
         if (d >= 0.0) dis = min(dis, d);
-        if (dis <= 0.0) continue;
+        if (dis <= 0.0)
+        {
+            // A zero-length atmospheric path can still see a reflecting ground
+            // boundary. Preserve the original early-out exactly for black ground.
+            if (hitGround && any(param.GroundAlbedo > 0.0))
+            {
+                float groundNdotL = saturate(dot(normalize(samplePoint), lightDir));
+                if (groundNdotL > 0.0)
+                {
+                    G_2 += TransmittanceToAtmosphere(param, samplePoint, lightDir) *
+                        param.GroundAlbedo * (groundNdotL / PI) * uniform_phase;
+                }
+            }
+            continue;
+        }
         float ds = dis / float(N_SAMPLE);
 
-        float3 p = samplePoint + (viewDir * ds) * 0.5;
         float3 opticalDepth = float3(0, 0, 0);
 
         for (int j = 0; j < N_SAMPLE; j++)
         {
+            float3 p = samplePoint + viewDir * ((float(j) + ATMOSPHERE_SAMPLE_OFFSET) * ds);
             float h = max(0.0, length(p) - param.PlanetRadius);
             float3 sigma_s = RayleighCoefficient(param, h) + MieCoefficient(param, h);  // scattering
             float3 sigma_a = OzoneAbsorption(param, h) + MieAbsorption(param, h);       // absorption
             float3 sigma_t = sigma_s + sigma_a;                                         // extinction
 
             float3 t1 = TransmittanceToSun(param, p, lightDir);
-            float3 s = Scattering(param, p, lightDir, viewDir);
-            float3 stepWeight = exp(-opticalDepth) * AtmosphereStepIntegral(sigma_t, ds);
+            // UE / Hillaire Eq. (6): the auxiliary multiple-scattering source is
+            // isotropic too. The visible single-scattering path below keeps its
+            // Rayleigh and platform-selected Mie phase functions.
+            float3 s = sigma_s * uniform_phase;
+            float3 throughput = exp(-opticalDepth);
+            float3 stepWeight = throughput * AtmosphereStepIntegral(sigma_t, ds);
 
             // 用 1.0 代替太阳光颜色, 该变量在后续的计算中乘上去
             G_2 += t1 * s * stepWeight * uniform_phase * 1.0;
+#if defined(MAX_ATMOSPHERE_MOBILE)
+            // UE's current default: segment-start throughput for feedback only.
+            // Source luminance above keeps its analytical segment integration.
+            f_ms += throughput * sigma_s * ds * uniform_phase;
+#else
+            // PC: integrate attenuation within the segment before closing the series.
             f_ms += stepWeight * sigma_s * uniform_phase;
+#endif
 
             opticalDepth += sigma_t * ds;
-            p += viewDir * ds;
+        }
+
+        // Unit source illuminance, as for the atmospheric contribution above.
+        // Add Lambert ground radiance before the shared angular normalization;
+        // sigma_s is applied later at the receiving air sample, not at the ground.
+        if (hitGround && any(param.GroundAlbedo > 0.0))
+        {
+            float3 groundPoint = samplePoint + viewDir * dis;
+            float groundNdotL = saturate(dot(normalize(groundPoint), lightDir));
+            if (groundNdotL > 0.0)
+            {
+                // Positive NdotL already excludes planetary occlusion. Avoid the
+                // inside-ground test on a reconstructed point rounded below radius.
+                float3 groundRadiance = TransmittanceToAtmosphere(param, groundPoint, lightDir) *
+                    param.GroundAlbedo * (groundNdotL / PI);
+                G_2 += exp(-opticalDepth) * groundRadiance * uniform_phase;
+            }
         }
     }
 
     G_2 *= sphereSolidAngle;
     f_ms *= sphereSolidAngle;
+#if defined(MAX_ATMOSPHERE_MOBILE)
+    // Match UE's default finite five-term closure; no pole when feedback nears one.
+    float3 f_ms2 = f_ms * f_ms;
+    return G_2 * (1.0 + f_ms + f_ms2 + f_ms * f_ms2 + f_ms2 * f_ms2);
+#else
     return G_2 * (1.0 / (1.0 - f_ms));
+#endif
 }
 
 // 读取多重散射查找表
@@ -224,12 +295,11 @@ float3 GetMultiScattering(in AtmosphereParameter param, float3 p, float3 lightDi
 }
 
 // 计算天空颜色
-float3 GetAtmosphereSegment(
+float3 IntegrateAtmosphereSegment(
     in AtmosphereParameter param, float3 eyePos, float3 viewDir, float3 lightDir, float maxDis,
-    out float3 transmittance)
+    out float3 transmittance, float fixedSampleCount)
 {
     transmittance = float3(1.0, 1.0, 1.0);
-    const int N_SAMPLE = 32;
     float3 color = float3(0, 0, 0);
 
     // 光线和大气层, 星球求交
@@ -242,13 +312,37 @@ float3 GetAtmosphereSegment(
     if (maxDis >= 0.0) exit = min(exit, maxDis);
     float dis = exit - entry;
     if (dis <= 0.0) return color;
-    float ds = dis / float(N_SAMPLE);
-    float3 p = eyePos + viewDir * (entry + ds * 0.5);
+    // fixedSampleCount<=0 selects UE's variable sky setup. AP passes its own
+    // per-slice fixed count and keeps equal-length intervals.
+    bool variableSamples = fixedSampleCount <= 0.0;
+    float sampleCount = variableSamples ? lerp(ATMOSPHERE_SKY_SAMPLE_COUNT_MIN,
+        ATMOSPHERE_SKY_SAMPLE_COUNT_MAX, saturate(dis / ATMOSPHERE_SKY_DISTANCE_TO_MAX_KM)) : max(1.0, fixedSampleCount);
+    float sampleCountFloor = floor(sampleCount);
+    float disFloor = dis * sampleCountFloor / sampleCount;
+    float fixedDs = dis / sampleCount;
     float3 sunLuminance = param.SolarIrradiance;
     float3 opticalDepth = float3(0, 0, 0);
 
-    for (int i = 0; i < N_SAMPLE; i++)
+    // Legacy MaxSRP core: N=32; ds=dis/N; p=eye+dir*(entry+(i+0.5)*ds).
+    // Each sample accumulated T*source*AtmosphereStepIntegral(extinction,ds),
+    // opticalDepth+=extinction*ds. AP used the same 32 midpoint steps at every
+    // depth. Reinstating this loop restores the old uniform midpoint solver.
+    for (float sampleIndex = 0.0; sampleIndex < sampleCount; sampleIndex += 1.0)
     {
+        float ds = fixedDs;
+        float t = (sampleIndex + ATMOSPHERE_SAMPLE_OFFSET) * fixedDs;
+        if (variableSamples)
+        {
+            // UE square-distance distribution with a fractional last interval.
+            // Do not round sampleCount: floor/rescaling avoids count transition bands.
+            float t0 = sampleIndex / sampleCountFloor;
+            float t1 = (sampleIndex + 1.0) / sampleCountFloor;
+            t0 = disFloor * t0 * t0;
+            t1 = t1 > 1.0 ? dis : disFloor * t1 * t1;
+            ds = t1 - t0;
+            t = t0 + ds * ATMOSPHERE_SAMPLE_OFFSET;
+        }
+        float3 p = eyePos + viewDir * (entry + t);
         // 积累沿途的湮灭系数
         float h = max(0.0, length(p) - param.PlanetRadius);
         float3 extinction = RayleighCoefficient(param, h) + MieCoefficient(param, h) +  // scattering
@@ -267,11 +361,26 @@ float3 GetAtmosphereSegment(
         color += multiScattering * stepWeight * sunLuminance;
 
         opticalDepth += extinction * ds;
-        p += viewDir * ds;
     }
 
     transmittance = exp(-opticalDepth);
     return color;
+}
+
+// SkyView uses distance-dependent square-distributed intervals.
+float3 GetAtmosphereSegment(
+    in AtmosphereParameter param, float3 eyePos, float3 viewDir, float3 lightDir, float maxDis,
+    out float3 transmittance)
+{
+    return IntegrateAtmosphereSegment(param, eyePos, viewDir, lightDir, maxDis, transmittance, 0.0);
+}
+
+// AP uses the UE per-slice count supplied by its generator, not the sky budget.
+float3 GetAtmosphereSegment(
+    in AtmosphereParameter param, float3 eyePos, float3 viewDir, float3 lightDir, float maxDis,
+    out float3 transmittance, float fixedSampleCount)
+{
+    return IntegrateAtmosphereSegment(param, eyePos, viewDir, lightDir, maxDis, transmittance, fixedSampleCount);
 }
 
 float3 GetSkyView(

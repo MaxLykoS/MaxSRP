@@ -95,21 +95,25 @@ MonoBehaviour:
     Opacity: 1
     EnvironmentUpdateInterval: 1
   m_iblCS: {fileID: 7200000, guid: e2b8bb07b144234449da79ec0190d9c9, type: 3}
+  m_atmosphereConfiguration: {fileID: 11400000, guid: dcd532677ffc4939840ae54b58d71089, type: 2}
+  m_aerialPerspectiveCompute: {fileID: 7200000, guid: abaf683ba41a4ad3bbf7d9d3cf32a8c6, type: 3}
   m_atmosphereScatteringSetting:
+    LengthUnitVersion: 1
     _SeaLevel: 0
-    _PlanetRadius: 6360000
-    _AtmosphereHeight: 60000
-    _SunDiskAngle: 1
+    _PlanetRadius: 6360
+    _AtmosphereHeight: 60
+    _SunDiskAngle: 0.26785
     _RayleighScatteringScale: 1
-    _RayleighScatteringScalarHeight: 8000
+    _RayleighScatteringScalarHeight: 8
     _MieScatteringScale: 1
     _MieAnisotropy: 0.8
-    _MieScatteringScalarHeight: 1200
+    _MieScatteringScalarHeight: 1.2
     _OzoneAbsorptionScale: 1
-    _OzoneLevelCenterHeight: 25000
-    _OzoneLevelWidth: 15000
+    _OzoneLevelCenterHeight: 25
+    _OzoneLevelWidth: 15
     EnableAerialPerspective: 1
-    _AerialPerspectiveDistance: 32000
+    _AerialPerspectiveDistance: 96
+    _AerialPerspectiveStartDepth: 0.1
     m_proceduralSkyboxShader: {fileID: 4800000, guid: e672d8dbb2dc9254b9fedecd6817998b, type: 3}
     m_transmittanceShader: {fileID: 4800000, guid: b155559cdc37a5040b239fb63b6e7033, type: 3}
     m_multiscatteringShader: {fileID: 4800000, guid: afbbd3e0f2a7706469dbbd78e6c093e1, type: 3}

@@ -27,8 +27,9 @@ float3 DynamicCubeDirection(uint3 id)
 
 float2 DynamicSkyUV(float3 direction)
 {
-    return float2(atan2(direction.z, direction.x) / (2.0 * PI) + 0.5,
-        asin(clamp(direction.y, -1.0, 1.0)) / PI + 0.5);
+    // Legacy uniform map: float2(atan2(z,x)/(2*PI)+0.5, asin(y)/PI+0.5).
+    return SkyViewLutLocalDirToUV(direction, _AtmosphereEnvironmentSkyViewHeight,
+        _PlanetRadius, _AtmosphereSkyViewSizeAndInvSize);
 }
 
 float DynamicSourceMip(float pdf)
@@ -49,10 +50,10 @@ void SkyToEnvironment(uint3 id : SV_DispatchThreadID)
     if (_MaxCloudShape.x > 0.5)
     {
         AtmosphereParameter atmosphere = GetAtmosphereParameter();
-        float3 position = float3(0, atmosphere.PlanetRadius + _MaxCloudGeometry.x, 0);
+        float3 position = float3(0, atmosphere.PlanetRadius + _MaxCloudGeometry.x * ATMOSPHERE_METRES_TO_KM, 0);
         float3 cloudLightDirection = _AtmosphereSunDirection;
         float3 solar = atmosphere.SolarIrradiance * TransmittanceToSun(atmosphere, position, cloudLightDirection);
-        float3 ambient = _EnvironmentSky.SampleLevel(sampler_EnvironmentSky, float2(0.5, 1), 0).rgb;
+        float3 ambient = _EnvironmentSky.SampleLevel(sampler_EnvironmentSky, DynamicSkyUV(float3(0, 1, 0)), 0).rgb;
         float4 cloud = EvaluateMaxCloudLayer(direction, cloudLightDirection, solar, ambient);
         radiance = cloud.rgb + cloud.a * radiance;
     }
@@ -72,10 +73,10 @@ void SkyToEnvironment(uint3 id : SV_DispatchThreadID)
         float2 uv = float2(dot(hit, right) / width, dot(hit, up) / (width * 0.5)) * 0.5 + 0.5;
         if (any(uv < 0) || any(uv > 1)) continue;
         AtmosphereParameter atmosphere = GetAtmosphereParameter();
-        float3 position = float3(0, atmosphere.PlanetRadius + max(1, _MaxSixWayCentres[card].y - _MaxSixWaySeaLevel), 0);
+        float3 position = float3(0, atmosphere.PlanetRadius + max(1, _MaxSixWayCentres[card].y - _MaxSixWaySeaLevel) * ATMOSPHERE_METRES_TO_KM, 0);
         float3 cloudLightDirection = _AtmosphereSunDirection;
         float3 solar = atmosphere.SolarIrradiance * TransmittanceToSun(atmosphere, position, cloudLightDirection);
-        float3 ambient = _EnvironmentSky.SampleLevel(sampler_EnvironmentSky, float2(0.5, 1), 0).rgb;
+        float3 ambient = _EnvironmentSky.SampleLevel(sampler_EnvironmentSky, DynamicSkyUV(float3(0, 1, 0)), 0).rgb;
         float4 cloud = MaxSixWayShade(uv, card, cloudLightDirection, solar, ambient);
         radiance = cloud.rgb + (1 - cloud.a) * radiance;
     }

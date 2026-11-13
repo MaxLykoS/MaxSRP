@@ -1,0 +1,24 @@
+#pragma kernel BuildAerialPerspective
+#pragma target 5.0
+#pragma multi_compile_local _ MAX_ATMOSPHERE_MOBILE
+
+#include "AerialPerspectiveLUTCommon.hlsl"
+
+RWTexture3D<float4> _AerialScatteringOutput;
+
+// Write every voxel directly. This avoids raster MRT depth-slice attachment
+// behaviour varying across graphics backends while retaining the same solver.
+[numthreads(8, 8, 1)]
+void BuildAerialPerspective(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_AerialPerspectiveParams.y || id.y >= (uint)_AerialPerspectiveParams.z ||
+        id.z >= (uint)_AerialPerspectiveParams.w) return;
+    float2 screenUV = (float2(id.xy) + 0.5) / _AerialPerspectiveParams.yz;
+    AerialVoxelResult voxel = EvaluateAerialPerspectiveVoxel(screenUV, float(id.z));
+    // UE's AP packing: preserve RGB in-scattering, reduce RGB extinction to
+    // one average transmission only after completing the transport integral.
+    float transmittance = dot(voxel.transmittance.rgb, float3(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0));
+    _AerialScatteringOutput[id] = float4(voxel.scattering.rgb, transmittance);
+    // Previous core: write voxel.scattering and voxel.transmittance into two
+    // separate RWTexture3D<float4> volumes, then sample each RGB independently.
+}

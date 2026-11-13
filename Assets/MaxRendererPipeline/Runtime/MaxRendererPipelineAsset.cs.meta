@@ -4,6 +4,8 @@ MonoImporter:
   externalObjects: {}
   serializedVersion: 2
   defaultReferences:
+  - m_atmosphereConfiguration: {fileID: 11400000, guid: dcd532677ffc4939840ae54b58d71089, type: 2}
+  - m_aerialPerspectiveCompute: {fileID: 7200000, guid: abaf683ba41a4ad3bbf7d9d3cf32a8c6, type: 3}
   - m_temporalShader: {fileID: 4800000, guid: 8b10c09f5fe848258543d41a9f0544e8, type: 3}
   - m_lightingShader: {fileID: 4800000, guid: b7b56707e539de6499dfad1cb0cf1464, type: 3}
   - m_clusteredLightingCS: {fileID: 7200000, guid: ba3391733eb84be79755af8922d3f79b, type: 3}

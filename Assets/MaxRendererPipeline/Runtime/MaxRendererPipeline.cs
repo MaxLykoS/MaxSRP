@@ -45,7 +45,7 @@ namespace MaxSRP
                 m_colorOutputPass = new MaxColorOutputPass(setting.ColorOutput);
                 m_temporalAA = new MaxTemporalAAPass(setting.TemporalShader);
                 m_shadowCastPass = new MaxShadowCasterPass(setting.CascadeSetting, setting.AtmosphereScatteringSetting);
-                m_proceduralSkyboxPass = new MaxProceduralSkyboxPass(setting.AtmosphereScatteringSetting);
+                m_proceduralSkyboxPass = new MaxProceduralSkyboxPass(setting.AtmosphereScatteringSetting, setting.AtmosphereConfiguration, setting.AerialPerspectiveCompute);
                 m_iblGIPass = new MaxIBLGIPass(setting.IBLCS);
                 m_cloudLayerPass = new MaxCloudLayerPass(setting.CloudLayer, setting.IBLCS);
                 m_sixWayCloudPass = new MaxSixWayCloudPass(setting.SixWayCloud, setting.IBLCS);
@@ -99,6 +99,10 @@ namespace MaxSRP
             var gtao = MaxGTAOSettings.FindForCamera(camera);
             int lightingHistoryKey = unchecked((bakedSolar ? bakedSolar.HistoryKey : 0) * 31 +
                 (gtao ? gtao.HistoryKey : 0));
+            lightingHistoryKey = unchecked(lightingHistoryKey * 31 +
+                MaxAtmosphereConfig.ResolveHistoryKey(m_setting.AtmosphereConfiguration));
+            lightingHistoryKey = unchecked(lightingHistoryKey * 31 + m_setting.AtmosphereScatteringSetting._AerialPerspectiveDistance.GetHashCode());
+            lightingHistoryKey = unchecked(lightingHistoryKey * 31 + m_setting.AtmosphereScatteringSetting._AerialPerspectiveStartDepth.GetHashCode());
             MaxTemporalAAPass.CameraHistory temporal = m_temporalAA.Begin(camera, m_setting.TemporalAA,
                 m_outputCameraCounts[GetOutputKey(camera)] == 1, sun, lightingHistoryKey);
             context.SetupCameraProperties(camera);
@@ -193,12 +197,14 @@ namespace MaxSRP
                 m_proceduralSkyboxPass.TransmittanceLUT, m_setting.SkyIBL.ReferenceHeight);
             m_sixWayCloudPass.Prepare(context, camera, sun, m_setting.AtmosphereScatteringSetting,
                 m_proceduralSkyboxPass.TransmittanceLUT, m_proceduralSkyboxPass.EnvironmentSky,
-                temporal == null ? camera.transform.position : temporal.Position);
+                temporal == null ? camera.transform.position : temporal.Position,
+                m_proceduralSkyboxPass.EnvironmentViewHeight, m_proceduralSkyboxPass.SkyViewSizeAndInvSize);
             // LUT generation intentionally uses an unjittered projection; restore the
             // raster matrices before reconstructing depth and drawing the procedural sky.
             MaxTemporalAAPass.Bind(context, camera, temporal);
             m_iblGIPass.Execute(context, m_proceduralSkyboxPass.EnvironmentSky,
-                m_sixWayCloudPass.EnvironmentRevision(m_cloudLayerPass.EnvironmentRevision(m_proceduralSkyboxPass.EnvironmentRevision)), m_setting.SkyIBL);
+                m_sixWayCloudPass.EnvironmentRevision(m_cloudLayerPass.EnvironmentRevision(m_proceduralSkyboxPass.EnvironmentRevision)), m_setting.SkyIBL,
+                m_proceduralSkyboxPass.EnvironmentViewHeight, m_proceduralSkyboxPass.SkyViewSizeAndInvSize);
             var localLights = m_clusteredLightingPass.Prepare(context, camera, width, height,
                 m_lightConfigurator, m_setting.ClusteredLighting);
             var gtaoVisibility = resources.GTAO.Execute(context, camera, gtao, resources.Depth,

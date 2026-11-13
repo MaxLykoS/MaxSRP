@@ -1,25 +1,16 @@
 #ifndef MAX_AERIALPERSPECTIVE_PASS_INCLUDED
 #define MAX_AERIALPERSPECTIVE_PASS_INCLUDED
 
-#include "../../../ShaderLibrary/Realtime/LightInput.hlsl"
-#include "../../../ShaderLibrary/Realtime/SpaceTransform.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Raymarching.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl"
+#include "AerialPerspectiveLUTCommon.hlsl"
 
-// Dedicated inputs survive utility Blits that may overwrite Unity's camera matrices.
-float4x4 _AerialInverseProjection;
-float4x4 _AerialCameraToWorld;
-float4 _AerialCameraPosition; // world position, orthographic flag
+// Retained raster reference. Production native-3D volumes are populated by
+// AerialPerspectiveLUT.compute; this pass keeps the prior fragment entry for
+// source comparison and can still render one packed voxel slice to a 2D target.
+float _AtmosphereAerialSlice;
 
 struct v2f
 {
     float4 vertex : SV_POSITION;
-};
-
-struct AerialOutputs
-{
-    float4 scattering : SV_Target0;
-    float4 transmittance : SV_Target1;
 };
 
 v2f vert(uint vertexID : SV_VertexID)
@@ -30,35 +21,17 @@ v2f vert(uint vertexID : SV_VertexID)
     return o;
 }
 
-AerialOutputs frag(v2f i)
+float4 frag(v2f i) : SV_Target
 {
-    AtmosphereParameter param = GetAtmosphereParameter();
-    float slice = floor(i.vertex.x / _AerialPerspectiveParams.y);
-    float2 screenUV = float2((i.vertex.x - slice * _AerialPerspectiveParams.y) /
-        _AerialPerspectiveParams.y, i.vertex.y / _AerialPerspectiveParams.z);
-    float2 ndc = screenUV * 2.0 - 1.0;
-#if UNITY_UV_STARTS_AT_TOP
-    ndc.y = -ndc.y;
-#endif
-    float4 viewPosition = mul(_AerialInverseProjection, float4(ndc, UNITY_NEAR_CLIP_VALUE, 1.0));
-    float3 viewDir = normalize(mul((float3x3)_AerialCameraToWorld, viewPosition.xyz));
-    float3 eyePos = AtmosphereCameraPosition(_AerialCameraPosition.y, param.SeaLevel, param.PlanetRadius);
-    if (_AerialCameraPosition.w > 0.5)
-    {
-        // Parallel rays start at different points on the camera plane.
-        float3 cameraPlanePosition = float3(viewPosition.xy / viewPosition.w, 0.0);
-        eyePos += mul((float3x3)_AerialCameraToWorld, cameraPlanePosition);
-        eyePos.y = max(eyePos.y, param.PlanetRadius + 1.0);
-        viewDir = normalize(mul((float3x3)_AerialCameraToWorld, float3(0.0, 0.0, -1.0)));
-    }
-    float3 lightDir = normalize(_AtmosphereSunDirection);
-    float distance = AerialSliceDistance(slice);
-    float3 transmittance;
-    float3 scattering = GetAtmosphereSegment(param, eyePos, viewDir, lightDir, distance, transmittance);
-    AerialOutputs o;
-    o.scattering = float4(scattering, 1.0);
-    o.transmittance = float4(transmittance, 1.0);
-    return o;
+    // Legacy 2D strip producer: slice=floor(SV_Position.x/width), then
+    // screenUV.x=(SV_Position.x-slice*width)/width with target width=width*N.
+    // The retained single-slice reference uses a width x height viewport.
+    float2 screenUV = i.vertex.xy / _AerialPerspectiveParams.yz;
+    AerialVoxelResult voxel = EvaluateAerialPerspectiveVoxel(screenUV, _AtmosphereAerialSlice);
+    float transmittance = dot(voxel.transmittance.rgb, float3(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0));
+    return float4(voxel.scattering.rgb, transmittance);
+    // Legacy MRT core: o.scattering=voxel.scattering (SV_Target0),
+    // o.transmittance=voxel.transmittance (SV_Target1), return o.
 }
 
 #endif

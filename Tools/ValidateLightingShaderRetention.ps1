@@ -31,6 +31,16 @@ if (-not [IO.File]::ReadAllText((Join-Path $taskRuntime 'MaxRendererPipelineAsse
 }
 
 # Bind production sources to installed Unity engine/editor APIs for both contexts.
+$taskAerialGuid = [regex]::Match([IO.File]::ReadAllText((Join-Path $taskRoot 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute.meta')), '(?m)^guid: (\w+)').Groups[1].Value
+$taskAerialReference = "m_aerialPerspectiveCompute: {fileID: 7200000, guid: $taskAerialGuid, type: 3}"
+foreach ($taskAsset in $taskAssets) {
+    if (-not [IO.File]::ReadAllText($taskAsset.FullName).Contains($taskAerialReference)) {
+        throw "Missing serialized aerial Compute dependency: $($taskAsset.FullName)"
+    }
+}
+if (-not [IO.File]::ReadAllText((Join-Path $taskRuntime 'MaxRendererPipelineAsset.cs.meta')).Contains($taskAerialReference)) {
+    throw 'New pipeline asset aerial Compute default reference is missing.'
+}
 # Only the two unchanged SRP Core helpers below use declaration-only stand-ins;
 # package assemblies in Library are deliberately not accessed.
 # This does not launch Unity, read Library, build a Player, or execute on a GPU.

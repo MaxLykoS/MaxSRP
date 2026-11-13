@@ -110,7 +110,7 @@ namespace MaxSRP
                         m_valid = false;
                     }
                     var shape = new Vector4(1, Mathf.Clamp01(m_settings.Coverage), Mathf.Clamp(m_settings.Density, 0, 10), Mathf.Max(1000, m_settings.TileSize));
-                    var geometry = new Vector4(Mathf.Max(100, m_settings.Altitude), Mathf.Max(100, m_settings.Thickness), Mathf.Max(1000, atmosphere._PlanetRadius), 0);
+                    var geometry = new Vector4(Mathf.Max(100, m_settings.Altitude), Mathf.Max(100, m_settings.Thickness), Mathf.Max(1000, atmosphere._PlanetRadius * MaxProceduralSkyboxPass.AtmosphereSettings.KilometresToMetres), 0);
                     int steps = Mathf.Clamp(m_settings.LightingSteps, 4, 32);
                     float angle = m_settings.WindDirection * Mathf.Deg2Rad;
                     Vector2 velocity = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * (Mathf.Max(0, m_settings.WindSpeed) / shape.w);
@@ -157,7 +157,7 @@ namespace MaxSRP
                 m_enabled = enabled;
                 if (changed) ++ContentRevision;
                 Vector3 position = camera.transform.position;
-                var observer = new Vector4(position.x, position.y - atmosphere._SeaLevel, position.z, 0);
+                var observer = new Vector4(position.x, position.y - atmosphere._SeaLevel * MaxProceduralSkyboxPass.AtmosphereSettings.KilometresToMetres, position.z, 0);
                 var anchor = new Vector2(Mathf.Round(position.x / 128) * 128, Mathf.Round(position.z / 128) * 128);
                 if (enabled && (!m_anchorValid || anchor != m_environmentAnchor))
                 { m_environmentAnchor = anchor; m_anchorValid = true; ++m_revision; }

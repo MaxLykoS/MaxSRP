@@ -21,6 +21,7 @@ Shader "MaxSRP/Hidden/MultiscatteringLUT"
             #pragma target 5.0
             #pragma vertex vert
             #pragma fragment frag
+            #pragma multi_compile_local_fragment _ MAX_ATMOSPHERE_MOBILE
             ENDHLSL
         }
     }

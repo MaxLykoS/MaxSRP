@@ -1,5 +1,7 @@
 # 独立大气输运对照（2026-10-19）
 
+> 2026-11-12：生产大气已迁移 km 并加入可配置地表反弹。下文是旧黑地面基线的历史结果，不代表新默认配置已通过相同输运对照。`parameters()` 会将新单位输入转回参考求解器使用的米；此参考仍假设黑地面与 CS 相函数，比较时需将新大气配置的 Ground Albedo 设为黑色，并使用 PC 档位；Mobile 的 HG 分支不应直接与该 CS 参考当作同模型比较。
+
 太阳光晕的四组 GPU 采样消融试验单独记录在 [HALO_COMPARISON.md](HALO_COMPARISON.md)。它用于区分 LUT 与积分影响，不属于独立输运参考。
 
 后续的实际 Color Output / Editor 合成排查和独立 RGB dithering 修正见 [FINAL_OUTPUT.md](FINAL_OUTPUT.md)。

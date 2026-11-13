@@ -4,6 +4,17 @@
 #ifndef PI
 #define PI 3.14159265359
 #endif
+// Unity world positions and cloud geometry remain metres; atmosphere transport is km.
+#define ATMOSPHERE_METRES_TO_KM 0.001
+#define ATMOSPHERE_KM_TO_METRES 1000.0
+#define ATMOSPHERE_MIN_ALTITUDE_KM 0.001
+
+// Legacy MaxSRP uniform world-space latitude/longitude map, preserved for reconstruction.
+// Its generator used UVToViewDir(uv), all consumers used ViewDirToUV(direction),
+// the horizon was at v=0.5, zenith at v=1, and the azimuth seam used repeat wrap.
+// To restore that route, replace the paired SkyViewLut* helpers in generation,
+// camera sky, environment IBL and both cloud ambient lookups together.
+#if 0
 float3 UVToViewDir(float2 uv)
 {
     float theta = (1.0 - uv.y) * PI;
@@ -24,13 +35,92 @@ float2 ViewDirToUV(float3 v)
 
     return uv;
 }
+#endif
 
-// Keep the observer outside the solid planet. At Earth scale one float ULP is
-// 0.5 metres; a one-metre floor avoids rounding a near-ground camera onto it.
+// UE SkyView uses a two-hemisphere latitude map with quadratic concentration
+// around the actual spherical horizon, plus its unit/sub-UV edge convention.
+// Helpers evaluate directions in a y-up LUT reference frame. Camera generation
+// and lookup rotate with the same horizontal view frame, while environment IBL
+// uses the fixed world frame. Both retain exactly the same nonlinear latitude map.
+float2 SkyViewLutUnitToSubUV(float2 uv, float4 sizeAndInvSize)
+{
+    return (uv + 0.5 * sizeAndInvSize.zw) *
+        (sizeAndInvSize.xy / (sizeAndInvSize.xy + 1.0));
+}
+
+float2 SkyViewLutSubToUnitUV(float2 uv, float4 sizeAndInvSize)
+{
+    return (uv - 0.5 * sizeAndInvSize.zw) *
+        (sizeAndInvSize.xy / (sizeAndInvSize.xy - 1.0));
+}
+
+void SkyViewLutHorizonAngles(float viewHeight, float bottomRadius,
+    out float beta, out float zenithHorizonAngle)
+{
+    float height = max(viewHeight, bottomRadius);
+    // Factor the difference of squares to retain metre-scale altitude in km.
+    float horizonDistance = sqrt(max(0.0, (height - bottomRadius) * (height + bottomRadius)));
+    beta = acos(clamp(horizonDistance / max(height, 1e-6), 0.0, 1.0));
+    zenithHorizonAngle = PI - beta;
+}
+
+float3 SkyViewLutUVToLocalDir(float2 uv, float viewHeight,
+    float bottomRadius, float4 sizeAndInvSize)
+{
+    uv = saturate(SkyViewLutSubToUnitUV(uv, sizeAndInvSize));
+    float beta, zenithHorizonAngle;
+    SkyViewLutHorizonAngles(viewHeight, bottomRadius, beta, zenithHorizonAngle);
+    float zenithAngle;
+    if (uv.y < 0.5)
+    {
+        float coord = 1.0 - 2.0 * uv.y;
+        zenithAngle = zenithHorizonAngle * (1.0 - coord * coord);
+    }
+    else
+    {
+        float coord = 2.0 * uv.y - 1.0;
+        zenithAngle = zenithHorizonAngle + beta * coord * coord;
+    }
+    float longitude = uv.x * (2.0 * PI);
+    float sinZenith = sin(zenithAngle);
+    return float3(sinZenith * cos(longitude), cos(zenithAngle), sinZenith * sin(longitude));
+}
+
+float2 SkyViewLutLocalDirToUV(float3 direction, float viewHeight,
+    float bottomRadius, float4 sizeAndInvSize)
+{
+    float beta, zenithHorizonAngle;
+    SkyViewLutHorizonAngles(viewHeight, bottomRadius, beta, zenithHorizonAngle);
+    float zenithAngle = acos(clamp(direction.y, -1.0, 1.0));
+    float2 uv;
+    if (zenithAngle < zenithHorizonAngle)
+    {
+        float coord = 1.0 - zenithAngle / max(zenithHorizonAngle, 1e-6);
+        uv.y = (1.0 - sqrt(saturate(coord))) * 0.5;
+    }
+    else
+    {
+        float coord = (zenithAngle - zenithHorizonAngle) / max(beta, 1e-6);
+        uv.y = sqrt(saturate(coord)) * 0.5 + 0.5;
+    }
+    // Longitude is arbitrary at the poles. Avoid atan2(0,0), including explicit
+    // zenith ambient queries in the cloud and environment paths.
+    uv.x = dot(direction.xz, direction.xz) < 1e-12 ? 0.5 :
+        (atan2(-direction.z, -direction.x) + PI) / (2.0 * PI);
+    return SkyViewLutUnitToSubUV(uv, sizeAndInvSize);
+}
+
+// Both the camera LUT and the environment LUT use the selected profile's size.
+// The environment observer differs from the camera and must retain its own height.
+float4 _AtmosphereSkyViewSizeAndInvSize;
+float _AtmosphereEnvironmentSkyViewHeight;
+
+// All arguments and the returned planetary position are kilometres. Near Earth
+// radius a float ULP is about 0.49 metres; retain the one-metre altitude floor.
 // Apply the same policy to sky LUT generation, the solar disk and aerial LUTs.
 float3 AtmosphereCameraPosition(float cameraY, float seaLevel, float planetRadius)
 {
-    float altitude = max(cameraY - seaLevel, 1.0);
+    float altitude = max(cameraY - seaLevel, ATMOSPHERE_MIN_ALTITUDE_KM);
     return float3(0.0, planetRadius + altitude, 0.0);
 }
 

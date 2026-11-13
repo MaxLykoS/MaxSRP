@@ -85,7 +85,7 @@ namespace MaxSRP
 
         public void Prepare(ScriptableRenderContext context, Camera camera, SunLightData sun,
             MaxProceduralSkyboxPass.AtmosphereSettings atmosphere, Texture transmittance, Texture sky,
-            Vector3 previousCameraPosition)
+            Vector3 previousCameraPosition, float environmentViewHeight, Vector4 skyViewSizeAndInvSize)
         {
             double now = Time.realtimeSinceStartupAsDouble;
             if (m_time >= 0)
@@ -95,7 +95,7 @@ namespace MaxSRP
             }
             m_time = now;
             bool enabled = m_settings.Enabled && m_settings.PositiveAxes != null && m_settings.NegativeAxes != null;
-            int hash = SettingsHash(atmosphere._SeaLevel);
+            int hash = SettingsHash(atmosphere._SeaLevel * MaxProceduralSkyboxPass.AtmosphereSettings.KilometresToMetres);
             bool changed = enabled != m_enabled || hash != m_settingsHash;
             if (changed) { ++ContentRevision; ++m_environmentRevision; }
             m_settingsHash = hash; m_enabled = enabled;
@@ -131,7 +131,7 @@ namespace MaxSRP
                     float x = (i % 5 - 2 + (Hash(i, 1) - 0.5f) * 0.65f) * size / 5;
                     float z = (i / 5 - 2 + (Hash(i, 2) - 0.5f) * 0.65f) * size / 5;
                     var centre = new Vector3(Wrap(x + m_windX, observer.x, size),
-                        atmosphere._SeaLevel + Mathf.Max(100, m_settings.Altitude) * (0.85f + 0.3f * Hash(i, 3)),
+                        atmosphere._SeaLevel * MaxProceduralSkyboxPass.AtmosphereSettings.KilometresToMetres + Mathf.Max(100, m_settings.Altitude) * (0.85f + 0.3f * Hash(i, 3)),
                         Wrap(z + m_windZ, observer.z, size));
                     Vector3 normal = (observer - centre).normalized;
                     Vector3 right = Vector3.Cross(Vector3.up, normal);
@@ -156,6 +156,8 @@ namespace MaxSRP
                 m_material.SetTexture("_MaxSixWayPositive", m_settings.PositiveAxes);
                 m_material.SetTexture("_MaxSixWayNegative", m_settings.NegativeAxes);
                 m_material.SetTexture("_MaxSixWaySky", sky);
+                m_material.SetFloat("_AtmosphereEnvironmentSkyViewHeight", environmentViewHeight);
+                m_material.SetVector("_AtmosphereSkyViewSizeAndInvSize", skyViewSizeAndInvSize);
                 m_material.SetTexture("_TransmittanceLUT", transmittance);
                 m_material.SetVectorArray("_MaxSixWayCentres", m_centres);
                 m_material.SetVectorArray("_MaxSixWayRight", m_right);
@@ -173,7 +175,7 @@ namespace MaxSRP
                 cmd.SetComputeVectorArrayParam(m_ibl, "_MaxSixWayUp", m_up);
                 cmd.SetComputeVectorParam(m_ibl, "_MaxSixWayParams", parameters);
                 cmd.SetComputeVectorParam(m_ibl, "_MaxSixWayObserver", observer);
-                cmd.SetComputeFloatParam(m_ibl, "_MaxSixWaySeaLevel", atmosphere._SeaLevel);
+                cmd.SetComputeFloatParam(m_ibl, "_MaxSixWaySeaLevel", atmosphere._SeaLevel * MaxProceduralSkyboxPass.AtmosphereSettings.KilometresToMetres);
             }
             finally { context.ExecuteCommandBuffer(cmd); CommandBufferPool.Release(cmd); }
         }

@@ -51,7 +51,7 @@ fixed4 frag(v2f i) : SV_Target
 	float3 hitPoint = eyePos + viewDir * dis;
 
 	// raymarch º∆À„ transmittance
-	color.rgb = Transmittance(param, eyePos, hitPoint);
+	color.rgb = AtmosphereEncodeTransmittance(Transmittance(param, eyePos, hitPoint));
 
 	return color;
 }

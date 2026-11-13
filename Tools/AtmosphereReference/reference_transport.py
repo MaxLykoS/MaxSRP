@@ -18,6 +18,12 @@ set_num_threads(min(4,os.cpu_count() or 1))
 # p = radius, height, H_R, H_M, g, ozone centre/width,
 #     beta_R[3], beta_M_scatter, beta_M_absorb, beta_O[3] (all per metre).
 def parameters(settings):
+    # This independent solver remains metre-based. Historical inputs have no version.
+    settings = dict(settings)
+    if settings.get("LengthUnitVersion", 0) >= 1:
+        for key in ("_PlanetRadius", "_AtmosphereHeight", "_RayleighScatteringScalarHeight",
+                    "_MieScatteringScalarHeight", "_OzoneLevelCenterHeight", "_OzoneLevelWidth"):
+            settings[key] *= 1000.0
     return np.array([settings['_PlanetRadius'],settings['_AtmosphereHeight'],
         settings['_RayleighScatteringScalarHeight'],settings['_MieScatteringScalarHeight'],
         settings['_MieAnisotropy'],settings['_OzoneLevelCenterHeight'],settings['_OzoneLevelWidth'],
