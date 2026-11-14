@@ -2,13 +2,15 @@
 
 > 验证入口说明：下文 Validate/Capture 脚本及报告属于历史验证记录，临时夹具未保留在当前仓库。当前可运行 `Tools/ValidateShaders.ps1`，并在 Unity 检查 Console 与场景效果；不将历史记录视为本次重新验证。资源生成与 Setup 工具仍保留。
 
-The default MaxSRP asset now enables **Six Way Cloud Settings** and disables **Cloud Layer Settings**. The old planar cloud implementation and its resources are retained for comparison. To compare, disable Six Way and enable Cloud Layer; do not leave both enabled when comparing the main cloud.
+Cloud settings live in `DefaultCloud.asset` / `MaxCloudConfig`: each PC / Mobile profile contains **SixWay** and **Layer**. The active `MaxRendererPipelineAsset.Platform` selects the profile for every module; the cloud asset has no independent platform switch. Both profiles use the same cloud algorithms and initially copy the previous pipeline parameters and resources. See [RenderConfiguration.md](RenderConfiguration.md).
+
+The default cloud configuration enables **SixWay** and disables **Layer** in both profiles. The old planar implementation and resources are retained for comparison. To compare, disable SixWay and enable Layer in the active profile; do not leave both enabled when comparing the main cloud.
 
 ## Source and rendering
 
 The resources are Unity's CC0 `TX_Pyro_Clouds_A_2x4_P/N` sample maps. See `Assets/ThirdParty/UnitySixWayClouds/SOURCE.md` for the official license declaration, download link and original checksums. `Tools/PrepareUnitySixWayClouds.py` reproduces the runtime PNGs. The 2x4 atlas contains **eight different static cloud shapes**, not an animated simulation. Each shape is 1024x512 in the prepared 2048-square atlas.
 
-The sample uses 25 deterministic world-space billboards on a jittered 5x5 grid. Cloud centres move in world XZ at Wind Speed in metres/second; changing heading or speed preserves accumulated displacement. Billboards face the observer with world-up orientation; their centres do not rotate around or follow the camera. A periodic field and outer distance fade hide recycling. Height, cloud width and field size are exposed on the pipeline asset.
+The sample uses 25 deterministic world-space billboards on a jittered 5x5 grid. Cloud centres move in world XZ at Wind Speed in metres/second; changing heading or speed preserves accumulated displacement. Billboards face the observer with world-up orientation; their centres do not rotate around or follow the camera. A periodic field and outer distance fade hide recycling. Height, cloud width and field size are exposed in the active cloud configuration profile.
 
 The six directions are lighting directions in each billboard's frame, not cubemap views. P.rgb is right/top/back, N.rgb is left/bottom/front, and P.a is opacity. Both maps are sampled as linear data. The sun direction is transformed into that frame, the appropriate signed-axis coefficients are selected, and squared direction components blend the result. Direct light uses the pipeline's photometric solar irradiance and atmospheric transmittance at cloud height. Ambient fill is a six-channel average modulated by zenith sky radiance. This is a simple normalized lighting model, not a full port of HDRP's smoke absorption/material implementation. No extra HG phase is multiplied onto the maps.
 

@@ -4,7 +4,7 @@ using UnityEngine.Rendering;
 
 namespace MaxSRP
 {
-    public enum ToneMappingMode { None, ACES }
+    public enum ToneMappingMode { None = 0, ACES = 1, UEFilm = 2 }
 
     [Serializable]
     public sealed class ColorOutputSettings
@@ -39,10 +39,12 @@ namespace MaxSRP
         private static readonly int ColorID = Shader.PropertyToID("_SceneColorHDR");
         private static readonly int DepthID = Shader.PropertyToID("_SceneDepthHDR");
         private static readonly int ParametersID = Shader.PropertyToID("_ColorOutputParameters");
+        private static readonly ColorGradingSettings NeutralGrading = new ColorGradingSettings();
+        private static readonly FilmSettings DefaultFilm = new FilmSettings();
 
-        public MaxColorOutputPass(ColorOutputSettings settings)
+        public MaxColorOutputPass(ColorOutputSettings settings, Shader outputShader = null)
         {
-            Shader shader = settings.Shader != null ? settings.Shader : Shader.Find("Hidden/MaxSRP/ColorOutput");
+            Shader shader = outputShader != null ? outputShader : settings.Shader != null ? settings.Shader : Shader.Find("Hidden/MaxSRP/ColorOutput");
             if (shader == null || !shader.isSupported)
                 throw new InvalidOperationException("MaxSRP requires a supported ColorOutput shader.");
             m_material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
@@ -50,19 +52,21 @@ namespace MaxSRP
 
         public void Execute(ScriptableRenderContext context, Camera camera, RenderTexture color,
             RenderTexture sceneDepth, RenderTargetIdentifier target, RenderTargetIdentifier targetDepth,
-            ColorOutputSettings settings, bool showLinearMask = false)
+            ColorOutputSettings settings, bool showLinearMask = false, MaxPostProcessPass.Output post = default)
         {
             CommandBuffer cmd = CommandBufferPool.Get("HDR Color Output");
             try
             {
                 cmd.SetGlobalTexture(ColorID, color);
                 cmd.SetGlobalTexture(DepthID, sceneDepth);
-                float exposure = showLinearMask ? 1.0f : MaxSceneExposure.GetExposureMultiplier(camera, settings);
+                bool usePost = post.Active && !showLinearMask;
+                PostProcessProfile profile = usePost ? post.Profile : null;
+                float exposure = showLinearMask ? 1.0f : usePost ? post.ManualExposure : MaxSceneExposure.GetExposureMultiplier(camera, settings);
                 // Our scene is always rendered into a texture. The backbuffer uses a different
                 // projection convention on top-origin APIs; RT destinations keep the source convention.
                 float flipToBackbuffer = !IsTextureDestination(camera) && SystemInfo.graphicsUVStartsAtTop ? 1.0f : 0.0f;
                 float ditherMode = 0.0f;
-                if (settings.Dithering && !showLinearMask)
+                if ((usePost ? profile.Dithering : settings.Dithering) && !showLinearMask)
                 {
                     RenderTexture destination = camera.targetTexture;
                     // Scene view may use a floating-point intermediate, but is ultimately
@@ -76,12 +80,33 @@ namespace MaxSRP
                         ditherMode = 1.0f;
                 }
                 var parameters = new Vector4(exposure,
-                    showLinearMask ? (float)ToneMappingMode.None : (float)settings.ToneMapping,
+                    showLinearMask ? (float)ToneMappingMode.None : (float)(usePost ? profile.Film.Mode : settings.ToneMapping),
                     flipToBackbuffer, ditherMode);
                 cmd.SetGlobalVector(ParametersID, parameters);
+                ColorGradingSettings grading = usePost ? profile.ColorGrading : NeutralGrading;
+                FilmSettings film = usePost ? profile.Film : DefaultFilm;
+                cmd.SetGlobalVector("_MaxPostProcessFlags", new Vector4(
+                    usePost && post.Exposure != null ? 1f : 0f,
+                    usePost && profile.Bloom.Enabled && profile.Bloom.Intensity > 0 && post.Bloom != null ? 1f : 0f,
+                    usePost && grading.Enabled ? 1f : 0f, 0f));
+                cmd.SetGlobalTexture("_MaxExposureTexture", post.Exposure != null ? post.Exposure : Texture2D.whiteTexture);
+                cmd.SetGlobalTexture("_MaxBloomTexture", post.Bloom != null ? post.Bloom : Texture2D.blackTexture);
+                cmd.SetGlobalVector("_MaxBloomUVScaleBias", usePost ? post.BloomUVScaleBias : new Vector4(1, 1, 0, 0));
+                Rect viewport = usePost ? CameraViewport.GetViewport(camera) : new Rect(0, 0, color.width, color.height);
+                cmd.SetGlobalVector("_MaxSourceUVScaleBias", new Vector4(viewport.width / color.width,
+                    viewport.height / color.height, viewport.x / color.width, viewport.y / color.height));
+                cmd.SetGlobalVector("_MaxColorSaturation", grading.Saturation);
+                cmd.SetGlobalVector("_MaxColorContrast", grading.Contrast);
+                cmd.SetGlobalVector("_MaxColorGamma", grading.Gamma);
+                cmd.SetGlobalVector("_MaxColorGain", grading.Gain);
+                cmd.SetGlobalVector("_MaxColorOffset", grading.Offset);
+                cmd.SetGlobalVector("_MaxWhiteBalance", new Vector4(Mathf.Clamp(grading.Temperature, 1500f, 15000f), Mathf.Clamp(grading.Tint, -1f, 1f), 0, 0));
+                cmd.SetGlobalVector("_MaxFilmParameters", new Vector4(Mathf.Clamp(film.Slope, 0.01f, 1f),
+                    Mathf.Clamp01(film.Toe), Mathf.Clamp01(film.Shoulder), Mathf.Clamp(film.BlackClip, 0f, 0.5f)));
+                cmd.SetGlobalFloat("_MaxFilmWhiteClip", Mathf.Clamp(film.WhiteClip, 0f, 0.5f));
                 cmd.SetRenderTarget(target, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store,
                     targetDepth, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store);
-                cmd.SetViewport(new Rect(0, 0, color.width, color.height));
+                cmd.SetViewport(viewport);
                 cmd.DrawProcedural(Matrix4x4.identity, m_material, 0, MeshTopology.Triangles, 3);
 #if UNITY_EDITOR
                 EditorOutputCapture?.Invoke(cmd, camera, color, sceneDepth, parameters);

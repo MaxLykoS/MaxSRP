@@ -1,0 +1,83 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4669b7b640654c269237a3281a873498, type: 3}
+  m_Name: DefaultShadow
+  m_EditorClassIdentifier:
+  m_tileClearShader: {fileID: 4800000, guid: a62ed8b64ea04d05bf03d1b1c7caef1f, type: 3}
+  m_pc:
+    ShortTermReuse: 1
+    Cascade2MaxAgeFrames: 4
+    Cascade3MaxAgeFrames: 8
+    ReuseMaxErrorTexels: 0.5
+    ReuseGuardBandTexels: 32
+    ShadowDistance: 500
+    DistributionExponent: 2
+    PcssCascadeCount: 2
+    BlockerSamples: 16
+    FilterSamples: 32
+    CascadeBlendFraction: 0.1
+    DistanceFadeFraction: 0.1
+    Cascade0:
+      MapResolution: 2048
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.005
+      MaxPenumbraRadius: 0.75
+    Cascade1:
+      MapResolution: 2048
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.005
+      MaxPenumbraRadius: 0.75
+    Cascade2:
+      MapResolution: 2048
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.03
+      MaxPenumbraRadius: 0.75
+    Cascade3:
+      MapResolution: 2048
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.2
+      MaxPenumbraRadius: 1
+    BlueNoiseTexture: {fileID: 2800000, guid: 7b6c5d0a0f3f87f46978fba30cbbb168, type: 3}
+  m_mobile:
+    ShortTermReuse: 1
+    Cascade2MaxAgeFrames: 4
+    Cascade3MaxAgeFrames: 8
+    ReuseMaxErrorTexels: 0.5
+    ReuseGuardBandTexels: 32
+    ShadowDistance: 500
+    DistributionExponent: 2
+    PcssCascadeCount: 2
+    BlockerSamples: 16
+    FilterSamples: 32
+    CascadeBlendFraction: 0.1
+    DistanceFadeFraction: 0.1
+    Cascade0:
+      MapResolution: 2048
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.005
+      MaxPenumbraRadius: 0.75
+    Cascade1:
+      MapResolution: 2048
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.005
+      MaxPenumbraRadius: 0.75
+    Cascade2:
+      MapResolution: 2048
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.03
+      MaxPenumbraRadius: 0.75
+    Cascade3:
+      MapResolution: 2048
+      ShadingPointNormalBias: 0.1
+      DepthNormalBias: 0.2
+      MaxPenumbraRadius: 1
+    BlueNoiseTexture: {fileID: 2800000, guid: 7b6c5d0a0f3f87f46978fba30cbbb168, type: 3}

@@ -2,6 +2,8 @@
 
 TAA 是 MaxSRP 的公共基础设施。各 Pass 必须遵守本文件约定；不再为阴影建立独立的时间解析或颜色历史。当前不实现超分辨率、动态分辨率重建或帧生成。
 
+TAA 参数与 Shader 引用位于独立的 `DefaultTemporalAA.asset` / `MaxTemporalAAConfig`。PC / Mobile 两档共用本文件描述的算法，分别保存 Enabled、HistoryWeight 和 VarianceGamma；初始迁移复制原管线参数。实际档位只由 `MaxRendererPipelineAsset.Platform` 总控，见 [RenderConfiguration.md](RenderConfiguration.md)。
+
 ## 算法依据
 
 采用成熟方法的组合：Salvi 方差裁剪、YCoCg 颜色体积裁剪、自适应历史权重、五次双线性采样的 Catmull–Rom 历史重建。当前帧取中心样本；3×3 邻域只估计裁剪范围与方差，不平均当前帧阴影。历史重建仍有滤波足迹，TAA 并不保证所有运动条件下完全无模糊。
@@ -12,7 +14,7 @@ TAA 是 MaxSRP 的公共基础设施。各 Pass 必须遵守本文件约定；�
 
 ## 渲染顺序与颜色
 
-`无 jitter 剔除/CSM → jitter GBuffer → MotionVectors → 无 jitter 大气 LUT/IBL → 恢复 jitter 相机矩阵 → Lighting + 雾 → 天空 → TAA → Editor gizmos → 曝光/tone mapping/输出 dithering`
+`无 jitter 剔除/CSM → jitter GBuffer → MotionVectors → 无 jitter 大气 LUT/IBL → 恢复 jitter 相机矩阵 → Lighting + 雾 → 天空 → TAA → 全局曝光统计/Bloom → Editor gizmos → 最终曝光/基础调色/tone mapping/输出 dithering`
 
 - 场景颜色和历史始终为相同固定光度缩放的线性 HDR；最终曝光不写入历史。只调整最终曝光不要求清空历史。
 - 解析内部临时使用有界 HDR YCoCg，完成后还原线性 HDR。历史为 RGBA16F，保留当前源 alpha；RG32F 辅助历史保存眼空间深度（米）与有效累积权重计数。
@@ -42,6 +44,7 @@ TAA 是 MaxSRP 的公共基础设施。各 Pass 必须遵守本文件约定；�
 - **深度历史是原始栅格位置的数据**：`previousDepthUV = historyUV + previousJitter − currentJitter`。不能把颜色与原始深度历史的坐标约定混用。
 - GBuffer2.r/g 分别保存天空可见度与 Lightmap 有效性；不得作为速度读取。速度真值来自独立 MotionVectors 纹理。无烘焙数据的材质写入天空可见度 1、有效性 0。
 - 静态人工光 Lightmap 在 jitter GBuffer 中按 UV2 采样，已乘接收材质的间接出射亮度与自发光合并写入 GBuffer3.rgb。Lighting 与实时直射、天空 IBL 合成后进入雾及共享 TAA，不新增 GI 历史。更换烘焙数据时显式清空受影响相机历史。
+- PC XeGTAO 与 Mobile UE SSAO 均在 Lighting 前计算，使用本相机的 jitter 投影和共享 TAA 相位，随最终场景颜色进入这一份 TAA。Mobile 不新增独立 AO 历史或第二次时间解析；无共享 TAA 时使用固定噪声，仅按 UE 的全分辨率条件增加空间 Smooth，半分辨率沿用空间重建。
 
 ## 历史有效性和生命周期
 
@@ -51,8 +54,10 @@ TAA 是 MaxSRP 的公共基础设施。各 Pass 必须遵守本文件约定；�
 - 越界、前后深度不匹配、无有效上一位置均逐像素拒绝历史。邻域方差用于约束旧颜色；超出局部变化范围的着色变化降低历史权重。
 - 静态历史默认上限 0.94，运动时降低，初始阶段按已有计数增加。既不是承诺固定累积 32 帧，也不是两帧平均。
 - 只因某相机缺席本次 Render 调用不能清除它的 GBuffer、输出或 TAA 历史。销毁相机时释放；关闭 TAA 时移除历史及本模块增加的 depthTextureMode 位。
-- `MaxSceneExposure` 仅在最终 Color Output 按场景覆盖 EV100 / 曝光补偿；Game 按相机所属场景、SceneView 按活动场景选择，Preview / Reflection 旁路。它不切换管线资产或质量配置，不改变 HDR 历史的光度缩放。
-- Inspector 验证可同步释放旧管线。生成的 GameObject（隐藏阴影相机等）须经 `MaxRenderResources.Destroy` 释放：编辑模式将销毁移到下一次 Editor 更新，并通过 SessionState 保留跨 domain reload 的待清理 ID；运行时使用 `Object.Destroy`。不得在 OnValidate/渲染回调内直接 DestroyImmediate GameObject。资源所有者引用立即置空，避免旧管线继续使用已退役对象。
+- AO 配置由管线资产引用，场景组件保留启停与 AOOnly。配置引用、总控 PC/Mobile 算法选择、当前档参数、Shader 与 AOOnly 进入相机的 LightingHistoryKey。修改生效参数时使该相机颜色历史失效并重新收敛；修改非当前档参数不要求清空。两条 AO 路径各自管理当帧资源，不另建 AO 时间历史。
+- 独立 `MaxPostProcessConfig` 在共享 TAA 后统计曝光与生成 Bloom，不写回颜色历史。PC/Mobile 配置各自选择测光与参数；曝光只保留每相机标量状态，切镜头的 `ResetTemporalHistory` 同时重置曝光。只修改曝光、Bloom、调色或 Film 不清空 TAA 历史。详见 `Documentation/PostProcessing.md`。
+- 无后效配置时，`MaxSceneExposure` 在最终 Color Output 按场景覆盖 EV100 / 曝光补偿；绑定新配置后由该配置统一控制曝光，不接受旧组件覆盖。Game 按相机所属场景、SceneView 按活动场景选择旧覆盖，Preview / Reflection 旁路。两条路径均不改变 HDR 历史的光度缩放。
+- 总控切档或活动档构造参数 / 资源变化时，在下次 Render 边界重建管线状态并重置历史，不在 Inspector 回调中途释放正在使用的资源。修改非当前档参数或普通曝光 / Bloom / 调色 / Film 参数不触发整条管线重建与 TAA 清空。生成的 GameObject（隐藏阴影相机等）须经 `MaxRenderResources.Destroy` 释放：编辑模式将销毁移到下一次 Editor 更新，并通过 SessionState 保留跨 domain reload 的待清理 ID；运行时使用 `Object.Destroy`。不得在 OnValidate/渲染回调内直接 DestroyImmediate GameObject。资源所有者引用立即置空，避免旧管线继续使用已退役对象。
 - Editor Scene 视图初始、相机或太阳变化后主动刷新至 32 次解析，避免停止操作后没有后续帧可供收敛。
 
 ## PCSS 契约
@@ -63,7 +68,7 @@ TAA 是 MaxSRP 的公共基础设施。各 Pass 必须遵守本文件约定；�
 - Shadow map 的 XY 栅格误差须独立验证：增加 PCSS 次数或累计同一张深度图的多个相位不能恢复漏掉的轮廓。方向光四级共享一张最大 4096×4096 的深度 atlas；2×2 固定 tile，当前资产每 tile 为 2048×2048、含每侧 2 texel 保护区，有效分辨率 2044×2044。Stable CSM、viewport、kernel padding 和 texel snapping 使用有效分辨率，不使用整张 atlas 尺寸。总覆盖仍为 500 米。
 - 使用 UE 同类等比区间分布：`DistributionExponent` 为相邻区间长度比，默认 2，对应 1:2:4:8；替代旧固定权重与首级单独上限。相邻级重叠拟合与可见度混合保留，末级淡出保留。Inspector 修改通过管线重建清空旧 TAA 历史；不新增阴影历史。
 - `PcssCascadeCount` 默认为 2，近两级保留 PCSS，远两级使用 3×3 tent 加权硬件比较 PCF；交界仍混合两侧可见度。PCF 核是阴影纹理空间，不引入屏幕空间模糊。PCSS 的遮挡搜索和过滤均限制在本级有效 UV 内，再变换到 atlas UV；逐样本平面修正使用限制后的实际偏移。采样保护不能仅依赖整张 atlas 的 Clamp。
-- atlas 每相机只完整清一次，各级只设置自己的 viewport；不得在每级清整张共享深度。viewport tile 原点与纹理寻址采用相同数值坐标，局部投影 Y 仍由原有 `ShadowClipToUV` 处理；禁止再翻转 atlas 行。资源丢失/销毁后重建整张 atlas 并重绑；各相机使用自己的无 jitter CSM 计算。
+- atlas 每相机独立持有。逐帧路径每次只完整清一次；实验性的 TOD 短期复用在首帧/失效时完整清，后续仅对更新 tile 以 viewport 约束的 SV_Depth 绘制清理，不得用每级 native clear 擦除其他 tile。viewport tile 原点与纹理寻址采用相同数值坐标，局部投影 Y 仍由原有 `ShadowClipToUV` 处理；禁止再翻转 atlas 行。资源丢失/销毁后重建整张 atlas 并重绑；各相机使用自己的无 jitter CSM 计算。远级复用必须成组保存旧深度、VP/View、投影宽度/深度范围与完整接收覆盖域，超出覆盖、渲染帧年龄、太阳误差门槛或显式切镜头时刷新；级联更新间隔不叠加秒数过期门槛。它是阴影深度的时间近似，不增加阴影颜色历史或第二次 TAA。
 - PCSS blocker search 和 PCF 的每个偏移采样必须使用接收平面在该 UV 上的比较深度，不能把中心深度用于整个宽核。blocker 深度平均前先移回中心平面参考；否则 TAA 会保留已经收敛的错误条纹。
 - 接收面几何导数在背景返回、级联分支前统一计算，不能用 normal map 替代几何平面。投影到每个级联时按向量变换导数，统一 UV 原点及设备深度范围；不跨面拟合。世界法线偏移与 slope bias 使用几何导数重建、面向相机的接收面法线，不能沿 normal map 法线移动阴影查询。轮廓深度突变、退化或非有限几何导数关闭法线偏移，仅保留深度 bias；光空间投影退化时比较深度梯度回退为零。BRDF 光照继续使用贴图法线。
 - 接收面运动向量无法表示投射到静止地面上的移动阴影；颜色变化检测只是近似。移动阴影残影与随机噪声收敛必须共同验收，不能保证普通 TAA 等同信号专用去噪器。

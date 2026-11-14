@@ -8,7 +8,7 @@
 
 已移除稀疏体素、共享 Probe、太阳重光照、预烘焙 TOD 光场、固定视角参考比较及对应场景组件。保留原生 Directional Lightmap、Lightmap UV2、光度单位转换、SkyVisibility、动态天空 IBL、太阳及 CSM、Clustered Lighting、云和公共 TAA。
 
-本次完成清理和可行性研究，尚未接入 SurfelGI。当前太阳反弹为空，不会继续运行旧的 VolumeGI 更新。原始 PRT 场景及通用 IBL/Reflection Probe 工具保留，它们不属于本次退役的 VolumeGI 实验。
+本次完成清理和可行性研究，尚未接入 SurfelGI。当前太阳反弹为空，不会继续运行旧的 VolumeGI 更新。旧 PRT 测试场景、旧 Cubemap 探针辅助脚本及 SH 可视化资源已在后续清理中移除；当前程序天空 IBL、共用的 IBL 计算 Shader 和通用源素材保留。
 
 已有 Lightmap 的定义仍是静态人工灯反弹；程序天空的零次表面反弹项由 IBL × SkyVisibility 表达。**SkyVisibility 是遮挡系数，不等于天空多次反弹。** 本次没有把天空能量重新烘入 Lightmap，也没有将人工灯反弹改成动态 GI。动态角色接收静态人工反弹仍需另外设计，不能从 SurfelGI 太阳分量推断它已经解决。
 

@@ -11,6 +11,19 @@ namespace MaxSRP
     [System.Serializable]
     public class CascadeSettings
     {
+        [Header("Cascade Updates")]
+        [Tooltip("B (default): update cascades 0/1 every frame and reuse cascades 2/3 within the age, sun-error and receiver-coverage limits below. Disable for A (all four every frame). XY caster culling is always enabled.")]
+        public bool ShortTermReuse = true;
+        [Range(2, 16), Tooltip("Maximum render interval for cascade 2. Sun motion or lost receiver coverage can force an earlier update.")]
+        public int Cascade2MaxAgeFrames = 4;
+        [Range(2, 32), Tooltip("Maximum render interval for cascade 3. Sun motion or lost receiver coverage can force an earlier update.")]
+        public int Cascade3MaxAgeFrames = 8;
+        [Range(0.05f, 4.0f), Tooltip("Refresh when the estimated sun-motion error exceeds this many shadow texels.")]
+        public float ReuseMaxErrorTexels = 0.5f;
+        [Range(2, 128), Tooltip("Extra complete receiver coverage, in shadow texels, reserved when drawing a reusable far cascade.")]
+        public int ReuseGuardBandTexels = 32;
+
+        [Header("Cascade Projection and Filtering")]
         public float ShadowDistance = 50;
         [Range(1.0f, 4.0f), Tooltip("Ratio of consecutive cascade depth-slice lengths (UE-style geometric distribution). 1 is uniform; 2 uses 1:2:4:8. Larger values reserve more detail near the camera.")]
         public float DistributionExponent = 2.0f;

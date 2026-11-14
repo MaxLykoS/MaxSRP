@@ -30,21 +30,28 @@ float SkyFarClipDepth()
 
 float3 GetSunDisk(in AtmosphereParameter param, float3 eyePos, float3 viewDir, float3 lightDir)
 {
-    // 计算入射光照
-    float cosine_theta = clamp(dot(viewDir, lightDir), -1.0, 1.0);
-    float theta = acos(cosine_theta) * (180.0 / PI);
-    if (theta >= param.SunDiskAngle) return float3(0, 0, 0);
-    float3 sunLuminance = SolarDiskRadiance(param);
+    float cosineTheta = clamp(dot(viewDir, lightDir), -1.0, 1.0);
+    float cosineRadius = cos(max(param.SunDiskAngle, 0.0) * (PI / 180.0));
+    if (cosineTheta <= cosineRadius) return float3(0, 0, 0);
 
-    // 判断光线是否被星球阻挡
+    // UE SkyAtmosphereCommon.ush: soften only the outer part of the existing
+    // disk. This reduces edge flicker and bloom energy without enlarging it.
+    float softEdge = saturate(2.0 * (cosineTheta - cosineRadius) /
+        max(1.0 - cosineRadius, 1e-10));
+    float3 sunLuminance = SolarDiskRadiance(param) * softEdge;
+
     float disToPlanet = RayIntersectGroundSphere(param.PlanetRadius, eyePos, viewDir);
     if (disToPlanet >= 0) return float3(0, 0, 0);
 
-    // 和大气层求交
-    // A ray that misses the atmosphere keeps unit transmission (visible sun in space).
+    // A ray that misses the atmosphere keeps unit transmission (sun in space).
     sunLuminance *= TransmittanceToAtmosphere(param, eyePos, viewDir);
-
-    return sunLuminance;
+    // Protect the fixed-HDR RGBA16F target before a possible half overflow.
+    // This is not UE's exposure-dependent 64000 clamp: histories remain
+    // unexposed, and ordinary solar values are below this storage limit.
+    sunLuminance = float3(isnan(sunLuminance.r) ? 0.0 : sunLuminance.r,
+        isnan(sunLuminance.g) ? 0.0 : sunLuminance.g,
+        isnan(sunLuminance.b) ? 0.0 : sunLuminance.b);
+    return clamp(sunLuminance, 0.0, 64000.0);
 }
 
 v2f vert(uint vertexID : SV_VertexID)

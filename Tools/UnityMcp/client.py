@@ -19,6 +19,7 @@ async def main():
     parser.add_argument("action", choices=["list", "resources", "read", "call"])
     parser.add_argument("name", nargs="?")
     parser.add_argument("arguments", nargs="?", default="{}")
+    parser.add_argument("--arguments-file", help="Read tool arguments from UTF-8 JSON (avoids native shell quoting).")
     args = parser.parse_args()
     if args.action in {"call", "read"} and not args.name:
         parser.error("call/read requires a tool name or resource URI")
@@ -38,7 +39,8 @@ async def main():
             elif args.action == "read":
                 result = await session.read_resource(args.name)
             else:
-                result = await session.call_tool(args.name, json.loads(args.arguments))
+                arguments = Path(args.arguments_file).read_text(encoding="utf-8-sig") if args.arguments_file else args.arguments
+                result = await session.call_tool(args.name, json.loads(arguments))
             print(result.model_dump_json(indent=2))
             if getattr(result, "isError", False):
                 raise SystemExit(1)

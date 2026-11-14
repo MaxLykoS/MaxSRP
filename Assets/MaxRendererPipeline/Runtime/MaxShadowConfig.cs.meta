@@ -1,0 +1,12 @@
+fileFormatVersion: 2
+guid: 4669b7b640654c269237a3281a873498
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - m_tileClearShader: {fileID: 4800000, guid: a62ed8b64ea04d05bf03d1b1c7caef1f, type: 3}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData:
+  assetBundleName:
+  assetBundleVariant:

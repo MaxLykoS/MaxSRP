@@ -1,6 +1,7 @@
 #pragma kernel PrefilterDepths
 #pragma kernel EvaluateGTAO
 #pragma kernel DenoiseGTAO
+#pragma kernel DenoiseGTAOIntermediate
 #pragma target 5.0
 
 #include "UnityCG.cginc"
@@ -21,6 +22,7 @@ float4 _GTAOViewport;
 float4x4 _GTAOInvProjection;
 float4x4 _GTAOView;
 float _GTAORadius;
+float _GTAODenoiseBlurBeta;
 int _GTAONoiseIndex;
 int _GTAOQuality;
 
@@ -37,6 +39,7 @@ RWTexture2D<unorm float> _GTAOEdges;
 Texture2D<uint> _GTAORawAOInput;
 Texture2D<lpfloat> _GTAOEdgesInput;
 RWTexture2D<float> _GTAOOutput;
+RWTexture2D<uint> _GTAOPackedOutput;
 
 SamplerState gtao_point_clamp_sampler;
 groupshared float MaxGTAOScratch[8][8];
@@ -87,7 +90,7 @@ GTAOConstants MaxGTAOConstants(out float2 axisSign)
     constants.EffectFalloffRange = XE_GTAO_DEFAULT_FALLOFF_RANGE;
     constants.RadiusMultiplier = XE_GTAO_DEFAULT_RADIUS_MULTIPLIER;
     constants.FinalValuePower = XE_GTAO_DEFAULT_FINAL_VALUE_POWER;
-    constants.DenoiseBlurBeta = 1.2;
+    constants.DenoiseBlurBeta = _GTAODenoiseBlurBeta;
     constants.SampleDistributionPower = XE_GTAO_DEFAULT_SAMPLE_DISTRIBUTION_POWER;
     constants.ThinOccluderCompensation = XE_GTAO_DEFAULT_THIN_OCCLUDER_COMPENSATION;
     constants.DepthMIPSamplingOffset = XE_GTAO_DEFAULT_DEPTH_MIP_SAMPLING_OFFSET;
@@ -192,8 +195,12 @@ void EvaluateGTAO(uint2 pixel : SV_DispatchThreadID)
     else if (_GTAOQuality == 1)
         XeGTAO_MainPass(pixel, 2, 2, noise, viewNormal, constants, _GTAOViewDepth,
             gtao_point_clamp_sampler, _GTAORawAO, _GTAOEdges);
-    else
+    else if (_GTAOQuality == 2)
         XeGTAO_MainPass(pixel, 3, 3, noise, viewNormal, constants, _GTAOViewDepth,
+            gtao_point_clamp_sampler, _GTAORawAO, _GTAOEdges);
+    else
+        // Intel CSGTAOUltra: 9 slices, 3 steps on each side, 54 depth samples.
+        XeGTAO_MainPass(pixel, 9, 3, noise, viewNormal, constants, _GTAOViewDepth,
             gtao_point_clamp_sampler, _GTAORawAO, _GTAOEdges);
 }
 
@@ -211,5 +218,34 @@ void DenoiseGTAO(uint2 id : SV_DispatchThreadID)
     if (MaxGTAOIsBackground(_GDepth.Load(int3(pixel, 0)))) _GTAOOutput[pixel] = 1.0;
     pixel.x++;
     if (pixel.x < size.x && MaxGTAOIsBackground(_GDepth.Load(int3(pixel, 0)))) _GTAOOutput[pixel] = 1.0;
+}
+
+[numthreads(8, 8, 1)]
+void DenoiseGTAOIntermediate(uint2 id : SV_DispatchThreadID)
+{
+    uint2 pixel = id * uint2(2, 1);
+    uint2 size = uint2(_GTAOViewport.xy);
+    if (any(pixel >= size)) return;
+
+    float2 axisSign;
+    GTAOConstants constants = MaxGTAOConstants(axisSign);
+    // Keep the vendored algorithm unchanged. Its Unity adaptation writes float;
+    // reuse the final float target as temporary storage, then round back into
+    // Intel's packed working domain for the following denoise dispatch.
+    // Each invocation owns both pixels below, so no cross-thread reads occur.
+    XeGTAO_Denoise(pixel, constants, _GTAORawAOInput, _GTAOEdgesInput,
+        gtao_point_clamp_sampler, _GTAOOutput, false);
+    if (MaxGTAOIsBackground(_GDepth.Load(int3(pixel, 0))))
+        _GTAOPackedOutput[pixel] = 170;
+    else
+        _GTAOPackedOutput[pixel] = uint(_GTAOOutput[pixel] * 255.0 + 0.5);
+    pixel.x++;
+    if (pixel.x < size.x)
+    {
+        if (MaxGTAOIsBackground(_GDepth.Load(int3(pixel, 0))))
+            _GTAOPackedOutput[pixel] = 170;
+        else
+            _GTAOPackedOutput[pixel] = uint(_GTAOOutput[pixel] * 255.0 + 0.5);
+    }
 }
 

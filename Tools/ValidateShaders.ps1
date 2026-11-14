@@ -49,10 +49,29 @@ public static class MaxSrpNativeShaderCheck {
 "@
 $taskDefines="#define SHADER_API_D3D11 1`n#define UNITY_COMPILER_HLSL 1`n#define SHADER_TARGET 50`n#define UNITY_VERSION 202230`n"
 $taskChecks=@(
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessExposure.compute','ClearExposureStatistics','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessExposure.compute','MeterHistogram','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessExposure.compute','MeterBasic','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessExposure.compute','ResolveExposure','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomVertex','vs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomSetupPC','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomDownsamplePC','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomGaussianX','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomGaussianYAdd','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomSetupMobile','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomDownsampleMobile','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomUpsampleMobile','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomMergeMobile','ps_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute','BuildAerialPerspective','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','PrefilterDepths','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','EvaluateGTAO','cs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','DenoiseGTAO','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','DenoiseGTAOIntermediate','cs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOVertex','vs_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOSetup','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOEvaluate','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOFilter','ps_5_0'),
+ @('Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOUpscale','ps_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/CloudLayerLighting.hlsl','CloudBakeVertex','vs_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/CloudLayerLighting.hlsl','CloudBakeFragment','ps_5_0'),
  @('Assets/MaxRendererPipeline/Shaders/Realtime/SixWayCloudPass.hlsl','SixWayVertex','vs_5_0'),
@@ -102,6 +121,27 @@ foreach($check in $taskChecks){
  $source=$taskDefines+(Expand-TaskShader (Join-Path $taskRoot $check[0]))
  [MaxSrpNativeShaderCheck]::Compile($source,$check[0],$check[1],$check[2])
  Write-Output ('PASS: HLSL '+$check[1]+' ('+$check[2]+')')
+}
+
+# Exercise the SSAO inline quad and both depth/texture coordinate conventions.
+# These HLSL checks do not replace native GLES, Metal, or Vulkan validation.
+$taskSSAOPath='Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl'
+foreach($variant in @('InlineQuad','OrdinaryGLDepth','BottomOrigin')) {
+ foreach($entry in @('SSAOSetup','SSAOEvaluate','SSAOFilter','SSAOUpscale')) {
+  $source=$taskDefines+(Expand-TaskShader (Join-Path $taskRoot $taskSSAOPath))
+  if($variant -eq 'InlineQuad'){$source="#define MAX_SSAO_INLINE_QUAD 1`n"+$source}
+  elseif($variant -eq 'OrdinaryGLDepth'){$source=[regex]::Replace($source,'(?m)^#define UNITY_REVERSED_Z 1\r?$','// Ordinary Z for GL depth emulation')}
+  else{$source=[regex]::Replace($source,'(?m)^#define UNITY_UV_STARTS_AT_TOP 1\r?$','#define UNITY_UV_STARTS_AT_TOP 0')}
+  [MaxSrpNativeShaderCheck]::Compile($source,$taskSSAOPath,$entry,'ps_5_0')
+  Write-Output ('PASS: SSAO '+$variant+' '+$entry)
+ }
+}
+
+# The default SSAO variant also compiles to SM4 without compute/UAV features.
+foreach($check in @(@('SSAOVertex','vs_4_0'),@('SSAOSetup','ps_4_0'),@('SSAOEvaluate','ps_4_0'),@('SSAOFilter','ps_4_0'),@('SSAOUpscale','ps_4_0'))) {
+ $source=$taskDefines+(Expand-TaskShader (Join-Path $taskRoot $taskSSAOPath))
+ [MaxSrpNativeShaderCheck]::Compile($source,$taskSSAOPath,$check[0],$check[1])
+ Write-Output ('PASS: SSAO base '+$check[0]+' ('+$check[1]+')')
 }
 
 # Compile the complete Mobile numerical/phase/closure profile as one local variant.

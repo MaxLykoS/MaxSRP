@@ -34,7 +34,7 @@ git status --short --untracked-files=all -- Assets/ThirdParty/Bistro
 
 ## 渲染配置
 
-场景根对象的 `MaxSceneExposure` 使用手动曝光 EV100 10.5，仅覆盖最终 Color Output 的曝光；沿用现有主管线，原主管线的 EV100 15、GraphicsSettings 和 QualitySettings 不修改。Game 相机按所在场景选择覆盖，Scene 视图按活动场景选择；离开该场景或禁用组件即使用默认曝光。Preview / Reflection 相机旁路，不影响既有诊断基线。曝光在 TAA 之后应用，保持 HDR 历史约定。
+主管线已绑定独立 `DefaultPostProcess.asset`，当前 PC / Mobile 均按本机 UE BistroLumen 对照组使用 Manual EV100 10.5、曝光补偿 0、Bloom 关闭且强度 0、UEFilm，基础调色关闭；自动曝光和 Bloom 功能继续保留供 Inspector 配置。曝光在 TAA 后应用，保持 HDR 历史约定。场景根对象仍保留旧 `MaxSceneExposure`（EV100 10.5），仅在主管线未绑定后效配置时生效，用于兼容旧对照结果。Preview / Reflection 旁路新链条，不改变原诊断输出。配置说明见 `Documentation/PostProcessing.md`。
 
 - 一盏物理太阳，30000 lux，大气外输入，仰角约 8°；保留程序大气、动态天空 IBL、CSM 和公共 TAA。
 - 保留模型导入后的根缩放；不再额外乘一次厘米转换。

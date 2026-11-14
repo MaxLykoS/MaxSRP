@@ -1,10 +1,8 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Reflection.Emit;
 using UnityEngine;
 using UnityEngine.Rendering;
-using UnityEngine.UIElements;
+using Unity.Profiling;
 
 namespace MaxSRP
 {
@@ -12,52 +10,178 @@ namespace MaxSRP
     {
         public const int MaxAtlasSize = 4096;
         public const int TileBorder = 2;
+        private sealed class CameraCache
+        {
+            public Camera Camera;
+            public RenderTexture Atlas;
+            public readonly MaxShadowReusePolicy Policy = new MaxShadowReusePolicy();
+            public readonly string[] Reasons = new string[4];
+            public Matrix4x4 Projection;
+            public Vector2Int Size;
+            public Rect Viewport;
+            public RenderTexture Output;
+            public Light Sun;
+            public int CullingMask, SceneHandle;
+            public bool Initialized, HasKey, ReuseEnabled;
+            public long Sequence;
+            public double LastSeen;
+        }
+        private readonly Dictionary<int, CameraCache> m_cameras = new Dictionary<int, CameraCache>();
+        private readonly List<int> m_retired = new List<int>();
         private RenderTexture m_shadowAtlas;
         private readonly RectInt[] m_tileRects = new RectInt[4];
         private Cascade m_cascade;
         private Camera m_shadowCamera;
+        private Material m_tileClear;
         private readonly MaxProceduralSkyboxPass.AtmosphereSettings m_atmosphereSettings;
         private readonly CascadeSettings m_settings;
-        private ShaderTagId m_shaderTagID = new ShaderTagId("ShadowCaster");
-        public MaxShadowCasterPass(CascadeSettings cascadeSettings, MaxProceduralSkyboxPass.AtmosphereSettings atmosphereSettings)
+        private readonly ShaderTagId m_shaderTagID = new ShaderTagId("ShadowCaster");
+        private readonly MaxShadowCasterCullingVolume m_casterVolume = new MaxShadowCasterCullingVolume();
+        private readonly Vector3[] m_receiverWorldCorners = new Vector3[8];
+        private static readonly ProfilerMarker s_executeMarker = new ProfilerMarker("MaxSRP.Shadow.Execute");
+        private static readonly ProfilerMarker s_volumeMarker = new ProfilerMarker("MaxSRP.Shadow.CasterVolume");
+        private static readonly ProfilerMarker s_cullMarker = new ProfilerMarker("MaxSRP.Shadow.Cull");
+        private static readonly ProfilerMarker s_drawMarker = new ProfilerMarker("MaxSRP.Shadow.DrawRenderers");
+        private static readonly ProfilerMarker s_submitMarker = new ProfilerMarker("MaxSRP.Shadow.Submit");
+#if UNITY_EDITOR
+        public static bool? ReuseOverride;
+        private static readonly HashSet<MaxShadowCasterPass> s_livePasses = new HashSet<MaxShadowCasterPass>();
+        public static void InvalidateCaches()
         {
-            m_atmosphereSettings = atmosphereSettings;
-            m_settings = cascadeSettings;
-            try
+            foreach (MaxShadowCasterPass pass in s_livePasses) pass.Invalidate(null);
+            UnityEditor.EditorApplication.QueuePlayerLoopUpdate();
+        }
+        public static string ReuseStatus
+        {
+            get
             {
-                m_cascade = new Cascade(cascadeSettings);
-                EnsureShadowAtlas();
-            }
-            catch
-            {
-                Dispose();
-                throw;
+                foreach (MaxShadowCasterPass pass in s_livePasses)
+                {
+                    Camera camera = Camera.main;
+                    CameraCache state;
+                    if (!camera || !pass.m_cameras.TryGetValue(camera.GetInstanceID(), out state)) continue;
+                    var text = new System.Text.StringBuilder("Near 0/1: real-time; far 2/3: ");
+                    for (int i = 2; i < 4; ++i)
+                    {
+                        var c = state.Policy.GetCascade(i);
+                        text.Append('C').Append(i).Append(" age=").Append(c.AgeFrames)
+                            .Append(" error=").Append(c.EstimatedErrorTexels.ToString("F3"))
+                            .Append(" texel ").Append(state.Reasons[i]).Append(i == 2 ? "; " : "");
+                    }
+                    return text.ToString();
+                }
+                return "No main-camera shadow sample yet.";
             }
         }
-        private void EnsureShadowAtlas()
+        static MaxShadowCasterPass()
+        {
+            UnityEditor.EditorApplication.hierarchyChanged += InvalidateCaches;
+            UnityEditor.EditorApplication.projectChanged += InvalidateCaches;
+            UnityEditor.Undo.undoRedoPerformed += InvalidateCaches;
+            UnityEditor.ObjectChangeEvents.changesPublished += OnObjectChanges;
+        }
+        private static void OnObjectChanges(ref UnityEditor.ObjectChangeEventStream changes)
+        {
+            if (changes.length > 0) InvalidateCaches();
+        }
+        public static bool CaptureDiagnostics, CaptureGeometry;
+        public static event Action<ShadowCpuSample> CpuSampleRecorded;
+        public static RenderTexture DiagnosticAtlas { get; private set; }
+        public static readonly Matrix4x4[] DiagnosticShadowViews = new Matrix4x4[4];
+        public static readonly Vector3[][] DiagnosticReceiverCorners = {
+            new Vector3[8], new Vector3[8], new Vector3[8], new Vector3[8] };
+        public static readonly float[] DiagnosticPadding = new float[4];
+        public static readonly RectInt[] DiagnosticTiles = new RectInt[4];
+        public struct ShadowCpuSample
+        {
+            public int CameraId;
+            public bool CacheEnabled;
+            public double TotalMilliseconds, SetupMilliseconds, VolumeMilliseconds;
+            public double CullMilliseconds, DrawMilliseconds, SubmitMilliseconds;
+            public int UpdatedCascades, ReusedCascades, FallbackCascadeCount;
+        }
+        private ShadowCpuSample m_cpuSample;
+        private static double ElapsedMilliseconds(long start) =>
+            (System.Diagnostics.Stopwatch.GetTimestamp() - start) * (1000.0 / System.Diagnostics.Stopwatch.Frequency);
+#endif
+        public MaxShadowCasterPass(CascadeSettings settings, MaxProceduralSkyboxPass.AtmosphereSettings atmosphere, Shader tileClearShader)
+        {
+            m_settings = settings;
+            m_atmosphereSettings = atmosphere;
+            try
+            {
+                m_cascade = new Cascade(settings);
+                if (tileClearShader && tileClearShader.isSupported)
+                    m_tileClear = new Material(tileClearShader) { hideFlags = HideFlags.HideAndDontSave };
+#if UNITY_EDITOR
+                s_livePasses.Add(this);
+#endif
+            }
+            catch { Dispose(); throw; }
+        }
+        public void Invalidate(Camera camera)
+        {
+            foreach (CameraCache state in m_cameras.Values)
+                if (!camera || state.Camera == camera)
+                {
+                    state.Policy.InvalidateAll("explicit invalidation");
+                    state.Initialized = false;
+                }
+        }
+        private CameraCache PrepareCamera(Camera camera, SunLightData sun, bool reuse, double now)
+        {
+            m_retired.Clear();
+            foreach (var item in m_cameras)
+                if (!item.Value.Camera || now - item.Value.LastSeen > 120.0) m_retired.Add(item.Key);
+            foreach (int key in m_retired)
+            {
+                CameraCache retired = m_cameras[key];
+                MaxRenderResources.UnbindTexture("_MainShadowAtlas", retired.Atlas);
+                MaxRenderResources.Destroy(ref retired.Atlas);
+                m_cameras.Remove(key);
+            }
+            int id = camera.GetInstanceID();
+            if (!m_cameras.TryGetValue(id, out CameraCache state))
+            {
+                state = new CameraCache { Camera = camera };
+                m_cameras.Add(id, state);
+            }
+            Matrix4x4 projection = CameraViewport.GetProjection(camera);
+            Vector2Int size = CameraViewport.GetRenderSize(camera);
+            Rect viewport = CameraViewport.GetViewport(camera);
+            if (!state.HasKey || state.Camera != camera || state.Projection != projection || state.Size != size ||
+                state.Viewport != viewport || state.Output != camera.targetTexture || state.Sun != sun.Source ||
+                state.CullingMask != camera.cullingMask || state.SceneHandle != camera.gameObject.scene.handle ||
+                state.ReuseEnabled != reuse || now - state.LastSeen > 2.0)
+            {
+                state.Policy.InvalidateAll("camera/output/light/mode changed");
+                state.Initialized = false;
+            }
+            state.Camera = camera; state.Projection = projection; state.Size = size;
+            state.Viewport = viewport; state.Output = camera.targetTexture; state.Sun = sun.Source;
+            state.CullingMask = camera.cullingMask; state.SceneHandle = camera.gameObject.scene.handle;
+            state.ReuseEnabled = reuse; state.LastSeen = now; state.HasKey = true; ++state.Sequence;
+            return state;
+        }
+        private void EnsureShadowAtlas(CameraCache state)
         {
             int resolution = Mathf.Min(MaxAtlasSize, Mathf.ClosestPowerOfTwo(SystemInfo.maxTextureSize));
-            // Never round above the actual hardware limit.
             if (resolution > SystemInfo.maxTextureSize) resolution /= 2;
-            RenderTexture texture = m_shadowAtlas;
-            if (texture == null || texture.width != resolution || !texture.IsCreated())
+            if (!state.Atlas || state.Atlas.width != resolution || !state.Atlas.IsCreated())
             {
                 var descriptor = new RenderTextureDescriptor(resolution, resolution, RenderTextureFormat.Depth, 24)
                     { shadowSamplingMode = ShadowSamplingMode.CompareDepths, msaaSamples = 1, sRGB = false };
                 var replacement = new RenderTexture(descriptor) {
-                    name = "Directional Shadow Atlas", wrapMode = TextureWrapMode.Clamp,
-                    // Point blocker reads and hardware comparison PCF use separate samplers.
-                    filterMode = FilterMode.Bilinear, hideFlags = HideFlags.HideAndDontSave
-                };
-                if (!replacement.Create())
-                {
-                    MaxRenderResources.Destroy(ref replacement);
-                    throw new InvalidOperationException("Cannot allocate directional shadow atlas");
-                }
-                MaxRenderResources.UnbindTexture("_MainShadowAtlas", texture);
-                MaxRenderResources.Destroy(ref texture);
-                m_shadowAtlas = replacement;
+                    name = "Directional Shadow Atlas - " + state.Camera.GetInstanceID(),
+                    wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear,
+                    hideFlags = HideFlags.HideAndDontSave };
+                if (!replacement.Create()) { MaxRenderResources.Destroy(ref replacement); throw new InvalidOperationException("Cannot allocate directional shadow atlas"); }
+                MaxRenderResources.UnbindTexture("_MainShadowAtlas", state.Atlas);
+                MaxRenderResources.Destroy(ref state.Atlas);
+                state.Atlas = replacement;
+                state.Policy.InvalidateAll("atlas recreated"); state.Initialized = false;
             }
+            m_shadowAtlas = state.Atlas;
             int cellSize = resolution / 2;
             for (int i = 0; i < 4; ++i)
             {
@@ -66,12 +190,8 @@ namespace MaxSRP
                 var rect = new RectInt((i % 2) * cellSize + TileBorder, (i / 2) * cellSize + TileBorder,
                     tileSize - 2 * TileBorder, tileSize - 2 * TileBorder);
                 m_tileRects[i] = rect;
-                // Viewport placement and texture addressing use the same native
-                // target coordinates. ShadowClipToUV handles LOCAL projection Y;
-                // flipping the atlas row again would select a different cascade.
-                Shader.SetGlobalVector("_ShadowAtlasTile" + i,
-                    new Vector4((float)rect.width / resolution, (float)rect.height / resolution,
-                        (float)rect.x / resolution, (float)rect.y / resolution));
+                Shader.SetGlobalVector("_ShadowAtlasTile" + i, new Vector4((float)rect.width / resolution,
+                    (float)rect.height / resolution, (float)rect.x / resolution, (float)rect.y / resolution));
                 Shader.SetGlobalFloat("_ShadowResolution" + i, rect.width);
             }
             Shader.SetGlobalTexture("_MainShadowAtlas", m_shadowAtlas);
@@ -79,93 +199,184 @@ namespace MaxSRP
         }
         public bool Execute(ScriptableRenderContext context, Camera camera, SunLightData sun)
         {
-            if (!sun.CastsShadows) return false;
-            EnsureShadowAtlas();
-            // The atmosphere parameter is an angular RADIUS in degrees.
-            // Keep tangent finite for invalid/extreme Inspector input.
+#if UNITY_EDITOR
+            bool capture = CaptureDiagnostics;
+            long start = capture ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            if (capture) m_cpuSample = new ShadowCpuSample { CameraId = camera.GetInstanceID() };
+#endif
+            bool rendered;
+            using (s_executeMarker.Auto()) rendered = ExecuteInternal(context, camera, sun);
+#if UNITY_EDITOR
+            if (capture && rendered)
+            {
+                m_cpuSample.TotalMilliseconds = ElapsedMilliseconds(start);
+                m_cpuSample.SetupMilliseconds = m_cpuSample.TotalMilliseconds - m_cpuSample.CullMilliseconds -
+                    m_cpuSample.DrawMilliseconds - m_cpuSample.SubmitMilliseconds;
+                DiagnosticAtlas = m_shadowAtlas;
+                CpuSampleRecorded?.Invoke(m_cpuSample);
+            }
+#endif
+            return rendered;
+        }
+        private bool ExecuteInternal(ScriptableRenderContext context, Camera camera, SunLightData sun)
+        {
+            if (!sun.CastsShadows) { Invalidate(camera); return false; }
+            bool reuse = m_settings.ShortTermReuse;
+#if UNITY_EDITOR
+            reuse = ReuseOverride ?? reuse;
+#endif
+            reuse = reuse && m_tileClear && (camera.cameraType == CameraType.Game || camera.cameraType == CameraType.SceneView);
+            double now = Time.realtimeSinceStartupAsDouble;
+            CameraCache state = PrepareCamera(camera, sun, reuse, now);
+            EnsureShadowAtlas(state);
+#if UNITY_EDITOR
+            if (CaptureDiagnostics) m_cpuSample.CacheEnabled = reuse;
+#endif
             float angularRadius = Mathf.Clamp(m_atmosphereSettings._SunDiskAngle, 0.001f, 89.0f) * Mathf.Deg2Rad;
             Shader.SetGlobalFloat("_ShadowLightTanAngularRadius", Mathf.Tan(angularRadius));
             Vector3 lightDir = -(Vector3)sun.Direction;
             if (!m_cascade.UpdateCascade(camera, ref lightDir)) return false;
-
-            // Assigning Camera.aspect disables its automatic viewport tracking, even
-            // when the old numeric value is subsequently restored. Keep all shadow
-            // camera changes off the rendering camera, including custom matrices.
-            if (m_shadowCamera == null)
+            if (!m_shadowCamera)
             {
                 var shadowObject = new GameObject("MaxSRP Shadow Camera") { hideFlags = HideFlags.HideAndDontSave };
                 m_shadowCamera = shadowObject.AddComponent<Camera>();
             }
             m_shadowCamera.CopyFrom(camera);
-            m_shadowCamera.enabled = false;
-            m_shadowCamera.targetTexture = null;
-            m_shadowCamera.rect = new Rect(0, 0, 1, 1);
+            m_shadowCamera.enabled = false; m_shadowCamera.targetTexture = null; m_shadowCamera.rect = new Rect(0, 0, 1, 1);
             m_shadowCamera.orthographic = true;
-            m_shadowCamera.ResetProjectionMatrix();
-            m_shadowCamera.ResetWorldToCameraMatrix();
-            m_shadowCamera.ResetCullingMatrix();
-            bool renderedAny = false;
-
-            // Clear the entire shared depth target ONCE. A per-cascade clear may
-            // ignore the viewport and erase previously rendered atlas tiles.
-            CommandBuffer clear = CommandBufferPool.Get("Shadow Atlas Clear");
-            try
+            m_shadowCamera.ResetProjectionMatrix(); m_shadowCamera.ResetWorldToCameraMatrix(); m_shadowCamera.ResetCullingMatrix();
+            bool fullClear = !reuse || !state.Initialized;
+            if (fullClear)
             {
-                clear.SetRenderTarget(m_shadowAtlas);
-                clear.SetViewport(new Rect(0, 0, m_shadowAtlas.width, m_shadowAtlas.height));
-                clear.ClearRenderTarget(true, false, Color.clear);
-                context.ExecuteCommandBuffer(clear);
+                CommandBuffer clear = CommandBufferPool.Get("Shadow Atlas Clear");
+                try
+                {
+                    clear.SetRenderTarget(m_shadowAtlas);
+                    clear.SetViewport(new Rect(0, 0, m_shadowAtlas.width, m_shadowAtlas.height));
+                    clear.ClearRenderTarget(true, false, Color.clear);
+                    context.ExecuteCommandBuffer(clear);
+                }
+                finally { CommandBufferPool.Release(clear); }
+                state.Initialized = true;
+                state.Policy.InvalidateAll("full atlas clear");
             }
-            finally { CommandBufferPool.Release(clear); }
-
             for (int i = 0; i < 4; ++i)
             {
                 RectInt tile = m_tileRects[i];
                 int resolution = tile.width;
-                // Legacy Editor quad comparisons use the first cascade's texel scale.
                 if (i == 0) Shader.SetGlobalFloat("_ShadowTexelResolution", resolution);
-                float halfDepthRange = m_cascade.ConfigCameraToShadowSpace(m_shadowCamera, lightDir, i, m_cascade.m_OrthoDistance, resolution);
-                Matrix4x4 v = m_shadowCamera.worldToCameraMatrix;
-                Matrix4x4 p = GL.GetGPUProjectionMatrix(m_shadowCamera.projectionMatrix, true);
-                Matrix4x4 shadowVP = p * v;
-                Shader.SetGlobalMatrix("_ShadowVPMatrix" + i, shadowVP);
-                Shader.SetGlobalFloat("_ShadowDepthHalfRange" + i, halfDepthRange);
-                Shader.SetGlobalFloat("_OrthoWidth" + i, m_cascade.m_OrthoWidths[i]);
+                float halfDepth = m_cascade.ConfigCameraToShadowSpace(m_shadowCamera, lightDir, i, m_cascade.m_OrthoDistance, resolution);
+                Matrix4x4 view = m_shadowCamera.worldToCameraMatrix;
+                Matrix4x4 vp = GL.GetGPUProjectionMatrix(m_shadowCamera.projectionMatrix, true) * view;
+                float width = m_cascade.m_OrthoWidths[i];
+                ShadowSettings settings = m_settings.GetCascade(i);
+                float worldTexel = width / resolution;
+                float kernel = i < Mathf.Clamp(m_settings.PcssCascadeCount, 0, 4) ? Mathf.Max(0, settings.MaxPenumbraRadius) : 0;
+                float support = kernel + 2.0f * Mathf.Sqrt(2.0f) * worldTexel;
+                m_cascade.GetReceiverWorldCorners(camera, i, m_receiverWorldCorners);
+                string reason = i < 2 ? "near: real-time" : "A: real-time";
+                int maxFrames = i == 2 ? m_settings.Cascade2MaxAgeFrames : m_settings.Cascade3MaxAgeFrames;
+                bool canReuse = reuse && i >= 2 && Mathf.Abs(sun.Direction.y) >= 0.05f &&
+                    state.Policy.CanReuse(i, m_receiverWorldCorners, (Vector3)sun.Direction, state.Sequence,
+                        Mathf.Max(2, maxFrames),
+                        Mathf.Max(0.01f, m_settings.ReuseMaxErrorTexels), support, Mathf.Abs(settings.ShadingPointNormalBias), resolution, out reason);
+                if (canReuse)
+                {
+                    var cached = state.Policy.GetCascade(i);
+                    vp = cached.VP; view = cached.View; width = cached.Width; halfDepth = cached.HalfDepthRange;
+#if UNITY_EDITOR
+                    if (CaptureDiagnostics) ++m_cpuSample.ReusedCascades;
+#endif
+                }
+                Shader.SetGlobalMatrix("_ShadowVPMatrix" + i, vp);
+                Shader.SetGlobalFloat("_ShadowDepthHalfRange" + i, halfDepth);
+                Shader.SetGlobalFloat("_OrthoWidth" + i, width);
+                state.Reasons[i] = reason;
+#if UNITY_EDITOR
+                if (CaptureGeometry)
+                {
+                    DiagnosticShadowViews[i] = view;
+                    Array.Copy(m_receiverWorldCorners, DiagnosticReceiverCorners[i], 8);
+                    DiagnosticPadding[i] = support + Mathf.Abs(settings.ShadingPointNormalBias);
+                    DiagnosticTiles[i] = tile;
+                }
+#endif
+                if (canReuse) continue;
                 CommandBuffer cmd = CommandBufferPool.Get("ShadowMap");
                 try
                 {
                     context.SetupCameraProperties(m_shadowCamera);
-                    cmd.SetGlobalMatrix("_ShadowCasterVP", shadowVP);
+                    cmd.SetGlobalMatrix("_ShadowCasterVP", vp);
                     cmd.SetRenderTarget(m_shadowAtlas);
+                    if (!fullClear)
+                    {
+                        // SV_Depth drawing is viewport-bounded; a native depth clear may erase every tile.
+                        cmd.SetViewport(new Rect(tile.x - TileBorder, tile.y - TileBorder,
+                            tile.width + 2 * TileBorder, tile.height + 2 * TileBorder));
+                        cmd.DrawProcedural(Matrix4x4.identity, m_tileClear, 0, MeshTopology.Triangles, 3);
+                    }
                     cmd.SetViewport(new Rect(tile.x, tile.y, tile.width, tile.height));
                     context.ExecuteCommandBuffer(cmd);
-                    if (!m_shadowCamera.TryGetCullingParameters(out var cullingParameters)) continue;
-                    var cullingResults = context.Cull(ref cullingParameters);
-                    var sortingSettings = new SortingSettings(m_shadowCamera);
-                    var drawingSettings = new DrawingSettings(m_shaderTagID, sortingSettings);
-                    var filteringSettings = FilteringSettings.defaultValue;
-                    context.DrawRenderers(cullingResults, ref drawingSettings, ref filteringSettings);
-                    renderedAny = true;
-                    context.Submit();
+                    if (!m_shadowCamera.TryGetCullingParameters(out var parameters)) { state.Policy.Invalidate(i, "culling unavailable"); continue; }
+#if UNITY_EDITOR
+                    long volumeStart = CaptureDiagnostics ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+#endif
+                    float guard = reuse && i >= 2 ? Mathf.Clamp(m_settings.ReuseGuardBandTexels, 2, 128) * worldTexel : 0;
+                    using (s_volumeMarker.Auto())
+                        if (!m_casterVolume.TryApply(ref parameters, m_receiverWorldCorners, view,
+                            support + Mathf.Abs(settings.ShadingPointNormalBias) + guard))
+                        {
+#if UNITY_EDITOR
+                            if (CaptureDiagnostics) ++m_cpuSample.FallbackCascadeCount;
+#endif
+                        }
+#if UNITY_EDITOR
+                    if (CaptureDiagnostics) m_cpuSample.VolumeMilliseconds += ElapsedMilliseconds(volumeStart);
+                    long cullStart = CaptureDiagnostics ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+#endif
+                    CullingResults results;
+                    using (s_cullMarker.Auto()) results = context.Cull(ref parameters);
+#if UNITY_EDITOR
+                    if (CaptureDiagnostics) m_cpuSample.CullMilliseconds += ElapsedMilliseconds(cullStart);
+                    long drawStart = CaptureDiagnostics ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+#endif
+                    var sorting = new SortingSettings(m_shadowCamera);
+                    var drawing = new DrawingSettings(m_shaderTagID, sorting);
+                    var filtering = FilteringSettings.defaultValue;
+                    using (s_drawMarker.Auto()) context.DrawRenderers(results, ref drawing, ref filtering);
+#if UNITY_EDITOR
+                    if (CaptureDiagnostics) m_cpuSample.DrawMilliseconds += ElapsedMilliseconds(drawStart);
+                    long submitStart = CaptureDiagnostics ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+#endif
+                    using (s_submitMarker.Auto()) context.Submit();
+#if UNITY_EDITOR
+                    if (CaptureDiagnostics) { m_cpuSample.SubmitMilliseconds += ElapsedMilliseconds(submitStart); ++m_cpuSample.UpdatedCascades; }
+#endif
+                    state.Policy.Record(i, vp, view, width, halfDepth, (Vector3)sun.Direction,
+                        m_receiverWorldCorners, guard, support, Mathf.Abs(settings.ShadingPointNormalBias), state.Sequence);
                 }
-                finally
-                {
-                    CommandBufferPool.Release(cmd);
-                }
+                finally { CommandBufferPool.Release(cmd); }
             }
-            return renderedAny;
+            return true;
         }
-
         public void Dispose()
         {
-            if (m_shadowCamera != null)
+#if UNITY_EDITOR
+            if (DiagnosticAtlas == m_shadowAtlas) DiagnosticAtlas = null;
+            s_livePasses.Remove(this);
+#endif
+            if (m_shadowCamera)
             {
-                GameObject shadowObject = m_shadowCamera.gameObject;
-                m_shadowCamera = null;
+                GameObject shadowObject = m_shadowCamera.gameObject; m_shadowCamera = null;
                 MaxRenderResources.Destroy(ref shadowObject);
             }
-            MaxRenderResources.UnbindTexture("_MainShadowAtlas", m_shadowAtlas);
-            MaxRenderResources.Destroy(ref m_shadowAtlas);
+            foreach (CameraCache state in m_cameras.Values)
+            {
+                MaxRenderResources.UnbindTexture("_MainShadowAtlas", state.Atlas);
+                MaxRenderResources.Destroy(ref state.Atlas);
+            }
+            m_cameras.Clear(); m_shadowAtlas = null;
+            MaxRenderResources.Destroy(ref m_tileClear);
         }
     }
 
@@ -187,6 +398,10 @@ namespace MaxSRP
 
         // 主相机视锥体包围盒
         private readonly Vector4[] m_cascadeSpheres = new Vector4[4];
+        private readonly float[] m_receiverStarts = new float[4];
+        private readonly Vector3[] m_receiverNear = new Vector3[4], m_receiverFar = new Vector3[4];
+        private bool m_receiverCornersReady;
+        private Matrix4x4 m_receiverCameraToWorld;
 
         private CascadeSettings m_cascadeSettings;
 
@@ -232,6 +447,11 @@ namespace MaxSRP
             float blend0 = CascadeTransitionWidth(0.0f, m_splitEnds[0], m_splitEnds[1], m_cascadeSettings.CascadeBlendFraction);
             float blend1 = CascadeTransitionWidth(m_splitEnds[0], m_splitEnds[1], m_splitEnds[2], m_cascadeSettings.CascadeBlendFraction);
             float blend2 = CascadeTransitionWidth(m_splitEnds[1], m_splitEnds[2], 1.0f, m_cascadeSettings.CascadeBlendFraction);
+            m_receiverStarts[0] = 0.0f;
+            m_receiverStarts[1] = m_splitEnds[0] - blend0;
+            m_receiverStarts[2] = m_splitEnds[1] - blend1;
+            m_receiverStarts[3] = m_splitEnds[2] - blend2;
+            m_receiverCornersReady = false;
             Shader.SetGlobalVector("_CascadeBlendWidths", new Vector4(blend0, blend1, blend2, 0.0f));
             float fadeWidth = span * (1.0f - m_splitEnds[2]) * Mathf.Clamp(m_cascadeSettings.DistanceFadeFraction, 0.0f, 0.5f);
             Shader.SetGlobalVector("_ShadowDistanceFade", new Vector4(shadowFar - fadeWidth, shadowFar, 0.0f, 0.0f));
@@ -260,6 +480,7 @@ namespace MaxSRP
             // 计算旋转不变的级联包围球
             // Fit in view space: camera rotation/translation cannot change the radius.
             Matrix4x4 cameraToWorld = mainCamera.worldToCameraMatrix.inverse;
+            m_receiverCameraToWorld = cameraToWorld;
             m_cascadeSpheres[0] = StableCascadeSphere(m_f0Near, m_f0Far, cameraToWorld);
             m_cascadeSpheres[1] = StableCascadeSphere(m_f1Near, m_f1Far, cameraToWorld);
             m_cascadeSpheres[2] = StableCascadeSphere(m_f2Near, m_f2Far, cameraToWorld);
@@ -292,6 +513,11 @@ namespace MaxSRP
         private static void FillFrustumPlaneCornersView(Camera camera, float depth, Vector3[] corners)
         {
             Matrix4x4 inverseProjection = CameraViewport.GetProjection(camera).inverse;
+            FillFrustumPlaneCornersView(inverseProjection, depth, corners);
+        }
+
+        private static void FillFrustumPlaneCornersView(Matrix4x4 inverseProjection, float depth, Vector3[] corners)
+        {
             for (int i = 0; i < 4; ++i)
             {
                 float x = i < 2 ? -1.0f : 1.0f;
@@ -302,6 +528,28 @@ namespace MaxSRP
                 Vector3 b = inverseProjection.MultiplyPoint(new Vector3(x, y, 0.0f));
                 float t = (-depth - a.z) / (b.z - a.z);
                 corners[i] = a + (b - a) * t;
+            }
+        }
+
+        // Expanded receiver corners only affect candidate culling, never the stable raster projection.
+        public void GetReceiverWorldCorners(Camera mainCamera, int cascade, Vector3[] corners)
+        {
+            if (!m_receiverCornersReady)
+            {
+                Matrix4x4 projection = CameraViewport.GetProjection(mainCamera);
+                Vector2Int size = CameraViewport.GetRenderSize(mainCamera);
+                projection.SetRow(0, projection.GetRow(0) * (size.x / (size.x + 2.0f)));
+                projection.SetRow(1, projection.GetRow(1) * (size.y / (size.y + 2.0f)));
+                Matrix4x4 inverse = projection.inverse;
+                FillFrustumPlaneCornersView(inverse, mainCamera.nearClipPlane, m_receiverNear);
+                FillFrustumPlaneCornersView(inverse, Mathf.Min(mainCamera.farClipPlane, m_OrthoDistance), m_receiverFar);
+                m_receiverCornersReady = true;
+            }
+            for (int j = 0; j < 4; ++j)
+            {
+                Vector3 delta = m_receiverFar[j] - m_receiverNear[j];
+                corners[j] = m_receiverCameraToWorld.MultiplyPoint3x4(m_receiverNear[j] + delta * m_receiverStarts[cascade]);
+                corners[j + 4] = m_receiverCameraToWorld.MultiplyPoint3x4(m_receiverNear[j] + delta * m_splitEnds[cascade]);
             }
         }
 

@@ -1,0 +1,192 @@
+// UE 5.8 reference: PostProcessHistogramCommon.ush / PostProcessMobile.usf.
+// Fixed-scale scene HDR is converted back to physical luminance for metering.
+// No pre-exposure or scene-colour history is introduced by this pass.
+#pragma kernel ClearExposureStatistics
+#pragma kernel MeterHistogram
+#pragma kernel MeterBasic
+#pragma kernel ResolveExposure
+#pragma target 5.0
+
+Texture2D<float4> _ExposureSceneColor;
+Texture2D<float> _ExposureMeteringMask;
+Texture2D<float> _ExposureCompensationCurve;
+Texture2D<float4> _ExposurePrevious;
+RWTexture2D<float4> _ExposureResult;
+SamplerState sampler_linear_clamp;
+RWStructuredBuffer<uint> _ExposureStatistics;
+float4 _ExposureSourceSize; // xy size, zw inverse size
+float4 _ExposureViewport; // xy origin in source texels, zw extent
+float4 _ExposureMeterSize; // xy metering extent, zw inverse extent
+float4 _ExposureHistogram; // log-luminance min/max, lower/upper percentile
+float4 _ExposureAdaptation; // minimum/maximum white point EV100, speed up/down
+float4 _ExposureControl; // delta time, force target, compensation EV, fixed-point scale
+float _ExposureHDRScale;
+int _ExposureBasic;
+
+groupshared uint SharedHistogram[64];
+groupshared float2 SharedAverage[64];
+
+[numthreads(64, 1, 1)]
+void ClearExposureStatistics(uint index : SV_GroupIndex)
+{
+    _ExposureStatistics[index] = 0;
+}
+
+float3 FinitePositive(float3 value)
+{
+    return float3(isfinite(value.x) ? clamp(value.x, 0.0, 1e20) : 0.0,
+        isfinite(value.y) ? clamp(value.y, 0.0, 1e20) : 0.0,
+        isfinite(value.z) ? clamp(value.z, 0.0, 1e20) : 0.0);
+}
+
+float3 SceneSample(float2 viewportUV)
+{
+    float2 pixel = _ExposureViewport.xy + viewportUV * _ExposureViewport.zw;
+    // Bilinear footprints stay inside this camera's viewport, including split-screen.
+    pixel = clamp(pixel, _ExposureViewport.xy + 0.5, _ExposureViewport.xy + _ExposureViewport.zw - 0.5);
+    return FinitePositive(_ExposureSceneColor.SampleLevel(sampler_linear_clamp, pixel * _ExposureSourceSize.zw, 0).rgb);
+}
+
+float LogLuminance(uint2 position, bool mobileBasic)
+{
+    float2 uv = (float2(position) + 0.5) * _ExposureMeterSize.zw;
+    float2 halfFootprint = 0.25 * _ExposureMeterSize.zw;
+    float3 c0 = SceneSample(uv + halfFootprint * float2(-1, -1));
+    float3 c1 = SceneSample(uv + halfFootprint * float2( 1, -1));
+    float3 c2 = SceneSample(uv + halfFootprint * float2(-1,  1));
+    float3 c3 = SceneSample(uv + halfFootprint * float2( 1,  1));
+    float3 color;
+    if (mobileBasic)
+    {
+        // Mobile Bloom Setup's reversible HDR-weighted average, before threshold.
+        float4 weight = rcp(float4(dot(c0, float3(1, 2, 1)), dot(c1, float3(1, 2, 1)),
+            dot(c2, float3(1, 2, 1)), dot(c3, float3(1, 2, 1))) + 4.0);
+        // Algebraically identical to compressed average -> inverse, but avoids
+        // cancellation in 1-Luma for bright constant inputs.
+        color = (c0 * weight.x + c1 * weight.y + c2 * weight.z + c3 * weight.w) /
+            max(dot(weight, float4(1, 1, 1, 1)), 1e-30);
+    }
+    else color = (c0 + c1 + c2 + c3) * 0.25;
+    // UE's default r.AutoExposure.LuminanceMethod=0 uses uniform RGB weights.
+    float luminance = max(dot(color, float3(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)) * _ExposureHDRScale, 0.0001);
+    return mobileBasic ? clamp(log2(luminance), -10.0, 20.0) : log2(luminance);
+}
+
+[numthreads(8, 8, 1)]
+void MeterHistogram(uint3 dispatch : SV_DispatchThreadID, uint index : SV_GroupIndex)
+{
+    SharedHistogram[index] = 0;
+    GroupMemoryBarrierWithGroupSync();
+    if (all(dispatch.xy < (uint2)_ExposureMeterSize.xy))
+    {
+        float2 uv = (float2(dispatch.xy) + 0.5) * _ExposureMeterSize.zw;
+        float weight = saturate(_ExposureMeteringMask.SampleLevel(sampler_linear_clamp, uv, 0));
+        float logLum = LogLuminance(dispatch.xy, false);
+        float bin = saturate((logLum - _ExposureHistogram.x) / (_ExposureHistogram.y - _ExposureHistogram.x)) * 63.0;
+        uint lower = (uint)bin;
+        uint upper = min(lower + 1, 63u);
+        float upperWeight = frac(bin);
+        // Match UE's default black-bucket influence of zero. The remaining
+        // fraction in bucket one still contributes for near-black pixels.
+        uint a = lower == 0 ? 0u : (uint)round(weight * (1.0 - upperWeight) * _ExposureControl.w);
+        uint b = (uint)round(weight * upperWeight * _ExposureControl.w);
+        InterlockedAdd(SharedHistogram[lower], a);
+        InterlockedAdd(SharedHistogram[upper], b);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    InterlockedAdd(_ExposureStatistics[index], SharedHistogram[index]);
+}
+
+[numthreads(8, 8, 1)]
+void MeterBasic(uint3 dispatch : SV_DispatchThreadID, uint index : SV_GroupIndex)
+{
+    float2 contribution = 0.0;
+    if (all(dispatch.xy < (uint2)_ExposureMeterSize.xy))
+    {
+        float2 uv = (float2(dispatch.xy) + 0.5) * _ExposureMeterSize.zw;
+        float weight = max(saturate(_ExposureMeteringMask.SampleLevel(sampler_linear_clamp, uv, 0)), 0.05);
+        float logLum = LogLuminance(dispatch.xy, true);
+        // The positive fixed-point domain is fixed to the shader's -10..20
+        // log clamp, rather than user histogram bounds (Basic has no buckets).
+        float value = (logLum + 10.0) / 30.0;
+        if (logLum <= _ExposureHistogram.x + (_ExposureHistogram.y - _ExposureHistogram.x) / 63.0) weight = 0;
+        contribution = float2(value * weight, weight);
+    }
+    SharedAverage[index] = contribution;
+    GroupMemoryBarrierWithGroupSync();
+    for (uint count = 32; count > 0; count >>= 1)
+    {
+        if (index < count) SharedAverage[index] += SharedAverage[index + count];
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (index == 0)
+    {
+        InterlockedAdd(_ExposureStatistics[0], (uint)round(SharedAverage[0].x * _ExposureControl.w));
+        InterlockedAdd(_ExposureStatistics[1], (uint)round(SharedAverage[0].y * _ExposureControl.w));
+    }
+}
+
+float HistogramAverageLog()
+{
+    float total = 0.0;
+    for (uint i = 0; i < 64; ++i) total += (float)_ExposureStatistics[i];
+    float lower = total * _ExposureHistogram.z;
+    float upper = total * _ExposureHistogram.w;
+    float sum = 0.0, weight = 0.0;
+    for (uint bin = 0; bin < 64; ++bin)
+    {
+        float value = (float)_ExposureStatistics[bin];
+        float removed = min(value, lower);
+        value -= removed; lower -= removed; upper -= removed;
+        value = min(value, max(upper, 0.0)); upper -= value;
+        float logLum = lerp(_ExposureHistogram.x, _ExposureHistogram.y, bin / 63.0);
+        sum += logLum * value; weight += value;
+    }
+    // No valid samples must brighten a black scene, never trap it in darkness.
+    return weight > 0.0 ? sum / weight : _ExposureAdaptation.x + log2(0.18);
+}
+
+float AdaptWhitePoint(float previous, float target)
+{
+    float difference = target - previous;
+    float speed = difference > 0.0 ? _ExposureAdaptation.z : _ExposureAdaptation.w;
+    if (speed <= 0.0 || _ExposureControl.x <= 0.0) return previous;
+    float step = speed * _ExposureControl.x;
+    float linearValue = previous + clamp(difference, -step, step);
+    // UE changes from constant f-stops/second to exponential movement at 1.5
+    // stops, with derivative matched at the transition using a 1/60 s sample.
+    const float transition = 1.5;
+    const float epsilonTime = 1.0 / 60.0;
+    float slope = epsilonTime / max((1.0 - exp2(-epsilonTime * speed)) * (transition / speed), 1e-6);
+    float exponential = previous + difference * saturate((1.0 - exp2(-_ExposureControl.x * speed)) * slope);
+    return abs(difference) > transition ? linearValue : exponential;
+}
+
+[numthreads(1, 1, 1)]
+void ResolveExposure(uint3 dispatch : SV_DispatchThreadID)
+{
+    float averageLog;
+    if (_ExposureBasic != 0)
+    {
+        float value = (float)_ExposureStatistics[0], weight = (float)_ExposureStatistics[1];
+        averageLog = weight > 0.0 ? (value / weight) * 30.0 - 10.0 : _ExposureAdaptation.x + log2(0.18);
+    }
+    else averageLog = HistogramAverageLog();
+    // UE default lens attenuation=0.78 gives Lmax=1.0. Auto exposure's
+    // EV100 is its white point: scene average is mapped to 18 percent grey.
+    float measuredEV = averageLog - log2(0.18);
+    float targetEV = clamp(measuredEV, _ExposureAdaptation.x, _ExposureAdaptation.y);
+    float curveU = (measuredEV + 10.0) * (63.0 / (64.0 * 30.0)) + 0.5 / 64.0;
+    float compensation = exp2(_ExposureControl.z) * _ExposureCompensationCurve.SampleLevel(sampler_linear_clamp, float2(curveU, 0.5), 0);
+    float adaptedEV = targetEV;
+    if (_ExposureControl.y < 0.5)
+    {
+        float oldScale = _ExposurePrevious.Load(int3(0, 0, 0)).x;
+        float previousEV = log2(max(_ExposureHDRScale * compensation / max(oldScale, 1e-20), 1e-20));
+        adaptedEV = AdaptWhitePoint(previousEV, targetEV);
+    }
+    adaptedEV = clamp(adaptedEV, _ExposureAdaptation.x, _ExposureAdaptation.y);
+    float multiplier = _ExposureHDRScale * compensation * exp2(-adaptedEV);
+    float targetMultiplier = _ExposureHDRScale * compensation * exp2(-targetEV);
+    _ExposureResult[uint2(0, 0)] = float4(multiplier, targetMultiplier, exp2(averageLog), compensation);
+}

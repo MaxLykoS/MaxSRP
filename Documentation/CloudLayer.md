@@ -2,7 +2,7 @@
 
 > 验证入口说明：下文 Validate/Capture 脚本及报告属于历史验证记录，临时夹具未保留在当前仓库。当前可运行 `Tools/ValidateShaders.ps1`，并在 Unity 检查 Console 与场景效果；不将历史记录视为本次重新验证。资源生成与 Setup 工具仍保留。
 
-当前为移动端研究使用的 2.5D 天空云层，入口为 Inspector 的 **Cloud Layer Settings**。它已在默认管线资产中关闭，保留作对照；当前主云使用 Unity 官方六向演示资产，见 [SixWayClouds.md](SixWayClouds.md)。对照时关闭 Six Way Cloud Settings 后再启用本层。
+当前为移动端研究使用的 2.5D 天空云层，配置入口为 `DefaultCloud.asset` / `MaxCloudConfig` 中的 **PC / Mobile → Layer**。两档共用本文件描述的算法，分别保存参数，初始迁移复制原管线设置；实际档位只由 `MaxRendererPipelineAsset.Platform` 总控，见 [RenderConfiguration.md](RenderConfiguration.md)。本层在默认配置的两档中关闭，保留作对照；当前主云使用 Unity 官方六向演示资产，见 [SixWayClouds.md](SixWayClouds.md)。对照时在当前档关闭 SixWay 后再启用 Layer。
 
 ## 表示与绘制
 

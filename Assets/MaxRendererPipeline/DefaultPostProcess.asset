@@ -1,0 +1,143 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d8d0d50471ae4f7f821e67b0bead0046, type: 3}
+  m_Name: DefaultPostProcess
+  m_EditorClassIdentifier:
+  m_pc:
+    Exposure:
+      Mode: 0
+      CameraEV100: 10.5
+      CompensationEV: 0
+      MinEV100: -10
+      MaxEV100: 20
+      SpeedUp: 3
+      SpeedDown: 1
+      LowPercent: 10
+      HighPercent: 90
+      HistogramMinEV100: -10
+      HistogramMaxEV100: 20
+      MeteringMask: {fileID: 0}
+      CompensationCurve:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: -10
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 20
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+    Bloom:
+      Enabled: 0
+      Intensity: 0
+      Threshold: -1
+      SizeScale: 4
+    ColorGrading:
+      Enabled: 0
+      Temperature: 6500
+      Tint: 0
+      Saturation: {x: 1, y: 1, z: 1, w: 1}
+      Contrast: {x: 1, y: 1, z: 1, w: 1}
+      Gamma: {x: 1, y: 1, z: 1, w: 1}
+      Gain: {x: 1, y: 1, z: 1, w: 1}
+      Offset: {x: 0, y: 0, z: 0, w: 0}
+    Film:
+      Mode: 2
+      Slope: 0.88
+      Toe: 0.55
+      Shoulder: 0.26
+      BlackClip: 0
+      WhiteClip: 0.04
+    Dithering: 1
+  m_mobile:
+    Exposure:
+      Mode: 0
+      CameraEV100: 10.5
+      CompensationEV: 0
+      MinEV100: -10
+      MaxEV100: 20
+      SpeedUp: 3
+      SpeedDown: 1
+      LowPercent: 10
+      HighPercent: 90
+      HistogramMinEV100: -10
+      HistogramMaxEV100: 20
+      MeteringMask: {fileID: 0}
+      CompensationCurve:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: -10
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 20
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+    Bloom:
+      Enabled: 0
+      Intensity: 0
+      Threshold: -1
+      SizeScale: 4
+    ColorGrading:
+      Enabled: 0
+      Temperature: 6500
+      Tint: 0
+      Saturation: {x: 1, y: 1, z: 1, w: 1}
+      Contrast: {x: 1, y: 1, z: 1, w: 1}
+      Gamma: {x: 1, y: 1, z: 1, w: 1}
+      Gain: {x: 1, y: 1, z: 1, w: 1}
+      Offset: {x: 0, y: 0, z: 0, w: 0}
+    Film:
+      Mode: 2
+      Slope: 0.88
+      Toe: 0.55
+      Shoulder: 0.26
+      BlackClip: 0
+      WhiteClip: 0.04
+    Dithering: 1
+  m_exposureCompute: {fileID: 7200000, guid: 460067b2294b446899fd38ab91df25e9, type: 3}
+  m_bloomShader: {fileID: 4800000, guid: a9184522e5c344ab96bb5749a325593a, type: 3}
+  m_outputShader: {fileID: 4800000, guid: 4db87be5f55045a09e9518602db95fe6, type: 3}
+  m_legacyColorOutput:
+    CameraEV100: 15
+    ExposureEV: 0
+    ToneMapping: 1
+    Dithering: 1
+    m_colorOutputShader: {fileID: 4800000, guid: 4db87be5f55045a09e9518602db95fe6, type: 3}

@@ -12,5 +12,58 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5eecb0cc55cb41d1b9978f0d027ffb0d, type: 3}
   m_Name: DefaultAtmosphere
   m_EditorClassIdentifier:
-  m_platform: 0
-  m_groundAlbedo: {r: 0.6666667, g: 0.6666667, b: 0.6666667, a: 1}
+  m_pc:
+    Atmosphere:
+      LengthUnitVersion: 1
+      _SeaLevel: 0
+      _PlanetRadius: 6360
+      _AtmosphereHeight: 60
+      _SunDiskAngle: 0.26785
+      _RayleighScatteringScale: 1
+      _RayleighScatteringScalarHeight: 8
+      _MieScatteringScale: 1
+      _MieAnisotropy: 0.8
+      _MieScatteringScalarHeight: 1.2
+      _OzoneAbsorptionScale: 1
+      _OzoneLevelCenterHeight: 25
+      _OzoneLevelWidth: 15
+      EnableAerialPerspective: 1
+      _AerialPerspectiveDistance: 96
+      _AerialPerspectiveStartDepth: 0.1
+    SkyIBL:
+      ReferenceHeight: 2
+      SpecularResolution: 128
+      DiffuseSamples: 128
+      SpecularSamples: 128
+    GroundAlbedo: {r: 0.6666667, g: 0.6666667, b: 0.6666667, a: 1}
+  m_mobile:
+    Atmosphere:
+      LengthUnitVersion: 1
+      _SeaLevel: 0
+      _PlanetRadius: 6360
+      _AtmosphereHeight: 60
+      _SunDiskAngle: 0.26785
+      _RayleighScatteringScale: 1
+      _RayleighScatteringScalarHeight: 8
+      _MieScatteringScale: 1
+      _MieAnisotropy: 0.8
+      _MieScatteringScalarHeight: 1.2
+      _OzoneAbsorptionScale: 1
+      _OzoneLevelCenterHeight: 25
+      _OzoneLevelWidth: 15
+      EnableAerialPerspective: 1
+      _AerialPerspectiveDistance: 96
+      _AerialPerspectiveStartDepth: 0.1
+    SkyIBL:
+      ReferenceHeight: 2
+      SpecularResolution: 128
+      DiffuseSamples: 128
+      SpecularSamples: 128
+    GroundAlbedo: {r: 0.6666667, g: 0.6666667, b: 0.6666667, a: 1}
+  m_iblCS: {fileID: 7200000, guid: e2b8bb07b144234449da79ec0190d9c9, type: 3}
+  m_aerialPerspectiveCompute: {fileID: 7200000, guid: abaf683ba41a4ad3bbf7d9d3cf32a8c6, type: 3}
+  m_proceduralSkyboxShader: {fileID: 4800000, guid: e672d8dbb2dc9254b9fedecd6817998b, type: 3}
+  m_transmittanceShader: {fileID: 4800000, guid: b155559cdc37a5040b239fb63b6e7033, type: 3}
+  m_multiscatteringShader: {fileID: 4800000, guid: afbbd3e0f2a7706469dbbd78e6c093e1, type: 3}
+  m_skyviewShader: {fileID: 4800000, guid: f84fc030683c2d142ae755f2707cc0e1, type: 3}
+  m_aerialPerspectiveLUTShader: {fileID: 4800000, guid: 490e2fdb45ef33746b278a0a9cbd2109, type: 3}

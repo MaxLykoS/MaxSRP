@@ -26,13 +26,15 @@ struct AtmosphereParameter
 
 // ------------------------------------------------------------------------- //
 
-// A uniform solar disk integrates to normal illuminance E = L*pi*sin(radius)^2.
-// SolarIrradiance and this radiance share the fixed 100000 photometric unit scale.
+// Match UE's illuminance / disk solid angle. The visible disk's outer edge is
+// softened separately, without renormalizing it. Keep the fixed HDR unit scale.
 float3 SolarDiskRadiance(in AtmosphereParameter param)
 {
     float radius = max(param.SunDiskAngle, 0.001) * (PI / 180.0);
-    float sine = sin(radius);
-    return param.SolarIrradiance / max(PI * sine * sine, 1e-10);
+    // 2*pi*(1-cos(radius)) = 4*pi*sin(radius/2)^2. The latter avoids
+    // subtracting nearly equal floats at the Sun's small angular radius.
+    float halfSine = sin(0.5 * radius);
+    return param.SolarIrradiance / max(4.0 * PI * halfSine * halfSine, 1e-10);
 }
 float3 RayleighCoefficient(in AtmosphereParameter param, float h)
 {

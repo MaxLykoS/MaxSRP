@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: afdd32552c394ca8ba4d2f07e0ae8e6f, type: 3}
+  m_Name: DefaultAO
+  m_EditorClassIdentifier:
+  m_pc:
+    Enabled: 1
+    Strength: 1
+    Radius: 1
+    Quality: 3
+    DenoisePasses: 1
+  m_mobile:
+    Enabled: 1
+    Strength: 0.5
+    RadiusInWorldSpace: 0
+    Radius: 2
+    ScreenRadius: 200
+    Quality: 2
+    Power: 2
+    Bias: 0.03
+    FadeDistance: 80
+    FadeRadius: 50
+    HalfResolution: 0
+    UpsampleQuality: 2
+    Blur: 1
+  m_compute: {fileID: 7200000, guid: 18a77fe927e6efc418c8af2a33e43dd1, type: 3}
+  m_ssaoShader: {fileID: 4800000, guid: e563ae1bd31049cea19cc9b619ad3d62, type: 3}

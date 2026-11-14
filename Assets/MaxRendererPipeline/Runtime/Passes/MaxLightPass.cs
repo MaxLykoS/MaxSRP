@@ -24,7 +24,7 @@ namespace MaxSRP
             RenderTargetIdentifier depth, Rect viewport, MaxIBLGIPass ibl, bool hasShadows,
             MaxClusteredLightingPass.CameraLightResources localLights,
             MaxBakedSolarGI bakedSolar = null, SunLightData sun = default,
-            MaxGTAOSettings gtao = null, RenderTexture gtaoVisibility = null)
+            MaxAOSettings gtao = null, RenderTexture gtaoVisibility = null)
         {
             CommandBuffer cmd = CommandBufferPool.Get("LightPass");
             try
@@ -40,8 +40,8 @@ namespace MaxSRP
                 ibl.SetLightingBindings(m_iblBindings);
                 localLights.Bind(m_iblBindings);
                 MaxBakedSolarGI.Bind(m_iblBindings, bakedSolar, sun);
-                Vector4 gtaoParams = new Vector4(0, gtao && gtao.AOOnly ? 1 : 0, 0, 0);
-                if (gtao && gtaoVisibility)
+                Vector4 gtaoParams = new Vector4(0, gtao && gtao.AOEnabled && gtao.AOOnly ? 1 : 0, 0, 0);
+                if (gtao && gtao.AOEnabled && gtaoVisibility)
                 {
                     m_iblBindings.SetTexture("_MaxGTAOTexture", gtaoVisibility);
                     gtaoParams.x = Mathf.Clamp01(gtao.Strength);

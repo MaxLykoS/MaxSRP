@@ -183,12 +183,13 @@ namespace MaxSRP
             m_configuration = configuration;
             try
             {
-                m_skyboxMat = new Material(setting.ProceduralSkyboxShader) { hideFlags = HideFlags.HideAndDontSave };
-                m_transmittanceMat = new Material(setting.TransmittanceShader) { hideFlags = HideFlags.HideAndDontSave };
-                m_multiscatteringMat = new Material(setting.MultiscatteringShader) { hideFlags = HideFlags.HideAndDontSave };
-                m_skyviewMat = new Material(setting.SkyviewShader) { hideFlags = HideFlags.HideAndDontSave };
-                m_environmentSkyviewMat = new Material(setting.SkyviewShader) { hideFlags = HideFlags.HideAndDontSave };
-                m_aerialPerspectiveLUTMat = new Material(setting.AerialPerspectiveLUTShader) { hideFlags = HideFlags.HideAndDontSave };
+                if (configuration == null) throw new ArgumentNullException(nameof(configuration));
+                m_skyboxMat = new Material(configuration.ProceduralSkyboxShader) { hideFlags = HideFlags.HideAndDontSave };
+                m_transmittanceMat = new Material(configuration.TransmittanceShader) { hideFlags = HideFlags.HideAndDontSave };
+                m_multiscatteringMat = new Material(configuration.MultiscatteringShader) { hideFlags = HideFlags.HideAndDontSave };
+                m_skyviewMat = new Material(configuration.SkyviewShader) { hideFlags = HideFlags.HideAndDontSave };
+                m_environmentSkyviewMat = new Material(configuration.SkyviewShader) { hideFlags = HideFlags.HideAndDontSave };
+                m_aerialPerspectiveLUTMat = new Material(configuration.AerialPerspectiveLUTShader) { hideFlags = HideFlags.HideAndDontSave };
                 m_aerialCompute = aerialCompute;
                 if (m_aerialCompute == null) throw new InvalidOperationException("AP volume compute shader is missing.");
                 m_aerialKernel = m_aerialCompute.FindKernel("BuildAerialPerspective");
@@ -601,57 +602,6 @@ namespace MaxSRP
             public bool EnableAerialPerspective = true;
             [Min(0.0f)] [Tooltip("AP volume depth in kilometres (km), measured after the start distance.")] [SerializeField] public float _AerialPerspectiveDistance = 96.0f;
             [Min(0.0f)] [Tooltip("AP start distance in kilometres (km); clamped to the camera near plane.")] [SerializeField] public float _AerialPerspectiveStartDepth = 0.1f;
-
-            [SerializeField]
-            private Shader m_proceduralSkyboxShader;
-            public Shader ProceduralSkyboxShader
-            {
-                get
-                {
-                    return m_proceduralSkyboxShader;
-                }
-            }
-
-            [SerializeField]
-            private Shader m_transmittanceShader;
-            public Shader TransmittanceShader
-            {
-                get
-                {
-                    return m_transmittanceShader;
-                }
-            }
-
-            [SerializeField]
-            private Shader m_multiscatteringShader;
-            public Shader MultiscatteringShader
-            {
-                get
-                {
-                    return m_multiscatteringShader;
-                }
-            }
-
-            [SerializeField]
-            private Shader m_skyviewShader;
-            public Shader SkyviewShader
-            {
-                get
-                {
-                    return m_skyviewShader;
-                }
-            }
-
-            [SerializeField]
-            private Shader m_aerialPerspectiveLUTShader;
-            public Shader AerialPerspectiveLUTShader
-            {
-                get
-                {
-                    return m_aerialPerspectiveLUTShader;
-                }
-            }
-
 
         }
     }

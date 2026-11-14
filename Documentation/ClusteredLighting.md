@@ -8,7 +8,7 @@
 
 每相机拥有独立的世界灯数据、视空间光球、格子计数和灯索引 buffer。命令缓冲记录数据上传、`PrepareLights` 与 `BuildClusters` dispatch，再在 Lighting 的 MaterialPropertyBlock 中绑定该相机资源。相机暂时缺席一次 Render 调用不释放资源；相机销毁或管线 Dispose 时释放，原生 buffer Release 后自动重建。
 
-默认设置为 64×64 像素、32 层深度、每格存储 64 个灯索引。最后一个 XY tile 按实际视窗尺寸截断，透视深度采用对数分层，正交采用线性分层并支持负 near。参数在管线资产的 Clustered Lighting Settings 中调整；关闭 Enabled 可使用完整逐灯参考。
+默认设置为 64×64 像素、32 层深度、每格存储 64 个灯索引。最后一个 XY tile 按实际视窗尺寸截断，透视深度采用对数分层，正交采用线性分层并支持负 near。参数与建表 Compute 引用位于独立的 `DefaultClusteredLighting.asset` / `MaxClusteredLightingConfig`；PC / Mobile 共用本文件描述的算法，可分别调整参数，初始迁移复制原值。实际档位由 `MaxRendererPipelineAsset.Platform` 总控，见 [RenderConfiguration.md](RenderConfiguration.md)。关闭当前档的 Enabled 可使用完整逐灯参考。
 
 建表只使用视锥与灯光范围，不读取 GBuffer 深度。每线程处理一个格子，以四角射线与两端眼空间深度生成保守 AABB，按输入次序遍历光球并建立索引。一个格子会保守保留部分实际不影响该像素的灯；像素仍使用原有精确距离衰减。
 
@@ -16,7 +16,7 @@
 
 建表和查表统一使用 `CameraViewport.GetProjection(camera)` 的 Unity CPU 投影、无 jitter、clip Z 为 [-1,1]。每个片元从重建的世界位置重新投影到这份投影，取得 canonical UV 和眼空间深度；不使用输出目标上的 SV_POSITION，避免部分视窗偏移、GPU Y 翻转和 TAA jitter 混用。屏幕／深度范围外的点回退完整灯列表。GBuffer、运动、天空、HDR 以及共享 TAA 的既有约定不变，不新增历史。
 
-计数保存真实相交灯数，存储容量只限制索引写入。超过每格容量时，该格像素回退完整灯列表，绝不以灯排序或截断损失能量。禁用、缺失／不支持 Compute、无效投影、缩放／剪切的自定义 view 矩阵或异常格子也使用完整遍历。启用时 Player build validator 要求序列化 Compute 引用，新建管线资产也包含默认引用。
+计数保存真实相交灯数，存储容量只限制索引写入。超过每格容量时，该格像素回退完整灯列表，绝不以灯排序或截断损失能量。禁用、缺失／不支持 Compute、无效投影、缩放／剪切的自定义 view 矩阵或异常格子也使用完整遍历。启用时 Player build validator 要求配置保留序列化 Compute 引用；新建管线资产默认引用独立配置，配置脚本保留 Compute 默认引用。
 
 单相机格子计数加索引限制为 32 MiB，超过预算使用完整遍历，避免超高分辨率造成失控分配。1080p 默认为 30×17×32=16320 格，计数与索引约 4.05 MiB／相机，另有每灯 32 字节和视空间范围 16 字节（按容量取整）。这不包含驱动开销，也不是手机性能承诺。每格超限或广范围灯密集重叠时，回退保证正确性，但不会保证性能。
 

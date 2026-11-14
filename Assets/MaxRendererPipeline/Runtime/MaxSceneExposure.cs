@@ -25,9 +25,16 @@ namespace MaxSRP
 
         public static float GetExposureMultiplier(Camera camera, ColorOutputSettings fallback)
         {
+            return TryGetExposureMultiplier(camera, out float exposure) ? exposure : fallback.GetExposureMultiplier();
+        }
+
+        // Compatibility override for scenes authored before the post-process configuration asset.
+        public static bool TryGetExposureMultiplier(Camera camera, out float exposure)
+        {
+            exposure = 1f;
             // Numerical previews and reflection captures retain their pipeline exposure.
             if (!camera || (camera.cameraType != CameraType.Game && camera.cameraType != CameraType.SceneView))
-                return fallback.GetExposureMultiplier();
+                return false;
 
             Scene scene = camera.cameraType == CameraType.SceneView
                 ? SceneManager.GetActiveScene()
@@ -45,13 +52,14 @@ namespace MaxSRP
                 // Duplicates in one scene have a stable, registration-order-independent choice.
                 if (!selected || environment.GetInstanceID() < selected.GetInstanceID()) selected = environment;
             }
-            if (!selected) return fallback.GetExposureMultiplier();
+            if (!selected) return false;
 
             // Match ColorOutputSettings: scene HDR is cd/m² / HDRScale, and exposure
             // is applied once after the shared TAA resolve, without changing history.
             float cameraExposure = 1.2f * Mathf.Pow(2.0f, Mathf.Clamp(selected.CameraEV100, -10.0f, 24.0f));
-            return LightPhotometry.HDRScale / cameraExposure *
+            exposure = LightPhotometry.HDRScale / cameraExposure *
                 Mathf.Pow(2.0f, Mathf.Clamp(selected.ExposureEV, -16.0f, 16.0f));
+            return true;
         }
     }
 }

@@ -10,6 +10,8 @@ Max Mobile 的主要采样预算与资源格式已对齐 UE 移动预设。Max P
 
 两档 AP 都通过 Compute 直接生成**一张原生 3D RGBA16F 纹理**，RGB 保存入散射，Alpha 保存平均透射率；运行时只做一次硬件三线性过滤查询。覆盖 **96 km**，默认从相机前方 **100 m** 开始，起点至少为相机近裁剪距离。该布局已与 UE 快速 AP 对齐。
 
+太阳角半径保持 **0.26785°**，对应 UE Source Angle 的角直径 **0.5357°**。可见光盘使用 UE 的盘内软边与照度 / 光盘立体角亮度公式。当前 `DefaultPostProcess.asset` 两档均按本机 BistroLumen 对照场景设为 **Manual EV100 10.5、Bloom 关闭且强度为 0**；这是对照场景配置，不是 UE 的通用默认值。
+
 ## 2. 仍保留的 PC 模型差异
 
 以下是 Max PC 的明确设计选择。Max Mobile 已在这两项上对齐 UE。
@@ -45,8 +47,8 @@ L_out.rgb = L_surface.rgb × T_average + L_scatter.rgb
 
 - **全天 TOD 接入**：Max 当前只输入一份有效光源，按 6 / 18 点切换日月，夜间复用白天轨迹；UE 公共大气代码支持第二个大气光源。太阳暮光与月光的共同参与、独立月面和星空属于另一个功能范围。
 - **参数自由度**：UE 可独立调整 Mie 散射与吸收等参数；Max 目前共用气溶胶倍率。默认输入一致时，这不是当前主要的画面差异。
-- **HDR 与调度**：UE 使用 PreExposure，Max 使用固定光度缩放和现有最终曝光。Max 按参数和相机视图缓存 LUT；这些差异应按数值范围、失效依赖和更新开销单独评估。
-- **局部边界细节**：近地观察参考高度保护为 Max 1 m、UE 5 m；Max 光盘目前为硬边，UE 光盘有软边。AP 的近地路径边界处理也保留本项目的射线截断规则，不将资源格式对齐表述成逐像素结果完全相同。
+- **HDR 与调度**：UE 使用 PreExposure，Max 使用固定光度缩放和现有最终曝光。UE 原生大气 pass 将预曝光后的光盘亮度限制到 64000，这是浮点范围 / TAA 保护，不是物理亮度参数。Max 在写入 RGBA16F 之前，对固定 HDR 单位的光盘清理 NaN、限制非负并限至 64000，为叠加天空留出余量；该存储保护与曝光无关，常规太阳值不会触发，不能称为 UE 预曝光限幅的等效换算。最终曝光不反馈到天空和颜色历史。关闭 Bloom 后，两种极高盘亮度经 Film 均进入白色高光区；这不代表开启 Bloom 时两套能量处理逐像素相同。Max 按参数和相机视图缓存 LUT；调度差异应按失效依赖和更新开销单独评估。
+- **局部边界细节**：近地观察参考高度保护为 Max 1 m、UE 5 m。AP 的近地路径边界处理也保留本项目的射线截断规则，不将资源格式对齐表述成逐像素结果完全相同。
 
 依据：[Max 日月输入](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/GI/MaxBakedSolarGI.cs:148>)、[Max 资源与视图缓存](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs>)、[UE 参考高度](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Source/Runtime/Engine/Public/Rendering/SkyAtmosphereCommonData.cpp:277>)。
 
@@ -80,6 +82,6 @@ Mobile 的主要数值预算已对齐 UE 移动预设：96×50 SkyView、每纹�
 
 ## 7. 维护入口
 
-- 档位入口：[DefaultAtmosphere.asset](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/DefaultAtmosphere.asset:15>) 的 Platform。资源分配、覆盖范围和失效依赖位于 [MaxProceduralSkybox.cs](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs>)，数值预算位于 [AtmosphereSampling.hlsl](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereSampling.hlsl>)。
-- AP 生产入口是 `AerialPerspectiveLUT.compute` 的 `BuildAerialPerspective`，引用保存在 [MaxRendererPipelineAsset.cs](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxRendererPipelineAsset.cs:70>) 的 Aerial Perspective Compute 字段；体素数学位于 `AerialPerspectiveLUTCommon.hlsl`。旧 Fragment 包装保留作参考，不作为当前生成路径。
+- 档位入口是 [Max Renderer Pipeline Asset.asset](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Max Renderer Pipeline Asset.asset>) 的 **Platform**，同时控制其他渲染模块。[DefaultAtmosphere.asset](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/DefaultAtmosphere.asset>) 分别保存 PC / Mobile 的大气、GroundAlbedo 和 SkyIBL 参数，没有独立档位开关；本次迁移将原参数复制到两档，既有物理公式和预算差异保留。配置总览见 [RenderConfiguration.md](RenderConfiguration.md)。
+- AP 生产入口是 `AerialPerspectiveLUT.compute` 的 `BuildAerialPerspective`，AP / IBL Compute 与五个大气 Shader 引用统一保存在 [MaxAtmosphereConfig.cs](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxAtmosphereConfig.cs>)；体素数学位于 `AerialPerspectiveLUTCommon.hlsl`。资源分配、覆盖范围和失效依赖位于 [MaxProceduralSkybox.cs](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs>)，数值预算位于 [AtmosphereSampling.hlsl](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereSampling.hlsl>)。旧 Fragment 包装保留作参考，不作为当前生成路径。
 - 原均匀经纬映射、64 方向表、固定 32 步中点积分和旧 AP 布局的核心逻辑，仍可在 [Helper.hlsl](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/Helper.hlsl>)、[RayMarching.hlsl](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl>) 与 [AerialPerspective.hlsl](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl>) 的停用代码或恢复说明中找到。

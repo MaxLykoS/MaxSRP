@@ -77,7 +77,8 @@ namespace MaxSRP.EditorTools
                     renderer.sharedMaterials = replacement;
                     renderer.shadowCastingMode = ShadowCastingMode.On;
                     renderer.receiveShadows = true;
-                    renderer.motionVectorGenerationMode = MotionVectorGenerationMode.Object;
+                    // Bistro geometry is static; TAA reconstructs camera motion from depth.
+                    renderer.motionVectorGenerationMode = MotionVectorGenerationMode.Camera;
                     PrefabUtility.RecordPrefabInstancePropertyModifications(renderer);
                 }
 

@@ -2,10 +2,24 @@
 #define MAX_COLOR_OUTPUT_PASS_INCLUDED
 
 #include "UnityCG.cginc"
+#include "UEColorTransforms.hlsl"
 
 UNITY_DECLARE_TEX2D(_SceneColorHDR);
 UNITY_DECLARE_TEX2D(_SceneDepthHDR);
+UNITY_DECLARE_TEX2D(_MaxExposureTexture);
+UNITY_DECLARE_TEX2D(_MaxBloomTexture);
 float4 _ColorOutputParameters; // exposure, tone mapping, Y flip, dithering: 0 off / 1 linear / 2 sRGB
+float4 _MaxPostProcessFlags; // automatic exposure, bloom, grading, reserved
+float4 _MaxSourceUVScaleBias;
+float4 _MaxBloomUVScaleBias;
+float4 _MaxColorSaturation;
+float4 _MaxColorContrast;
+float4 _MaxColorGamma;
+float4 _MaxColorGain;
+float4 _MaxColorOffset;
+float4 _MaxWhiteBalance; // temperature (kelvin), tint, reserved
+float4 _MaxFilmParameters; // slope, toe, shoulder, black clip
+float _MaxFilmWhiteClip;
 
 struct ColorOutputVaryings
 {
@@ -22,6 +36,7 @@ ColorOutputVaryings ColorOutputVertex(uint vertexID : SV_VertexID)
     output.uv.y = 1.0 - output.uv.y;
 #endif
     if (_ColorOutputParameters.z > 0.5) output.uv.y = 1.0 - output.uv.y;
+    output.uv = output.uv * _MaxSourceUVScaleBias.xy + _MaxSourceUVScaleBias.zw;
     return output;
 }
 
@@ -106,8 +121,38 @@ float4 ColorOutputFragment(ColorOutputVaryings input, out float depthOut : SV_De
 {
     float4 source = UNITY_SAMPLE_TEX2D(_SceneColorHDR, input.uv);
     depthOut = UNITY_SAMPLE_DEPTH(UNITY_SAMPLE_TEX2D(_SceneDepthHDR, input.uv));
-    float3 color = max(source.rgb, 0.0) * _ColorOutputParameters.x;
-    if (_ColorOutputParameters.y > 0.5) color = ToneMapACES(color);
+    float exposure = _ColorOutputParameters.x;
+    if (_MaxPostProcessFlags.x > 0.5)
+        exposure = UNITY_SAMPLE_TEX2D(_MaxExposureTexture, float2(0.5, 0.5)).r;
+    float3 sceneColor = MaxFinitePositiveColor(source.rgb);
+    if (_MaxPostProcessFlags.y > 0.5)
+    {
+        float2 bloomUV = input.uv * _MaxBloomUVScaleBias.xy + _MaxBloomUVScaleBias.zw;
+        sceneColor += MaxFinitePositiveColor(UNITY_SAMPLE_TEX2D(_MaxBloomTexture, bloomUV).rgb);
+    }
+    // Bloom remains in the same fixed photometric scale as scene color. Apply
+    // the camera multiplier once, after addition; histories are never exposed.
+    float3 color = MaxFinitePositiveColor(sceneColor * MaxFinitePositive(exposure));
+    bool filmic = _ColorOutputParameters.y > 1.5;
+    if (filmic || _MaxPostProcessFlags.z > 0.5)
+    {
+        if (_MaxPostProcessFlags.z > 0.5)
+            color = MaxWhiteBalance(color, _MaxWhiteBalance.x, _MaxWhiteBalance.y);
+        float3 colorAP1 = mul(MaxSRGBToAP1, color);
+        // Wide-gamut highlight handling is part of UE's default film look;
+        // user color correction remains optional and neutral by default.
+        if (filmic) colorAP1 = MaxExpandGamutAP1(colorAP1);
+        if (_MaxPostProcessFlags.z > 0.5)
+            colorAP1 = MaxColorCorrectAP1(colorAP1, _MaxColorSaturation, _MaxColorContrast,
+                _MaxColorGamma, _MaxColorGain, _MaxColorOffset);
+        if (filmic)
+            // UE retains negative graded AP1 channels until the film transform's
+            // AP0 glow/red operations and its subsequent working-space clamp.
+            colorAP1 = MaxUEFilmAP1(clamp(MaxFiniteSignedColor(colorAP1), -1.0e10, 1.0e10),
+                _MaxFilmParameters, _MaxFilmWhiteClip);
+        color = MaxFinitePositiveColor(mul(MaxAP1ToSRGB, MaxFiniteSignedColor(colorAP1)));
+    }
+    if (_ColorOutputParameters.y > 0.5 && !filmic) color = ToneMapACES(color);
     color = DitherColorOutput(color, input.position.xy);
     // In the project's Linear color space, the sRGB destination performs display encoding.
     // Linear RenderTexture destinations retain linear values; do not apply another gamma curve.

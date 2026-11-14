@@ -23,44 +23,77 @@ namespace MaxSRP
         private MaxLightPass m_LightPass;
         private MaxClusteredLightingPass m_clusteredLightingPass;
         private MaxColorOutputPass m_colorOutputPass;
+        private readonly MaxPostProcessPass m_postProcess = new MaxPostProcessPass();
         private MaxIBLGIPass m_iblGIPass;
         private MaxShadowCasterPass m_shadowCastPass;
         private MaxProceduralSkyboxPass m_proceduralSkyboxPass;
         private MaxCloudLayerPass m_cloudLayerPass;
         private MaxSixWayCloudPass m_sixWayCloudPass;
         private readonly MaxRendererPipelineAsset m_setting;
+        private int m_configurationRevision;
+        private string m_constructionState;
 
         // Call on explicit camera cuts/teleports or discontinuous scene changes.
-        public void ResetTemporalHistory(Camera camera) { m_temporalAA?.ResetHistory(camera); }
+        public void ResetTemporalHistory(Camera camera)
+        {
+            m_shadowCastPass?.Invalidate(camera);
+            m_temporalAA?.ResetHistory(camera);
+            m_postProcess.ResetHistory(camera);
+        }
 
         public MaxRenderPipeline(MaxRendererPipelineAsset setting)
         {
             GraphicsSettings.useScriptableRenderPipelineBatching = true;
             m_setting = setting;
+            InitializePasses();
+        }
+
+        private void InitializePasses()
+        {
+            var setting = m_setting;
             try
             {
+                setting.ValidateConfigurations();
                 MaxLightmapping.Setup();
                 m_LightPass = new MaxLightPass(setting.LightingShader);
                 m_clusteredLightingPass = new MaxClusteredLightingPass(setting.ClusteredLightingCS);
-                m_colorOutputPass = new MaxColorOutputPass(setting.ColorOutput);
+                m_colorOutputPass = new MaxColorOutputPass(setting.ColorOutput,
+                    setting.PostProcessConfiguration ? setting.PostProcessConfiguration.OutputShader : null);
                 m_temporalAA = new MaxTemporalAAPass(setting.TemporalShader);
-                m_shadowCastPass = new MaxShadowCasterPass(setting.CascadeSetting, setting.AtmosphereScatteringSetting);
+                m_shadowCastPass = new MaxShadowCasterPass(setting.CascadeSetting, setting.AtmosphereScatteringSetting,
+                    setting.ShadowConfiguration.TileClearShader);
                 m_proceduralSkyboxPass = new MaxProceduralSkyboxPass(setting.AtmosphereScatteringSetting, setting.AtmosphereConfiguration, setting.AerialPerspectiveCompute);
                 m_iblGIPass = new MaxIBLGIPass(setting.IBLCS);
                 m_cloudLayerPass = new MaxCloudLayerPass(setting.CloudLayer, setting.IBLCS);
                 m_sixWayCloudPass = new MaxSixWayCloudPass(setting.SixWayCloud, setting.IBLCS);
+                m_configurationRevision = setting.ConfigurationRevision;
+                m_constructionState = setting.ConstructionState();
             }
             catch
             {
-                Dispose(true);
+                ReleasePasses();
                 throw;
             }
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
         {
+            if (m_configurationRevision != m_setting.ConfigurationRevision)
+            {
+                m_setting.ValidateConfigurations();
+                string state = m_setting.ConstructionState();
+                if (!string.Equals(m_constructionState, state, StringComparison.Ordinal))
+                {
+                    // Previous cameras finished Submit before this boundary.
+                    // Retire cached LUTs and all constructor-bound profile state.
+                    ReleasePasses();
+                    InitializePasses();
+                }
+                else m_configurationRevision = m_setting.ConfigurationRevision;
+            }
             m_proceduralSkyboxPass.PruneDestroyedCameras();
             m_temporalAA.PruneDestroyedCameras();
+            m_postProcess.PruneDestroyedCameras();
             m_clusteredLightingPass.PruneDestroyedCameras();
             PruneCameraResources(cameras);
             PrepareOutputSizes(cameras);
@@ -82,6 +115,7 @@ namespace MaxSRP
                 catch
                 {
                     m_temporalAA.ResetHistory(camera);
+                    m_postProcess.ResetHistory(camera);
                     throw;
                 }
                 finally
@@ -96,7 +130,7 @@ namespace MaxSRP
         {
             var bakedSolar = MaxBakedSolarGI.FindForCamera(camera);
             if (bakedSolar) sun = bakedSolar.AlignSun(sun);
-            var gtao = MaxGTAOSettings.FindForCamera(camera);
+            var gtao = MaxAOSettings.FindForCamera(camera);
             int lightingHistoryKey = unchecked((bakedSolar ? bakedSolar.HistoryKey : 0) * 31 +
                 (gtao ? gtao.HistoryKey : 0));
             lightingHistoryKey = unchecked(lightingHistoryKey * 31 +
@@ -207,12 +241,23 @@ namespace MaxSRP
                 m_proceduralSkyboxPass.EnvironmentViewHeight, m_proceduralSkyboxPass.SkyViewSizeAndInvSize);
             var localLights = m_clusteredLightingPass.Prepare(context, camera, width, height,
                 m_lightConfigurator, m_setting.ClusteredLighting);
-            var gtaoVisibility = resources.GTAO.Execute(context, camera, gtao, resources.Depth,
-                resources.Buffers[1], output.Color, temporal);
+            RenderTexture gtaoVisibility;
+            if (gtao && gtao.Platform == AOPlatform.Mobile)
+            {
+                resources.GTAO.Dispose();
+                gtaoVisibility = resources.SSAO.Execute(context, camera, gtao, resources.Depth,
+                    resources.Buffers[1], output.Color, temporal);
+            }
+            else
+            {
+                resources.SSAO.Dispose();
+                gtaoVisibility = resources.GTAO.Execute(context, camera, gtao, resources.Depth,
+                    resources.Buffers[1], output.Color, temporal);
+            }
             m_LightPass.Execute(context, camera, output.Color, output.Depth, viewport, m_iblGIPass, hasShadows, localLights,
                 bakedSolar, sun, gtao, gtaoVisibility);
 
-            bool showAOOnly = gtao && gtao.AOOnly;
+            bool showAOOnly = gtao && gtao.AOEnabled && gtao.AOOnly;
 #if UNITY_EDITOR
             showAOOnly &= camera != MaxLightPass.DiagnosticCamera || MaxLightPass.DiagnosticLightingMode == 0.0f;
 #endif
@@ -232,6 +277,8 @@ namespace MaxSRP
             m_temporalAA.Resolve(context, camera, temporal, output.Color, resources.Depth, m_setting.TemporalAA,
                 temporal == null ? Vector2.zero : m_cloudLayerPass.WindDelta(temporal.LastRenderTime), m_cloudLayerPass.ContentRevision + m_sixWayCloudPass.ContentRevision,
                 temporal == null ? Vector3.zero : m_cloudLayerPass.ObserverDelta(temporal.Position, camera.transform.position));
+            var postOutput = m_postProcess.Prepare(context, camera, output.Color, viewport,
+                m_setting.PostProcessConfiguration, m_setting.ColorOutput, showAOOnly);
 #if UNITY_EDITOR
             if (Handles.ShouldRenderGizmos())
             {
@@ -249,7 +296,7 @@ namespace MaxSRP
             }
 #endif
             m_colorOutputPass.Execute(context, camera, output.Color, output.Depth, target, outputDepth,
-                m_setting.ColorOutput, showAOOnly);
+                m_setting.ColorOutput, showAOOnly, postOutput);
 #if UNITY_EDITOR
             if (Handles.ShouldRenderGizmos())
             {
@@ -351,6 +398,12 @@ namespace MaxSRP
 
         protected override void Dispose(bool disposing)
         {
+            ReleasePasses();
+            base.Dispose(disposing);
+        }
+
+        private void ReleasePasses()
+        {
             foreach (CameraResources resources in m_cameraResources.Values)
                 resources.Dispose();
             m_cameraResources.Clear();
@@ -359,6 +412,7 @@ namespace MaxSRP
             m_outputResources.Clear();
             m_outputSizes.Clear();
             m_colorOutputPass?.Dispose();
+            m_postProcess.Dispose();
             m_temporalAA?.Dispose();
             m_cloudLayerPass?.Dispose();
             m_sixWayCloudPass?.Dispose();
@@ -367,8 +421,16 @@ namespace MaxSRP
             m_iblGIPass?.Dispose();
             m_shadowCastPass?.Dispose();
             m_proceduralSkyboxPass?.Dispose();
+            m_colorOutputPass = null;
+            m_temporalAA = null;
+            m_cloudLayerPass = null;
+            m_sixWayCloudPass = null;
+            m_LightPass = null;
+            m_clusteredLightingPass = null;
+            m_iblGIPass = null;
+            m_shadowCastPass = null;
+            m_proceduralSkyboxPass = null;
             MaxLightmapping.Reset();
-            base.Dispose(disposing);
         }
 
         private sealed class CameraResources : IDisposable
@@ -378,6 +440,7 @@ namespace MaxSRP
             public readonly RenderTexture[] Buffers = new RenderTexture[4];
             public readonly RenderTargetIdentifier[] BufferIDs = new RenderTargetIdentifier[4];
             public readonly MaxGTAOPass GTAO = new MaxGTAOPass();
+            public readonly MaxSSAOPass SSAO = new MaxSSAOPass();
             public CameraResources(Camera camera)
             {
                 Camera = camera;
@@ -425,6 +488,7 @@ namespace MaxSRP
             public void Dispose()
             {
                 GTAO.Dispose();
+                SSAO.Dispose();
                 ReleaseBuffers();
             }
         }

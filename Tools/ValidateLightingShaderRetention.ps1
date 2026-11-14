@@ -19,28 +19,98 @@ foreach ($taskAsset in $taskAssets) {
 if (-not [IO.File]::ReadAllText((Join-Path $taskRuntime 'MaxRendererPipelineAsset.cs.meta')).Contains($taskReference)) {
     throw 'New pipeline asset default reference is missing.'
 }
-$taskClusterGuid = [regex]::Match([IO.File]::ReadAllText((Join-Path $taskRoot 'Assets/MaxRendererPipeline/Shaders/Realtime/ClusteredLighting.compute.meta')), '(?m)^guid: (\w+)').Groups[1].Value
-$taskClusterReference = "m_clusteredLightingCS: {fileID: 7200000, guid: $taskClusterGuid, type: 3}"
-foreach ($taskAsset in $taskAssets) {
-    if (-not [IO.File]::ReadAllText($taskAsset.FullName).Contains($taskClusterReference)) {
-        throw "Missing serialized clustered Compute dependency: $($taskAsset.FullName)"
+# The pipeline owns the quality selector and configuration references. Each
+# module retains its own PC/Mobile parameters and shader dependencies.
+function Get-TaskGuid([string]$relativePath) {
+    $metaPath = Join-Path $taskRoot ($relativePath + '.meta')
+    $guid = [regex]::Match([IO.File]::ReadAllText($metaPath), '(?m)^guid: ([a-f0-9]{32})\r?$').Groups[1].Value
+    if (-not $guid) { throw "Missing or invalid GUID: $metaPath" }
+    return $guid
+}
+function Assert-TaskLine([string]$path, [string]$line) {
+    if (-not [regex]::IsMatch([IO.File]::ReadAllText($path), '(?m)^' + [regex]::Escape($line) + '\r?$')) {
+        throw "Serialized dependency missing: $path / $line"
     }
 }
-if (-not [IO.File]::ReadAllText((Join-Path $taskRuntime 'MaxRendererPipelineAsset.cs.meta')).Contains($taskClusterReference)) {
-    throw 'New pipeline asset clustered Compute default reference is missing.'
+$taskModules = @(
+    @('m_atmosphereConfiguration', 'DefaultAtmosphere', 'MaxAtmosphereConfig'),
+    @('m_temporalAAConfiguration', 'DefaultTemporalAA', 'MaxTemporalAAConfig'),
+    @('m_cloudConfiguration', 'DefaultCloud', 'MaxCloudConfig'),
+    @('m_shadowConfiguration', 'DefaultShadow', 'MaxShadowConfig'),
+    @('m_clusteredLightingConfiguration', 'DefaultClusteredLighting', 'MaxClusteredLightingConfig'),
+    @('m_aoConfiguration', 'DefaultAO', 'MaxAOConfig'),
+    @('m_postProcessConfiguration', 'DefaultPostProcess', 'MaxPostProcessConfig')
+)
+$taskPipelineMeta = Join-Path $taskRuntime 'MaxRendererPipelineAsset.cs.meta'
+foreach ($taskModule in $taskModules) {
+    $taskModulePath = 'Assets/MaxRendererPipeline/' + $taskModule[1] + '.asset'
+    $taskModuleAsset = Join-Path $taskRoot $taskModulePath
+    $taskModuleSource = Join-Path $taskRuntime ($taskModule[2] + '.cs')
+    $taskModuleGuid = Get-TaskGuid $taskModulePath
+    $taskModuleScriptGuid = Get-TaskGuid ('Assets/MaxRendererPipeline/Runtime/' + $taskModule[2] + '.cs')
+    Assert-TaskLine $taskModuleAsset ('  m_Script: {fileID: 11500000, guid: ' + $taskModuleScriptGuid + ', type: 3}')
+    Assert-TaskLine $taskPipelineMeta ('  - ' + $taskModule[0] + ': {fileID: 11400000, guid: ' + $taskModuleGuid + ', type: 2}')
+    foreach ($taskAsset in $taskAssets) {
+        # Configurations may be replaced with project-authored assets. Require a
+        # non-null typed asset reference, rather than hard-coding every pipeline
+        # to the default configuration GUID.
+        $taskConfigPattern = '(?m)^  ' + [regex]::Escape($taskModule[0]) + ': \{fileID: 11400000, guid: [a-f0-9]{32}, type: 2\}\r?$'
+        if (-not [regex]::IsMatch([IO.File]::ReadAllText($taskAsset.FullName), $taskConfigPattern)) {
+            throw "Missing configuration reference: $($taskAsset.FullName) / $($taskModule[0])"
+        }
+    }
+    $taskModuleText = [IO.File]::ReadAllText($taskModuleAsset)
+    $taskModuleCode = [IO.File]::ReadAllText($taskModuleSource)
+    foreach ($taskProfile in @('m_pc', 'm_mobile')) {
+        if ($taskModuleText -notmatch ('(?m)^  ' + $taskProfile + ':\r?$') -or
+            $taskModuleCode -notmatch ('\b' + $taskProfile + '\b')) {
+            throw "PC/Mobile profile missing: $taskModuleAsset / $taskProfile"
+        }
+    }
+    if ($taskModuleText -match '(?m)^  m_platform:' -or
+        $taskModuleCode -match '\b(?:private|public|internal)\s+\w+\s+m_platform\b') {
+        throw "Only the pipeline may own the platform selector: $taskModuleAsset"
+    }
+}
+foreach ($taskAsset in $taskAssets) {
+    $taskPipelineText = [IO.File]::ReadAllText($taskAsset.FullName)
+    if ($taskPipelineText -notmatch '(?m)^  m_platform: [01]\r?$') { throw "Pipeline quality selector missing: $($taskAsset.FullName)" }
+    if ($taskPipelineText -match '(?m)^  m_(?:clusteredLightingSettings|clusteredLightingCS|colorOutputSettings|temporalAASettings|temporalShader|cascadeSettings|skyIBLSettings|cloudLayerSettings|sixWayCloudSettings|iblCS|aerialPerspectiveCompute|atmosphereScatteringSetting):') {
+        throw "Legacy inline module data remains on the pipeline: $($taskAsset.FullName)"
+    }
 }
 
+# Assert both default assets and new-asset script references. Dependencies are
+# top-level fields; profiles share these shaders while retaining their parameters.
+$taskDependencies = @(
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_iblCS', 'Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute', 7200000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_aerialPerspectiveCompute', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute', 7200000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_proceduralSkyboxShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/SkyboxProcedural.shader', 4800000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_transmittanceShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/TransmittanceLUT.shader', 4800000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_multiscatteringShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/MultiscatteringLUT.shader', 4800000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_skyviewShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/SkyviewLUT.shader', 4800000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_aerialPerspectiveLUTShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.shader', 4800000),
+    @('DefaultTemporalAA', 'MaxTemporalAAConfig', 'm_temporalShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAA.shader', 4800000),
+    @('DefaultCloud', 'MaxCloudConfig', 'm_layerLightingShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/CloudLayerLighting.shader', 4800000),
+    @('DefaultCloud', 'MaxCloudConfig', 'm_sixWayShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/SixWayCloud.shader', 4800000),
+    @('DefaultShadow', 'MaxShadowConfig', 'm_tileClearShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/ShadowTileClear.shader', 4800000),
+    @('DefaultClusteredLighting', 'MaxClusteredLightingConfig', 'm_compute', 'Assets/MaxRendererPipeline/Shaders/Realtime/ClusteredLighting.compute', 7200000),
+    @('DefaultAO', 'MaxAOConfig', 'm_compute', 'Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute', 7200000),
+    @('DefaultAO', 'MaxAOConfig', 'm_ssaoShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.shader', 4800000),
+    @('DefaultPostProcess', 'MaxPostProcessConfig', 'm_exposureCompute', 'Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessExposure.compute', 7200000),
+    @('DefaultPostProcess', 'MaxPostProcessConfig', 'm_bloomShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.shader', 4800000),
+    @('DefaultPostProcess', 'MaxPostProcessConfig', 'm_outputShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/ColorOutput.shader', 4800000)
+)
+foreach ($taskDependency in $taskDependencies) {
+    $taskDependencyGuid = Get-TaskGuid $taskDependency[3]
+    $taskDependencyReference = $taskDependency[2] + ': {fileID: ' + $taskDependency[4] + ', guid: ' + $taskDependencyGuid + ', type: 3}'
+    Assert-TaskLine (Join-Path $taskRoot ('Assets/MaxRendererPipeline/' + $taskDependency[0] + '.asset')) ('  ' + $taskDependencyReference)
+    Assert-TaskLine (Join-Path $taskRuntime ($taskDependency[1] + '.cs.meta')) ('  - ' + $taskDependencyReference)
+}
+$taskAOGuid = Get-TaskGuid 'Assets/MaxRendererPipeline/DefaultAO.asset'
+Assert-TaskLine (Join-Path $taskRuntime 'MaxAOSettings.cs.meta') ('  - m_legacyConfiguration: {fileID: 11400000, guid: ' + $taskAOGuid + ', type: 2}')
+
 # Bind production sources to installed Unity engine/editor APIs for both contexts.
-$taskAerialGuid = [regex]::Match([IO.File]::ReadAllText((Join-Path $taskRoot 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute.meta')), '(?m)^guid: (\w+)').Groups[1].Value
-$taskAerialReference = "m_aerialPerspectiveCompute: {fileID: 7200000, guid: $taskAerialGuid, type: 3}"
-foreach ($taskAsset in $taskAssets) {
-    if (-not [IO.File]::ReadAllText($taskAsset.FullName).Contains($taskAerialReference)) {
-        throw "Missing serialized aerial Compute dependency: $($taskAsset.FullName)"
-    }
-}
-if (-not [IO.File]::ReadAllText((Join-Path $taskRuntime 'MaxRendererPipelineAsset.cs.meta')).Contains($taskAerialReference)) {
-    throw 'New pipeline asset aerial Compute default reference is missing.'
-}
 # Only the two unchanged SRP Core helpers below use declaration-only stand-ins;
 # package assemblies in Library are deliberately not accessed.
 # This does not launch Unity, read Library, build a Player, or execute on a GPU.
@@ -82,5 +152,5 @@ foreach ($taskContext in @('Player', 'Editor')) {
     & dotnet $taskCompiler "@$taskResponse"
     if ($LASTEXITCODE -ne 0) { throw "$taskContext Unity API compilation failed." }
 }
-Write-Output "PASS: $($taskAssets.Count) pipeline asset(s) and new-asset defaults reference the Lighting Shader; Player/Editor Unity API compilation passed."
+Write-Output "PASS: $($taskAssets.Count) pipeline asset(s), seven PC/Mobile configurations and $($taskDependencies.Count) module shader dependencies retained; Player/Editor Unity API compilation passed."
 Write-Output "Compilation artifacts: $taskTemporary (not a Player build)."
