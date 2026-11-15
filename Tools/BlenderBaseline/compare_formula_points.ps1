@@ -48,7 +48,7 @@ if($maxVisibility -gt 5e-7 -or $maxDistribution -gt 5e-5){throw 'Production GGX 
 if($metalError -gt 1e-5 -or $mixError -gt 1e-5){throw 'Cycles flat-card endpoint/mixing checks failed.'}
 [ordered]@{scope='D/G: production HLSL extracted to C# float arithmetic versus independent Cycles equations in double. Material: identical-input untextured Cycles flat-card renders versus production BRDF*NdotL.';
  build_hash=$points.build_hash;random_samples=10000;max_visibility_relative_error=$maxVisibility;max_distribution_relative_error=$maxDistribution;
- production_brdf_sha256=(Get-FileHash (Join-Path $PSScriptRoot '../../Assets/MaxRendererPipeline/ShaderLibrary/Realtime/BRDF.hlsl') -Algorithm SHA256).Hash;
+ production_brdf_sha256=(Get-FileHash (Join-Path $PSScriptRoot '../../Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/BRDF.hlsl') -Algorithm SHA256).Hash;
  max_pure_metal_single_relative_error=$metalError;max_cycles_half_metal_linear_mix_relative_error=$mixError;dielectric_fresnel=$fresnelRows;
  cases=$rows} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $formulaOut 'formula_comparison.json') -Encoding utf8
 Write-Output "FORMULA_COMPARISON: 10000 parameter sets; max visibility relative error $maxVisibility; max distribution relative error $maxDistribution; $($rows.Count) flat-card cases."

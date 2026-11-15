@@ -12,7 +12,7 @@ The project's `Tools/GenerateCloudDensity.py` extracts the red (cumulus) channel
 unprojects its upper-hemisphere outline onto a 16 km square plane at a 2 km
 reference altitude, joins the tile edges, then square-root encodes density into
 the 2048-square linear R8 runtime texture
-`Assets/MaxRendererPipeline/Res/MainCloudDensity.png`. It bakes no lighting and adds
+`Packages/com.maxsrp.render-pipelines.maxsrp/Res/MainCloudDensity.png`. It bakes no lighting and adds
 no additional runtime layer. Only this derived texture is referenced by the SRP.
 
 Unity's cloud map channel meanings are documented at

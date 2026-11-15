@@ -4,7 +4,7 @@
 
 ## 配置归属
 
-默认资产位于 `Assets/MaxRendererPipeline/`，配置代码位于其 `Runtime/` 目录：
+默认资产位于 `Packages/com.maxsrp.render-pipelines.maxsrp/`，配置代码位于其 `Runtime/` 目录：
 
 | 模块 | 默认配置资产 | 配置类型 | 内容 |
 |---|---|---|---|

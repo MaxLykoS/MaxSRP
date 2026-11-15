@@ -1,0 +1,17 @@
+{
+  "name": "Maladetas",
+  "repository": "https://github.com/oargudo/terrain-descriptors",
+  "download": "https://github.com/oargudo/terrain-descriptors/releases/download/v1.0/terrains-presets.zip",
+  "archiveEntry": "terrains/maladetas.png",
+  "sha256": "bb662e184d5e623ce4cdc431160faecdd2362ebf5a1091d009bfd759dbe4d926",
+  "format": "16-bit grayscale PNG, preserved as .png.bytes to prevent Unity image conversion",
+  "sourceDimensions": [5000, 3800],
+  "publishedExtentMetres": [10000, 7600],
+  "publishedElevationMetres": [1452.8, 3404.0],
+  "publishedNominalSpacingMetres": 2,
+  "suppliedData": "height only; no PBR materials, splat weights, land-cover classes, CRS or georeferenced bounds",
+  "outputSpacingMetres": 1,
+  "measuredOneMetreResolution": false,
+  "addedProceduralHeightDetail": false,
+  "attribution": "Terrain Descriptors for Landscape Synthesis, Analysis and Simulation, Oscar Argudo, Eric Guerin, Hugo Schott, Eric Galin, Eurographics 2025. Upstream README lists ICGC, CNIG, swissALTI3D and USGS as high-resolution DEM providers, without assigning an individual provider to each PNG. Preserve source attribution; the repository code's MIT license is not asserted to be a blanket CC0 license for the DEM collection."
+}

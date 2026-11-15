@@ -4,7 +4,7 @@
 
 ## 配置与使用
 
-- 独立资产为 `Assets/MaxRendererPipeline/DefaultPostProcess.asset`，由管线资产的 `PostProcessConfiguration` 引用。可通过 `Create > MaxSRP > Post Process Configuration` 创建其他配置资产。
+- 独立资产为 `Packages/com.maxsrp.render-pipelines.maxsrp/DefaultPostProcess.asset`，由管线资产的 `PostProcessConfiguration` 引用。可通过 `Create > MaxSRP > Post Process Configuration` 创建其他配置资产。
 - 配置资产保留曝光 Compute、Bloom Shader 和最终输出 Shader 的序列化引用；Player 构建验证会检查这些引用，不能依靠运行时名称查找来防止 Shader 被剔除。
 - PC / Mobile 各自保存曝光、Bloom、调色、Film 和 Dithering 参数，实际档位统一由当前 `MaxRendererPipelineAsset.Platform` 选择；后处理配置不再提供独立开关。总控与运行时刷新方式见 [RenderConfiguration.md](RenderConfiguration.md)。
 - 默认 PC 曝光为 64 桶 Histogram，Mobile 为 Basic；两种方法均可在各自配置中选择，另外提供 Manual。基础调色默认关闭，参数默认中性；Film 默认 `UEFilm`。

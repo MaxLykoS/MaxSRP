@@ -2,7 +2,7 @@
 #define MAX_BISTRO_META_PASS_INCLUDED
 
 #include "BistroGBuffer.hlsl"
-#include "../../../MaxRendererPipeline/ShaderLibrary/Realtime/MaxMetaPass.hlsl"
+#include "Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/MaxMetaPass.hlsl"
 
 struct BistroMetaVaryings
 {

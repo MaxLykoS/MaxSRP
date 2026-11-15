@@ -66,7 +66,7 @@
 
 ### 隔离的太阳烘焙入口
 
-[MaxLightmapping.cs](../Assets/MaxRendererPipeline/Runtime/MaxLightmapping.cs) 当前只向原生烘焙器提交 Mixed Point，其他光源使用 InitNoBake，方向光太阳因此不会进入烘焙。[MaxBistroLightmapBaker.cs](../Assets/MaxRendererPipeline/Editor/MaxBistroLightmapBaker.cs) 也会将非人工灯设为 Realtime，并检查太阳不能参与人工光烘焙。不能原样循环调用现有人工灯烘焙器生成 TOD。
+[MaxLightmapping.cs](../Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxLightmapping.cs) 当前只向原生烘焙器提交 Mixed Point，其他光源使用 InitNoBake，方向光太阳因此不会进入烘焙。[MaxBistroLightmapBaker.cs](../Assets/Editor/MaxSRP/MaxBistroLightmapBaker.cs) 也会将非人工灯设为 Realtime，并检查太阳不能参与人工光烘焙。不能原样循环调用现有人工灯烘焙器生成 TOD。
 
 应建立独立太阳烘焙场景或副本、LightingSettings、输出目录和 Directional 输入模式；环境设黑、人工灯排除、自发光不参与。原人工 Lightmap、SkyVisibility、材质和正式场景绑定保持不变。取消、失败或关闭工具也必须恢复临时全局状态。
 
@@ -74,7 +74,7 @@ Unity 2022.3 的 [Mixed Baked Indirect](https://docs.unity.cn/2022.3/Documentati
 
 ### 太阳大气和 SH 单位
 
-[SunLightData.cs](../Assets/MaxRendererPipeline/Runtime/SunLightData.cs) 将太阳强度定义为大气层外、垂直光束方向的 lux；[Lighting.hlsl](../Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Lighting.hlsl) 在实时直射中另外计算地表大气透射。直接把原始太阳强度交给烘焙器，会使低太阳角等条件下的间接光与现有直射失配。
+[SunLightData.cs](../Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/SunLightData.cs) 将太阳强度定义为大气层外、垂直光束方向的 lux；[Lighting.hlsl](../Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Lighting.hlsl) 在实时直射中另外计算地表大气透射。直接把原始太阳强度交给烘焙器，会使低太阳角等条件下的间接光与现有直射失配。
 
 第一版应明确选择：按每个 TOD 的参考地表太阳颜色和强度烘焙，或烘单位太阳响应再运行时调制。前者容易校准，但同一参考高度近似有高差限制；后者只有在入射强度调制近似空间一致时才能简单缩放。不能在接收点再乘一次 CSM 或太阳透射来替代反射源处的入射光处理。
 
@@ -82,7 +82,7 @@ Unity 2022.3 的 [Mixed Baked Indirect](https://docs.unity.cn/2022.3/Documentati
 
 ### 人车和空间重建
 
-[MaxBakedLighting.hlsl](../Assets/MaxRendererPipeline/ShaderLibrary/Realtime/MaxBakedLighting.hlsl) 在没有 Lightmap 的路径中返回零人工反弹、天空可见性一。太阳 Probe 本身不能补齐这两项，人车需要额外的一次性人工光 SH 和空间天空可见性数据。
+[MaxBakedLighting.hlsl](../Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/MaxBakedLighting.hlsl) 在没有 Lightmap 的路径中返回零人工反弹、天空可见性一。太阳 Probe 本身不能补齐这两项，人车需要额外的一次性人工光 SH 和空间天空可见性数据。
 
 同一固定 Probe 布局应服务所有 TOD；每次烘焙后按世界位置或稳定 ID 核对对应关系，不能盲信数组顺序。静态场景仍需筛掉墙内点，并用区域隔离、几何权重或方向距离信息限制插值。单纯提高 SH 阶数不会解决穿墙插值。
 

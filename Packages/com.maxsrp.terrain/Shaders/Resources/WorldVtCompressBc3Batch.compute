@@ -1,0 +1,130 @@
+// 世界 RVT 的批量重排/压缩入口。每个 slice 是一张144×144物理页（含边框），
+// 每个线程读取一个4×4块，并直接输出两份BC3的16字节块，不产生中间重排RT。
+// 旧 WorldVtCompressBc3.shader 保留为离线归档入口。双stage路径做字节对照；
+// 三MRT融合路径保留float oct到BC3，以源法线误差验证画质，不模拟旧RT的设备舍入。
+#pragma kernel EncodeBc3Batch
+#pragma only_renderers d3d11
+#pragma target 5.0
+
+#include "../WorldVtBc3Common.cginc"
+#include "../SinglePageRvtCommon.cginc"
+
+// Source0始终是sRGB视图，Load得到线性底色；其余视图均为线性UNorm。
+// kind=0：Source0=Albedo/AO，Source1=OctNormal/Roughness/HeightCode，Source2忽略。
+// kind=1：Source0=Albedo/Opacity，Source1=仿射XYZ法线/Opacity，
+//         Source2=AO/Roughness/HeightCode/Opacity（三张透明合成后的MRT）。
+Texture2DArray<float4> _DDBc3Source0;
+Texture2DArray<float4> _DDBc3Source1;
+Texture2DArray<float4> _DDBc3Source2;
+int4 _DDBc3PageKinds;
+int _DDBc3PageCount;
+
+// 相消法线的回退仍来自写页时的同一份固定1m高度窗口。每页窗口放在对应slice的
+// 左上角，纹理实际分配尺寸可大于逻辑side；绝不从实时显示Clipmap补采。
+Texture2DArray<float> _DDBc3SourceHeight;
+float4 _DDBc3HeightInfo[4]; // source origin X/Z, logical side, world height scale.
+float4 _DDBc3TexelGrid[4];  // global interior texel origin X/Z, world metres per texel X/Z.
+float4 _DDBc3WorldInfo;     // world size metres, physical page border, reserved, reserved.
+
+RWTexture2DArray<uint4> _DDBc3ColorBlocks;
+RWTexture2DArray<uint4> _DDBc3DataBlocks;
+
+float DDBc3ContinuousHeight(float2 worldXZ, uint page)
+{
+    // 与 SinglePageRvtSource.cginc 的 DDRvtContinuousHeight 相同的四点双线性面。
+    // 这里使用array.Load读取该页固定窗口，逻辑side保证不会读到slice尾部未写区域。
+    float4 heightInfo = _DDBc3HeightInfo[page];
+    float worldSize = max(_DDBc3WorldInfo.x, 1);
+    float2 clamped = clamp(worldXZ, 0, worldSize);
+    float2 local = clamped - heightInfo.xy;
+    int2 cell = clamp((int2)floor(local), int2(0,0), (int)heightInfo.z - 2);
+    float2 fraction = saturate(local - cell);
+    float h00 = _DDBc3SourceHeight.Load(int4(cell, page, 0)) * heightInfo.w;
+    float h10 = _DDBc3SourceHeight.Load(int4(cell + int2(1,0), page, 0)) * heightInfo.w;
+    float h01 = _DDBc3SourceHeight.Load(int4(cell + int2(0,1), page, 0)) * heightInfo.w;
+    float h11 = _DDBc3SourceHeight.Load(int4(cell + int2(1,1), page, 0)) * heightInfo.w;
+    return lerp(lerp(h00, h10, fraction.x), lerp(h01, h11, fraction.x), fraction.y);
+}
+
+float3 DDBc3SourceNormal(float2 worldXZ, uint page)
+{
+    // 保留 DDRvtSourceNormal 的正负1m差分，以及世界边缘的单边差分规则。
+    float worldSize = max(_DDBc3WorldInfo.x, 1);
+    worldXZ = clamp(worldXZ, 0, worldSize);
+    float2 low = max(worldXZ - 1, 0);
+    float2 high = min(worldXZ + 1, worldSize);
+    float left = DDBc3ContinuousHeight(float2(low.x, worldXZ.y), page);
+    float right = DDBc3ContinuousHeight(float2(high.x, worldXZ.y), page);
+    float bottom = DDBc3ContinuousHeight(float2(worldXZ.x, low.y), page);
+    float top = DDBc3ContinuousHeight(float2(worldXZ.x, high.y), page);
+    float2 slope = float2(right - left, top - bottom) / max(high - low, 1e-5);
+    return normalize(float3(-slope.x, 1, -slope.y));
+}
+
+float4 DDBc3RepackNormalData(float4 affineNormal, float4 attributes, int2 texel, uint page)
+{
+    // 对齐旧 WorldVtOverlayRepack.shader：先归一化XYZ混合向量，再编码oct。
+    // XYZ8近相消时可能只剩量化噪声，阈值及固定源回退均不得改成常量up法线。
+    float3 normal = affineNormal.rgb * 2 - 1;
+    float lengthSquared = dot(normal, normal);
+    if (lengthSquared > 1e-4)
+        normal *= rsqrt(lengthSquared);
+    else
+    {
+        float4 grid = _DDBc3TexelGrid[page];
+        float2 physicalPixelCenter = (float2)texel + .5;
+        float2 worldXZ = (grid.xy + physicalPixelCenter - _DDBc3WorldInfo.y) * grid.zw;
+        normal = DDBc3SourceNormal(worldXZ, page);
+    }
+    // 通道重排与BC3编码在同一任务中完成，oct保留float精度直到最终BC3端点/索引。
+    // 删除的RGBA8 stage曾引入GPU固定函数舍入；不模拟其设备相关偏差。
+    // AO、roughness、heightCode已经来自UNorm8 MRT，搬运后保持原精度。
+    float2 octNormal = saturate(DDRvtEncodeNormal(normal));
+    return float4(octNormal, attributes.g, attributes.b);
+}
+
+[numthreads(8, 8, 1)]
+void EncodeBc3Batch(uint3 dispatchId : SV_DispatchThreadID)
+{
+    // 144×144页对应36×36块；5×5线程组的尾部线程不读输入、不写输出。
+    if (dispatchId.x >= 36u || dispatchId.y >= 36u || dispatchId.z >= (uint)_DDBc3PageCount)
+        return;
+    uint page = dispatchId.z;
+    bool fromOverlayMrt = _DDBc3PageKinds[page] != 0;
+    int2 firstTexel = (int2)dispatchId.xy * 4;
+    float4 colorBlock[16];
+    float4 dataBlock[16];
+    uint validMask = 0u;
+    [unroll] for (uint i = 0u; i < 16u; ++i)
+    {
+        int2 texel = firstTexel + int2(i & 3u, i >> 2);
+        int4 sourceTexel = int4(texel, page, 0);
+        float4 albedoAo = _DDBc3Source0.Load(sourceTexel);
+        float4 normalData = _DDBc3Source1.Load(sourceTexel);
+        if (fromOverlayMrt)
+        {
+            float4 attributes = _DDBc3Source2.Load(sourceTexel);
+            normalData = DDBc3RepackNormalData(normalData, attributes, texel, page);
+            albedoAo.a = attributes.r;
+            // 旧重排未改变底色：sRGB MRT -> 线性SRV -> sRGB stage，是同字节的往返。
+            // 直接读取MRT的sRGB视图，得到的线性RGB与旧stage的SRV一致。
+            // Opacity已在透明MRT阶段参与混合，这里不再相乘；全透明覆盖保留基底。
+        }
+        // HeightCode=0的无效输入继续使用旧validMask规则；非法纹素不参与端点拟合。
+        bool valid = normalData.a > 0.0;
+        if (valid) validMask |= 1u << i;
+        colorBlock[i] = float4(EncodeSrgb(albedoAo.rgb), normalData.r);
+        dataBlock[i] = float4(albedoAo.a, normalData.b, valid ? 1.0 : 0.0, normalData.g);
+    }
+
+    uint4 color = 0u, data = 0u;
+    if (validMask != 0u)
+    {
+        // 保留两张BC3的既有布局：底色RGB+oct第一分量A；AO/Roughness/预留B+oct第二分量A。
+        // 全有效页的数据B恒为1；旧mixed-validity诊断编码也保留，维持归档兼容。
+        color = EncodeBc3(colorBlock, validMask, false);
+        data = EncodeBc3(dataBlock, validMask, true);
+    }
+    _DDBc3ColorBlocks[dispatchId] = color;
+    _DDBc3DataBlocks[dispatchId] = data;
+}

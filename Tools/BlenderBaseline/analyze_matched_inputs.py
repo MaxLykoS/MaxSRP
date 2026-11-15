@@ -22,7 +22,7 @@ def read(directory,name):
 def unit(a):return a/np.maximum(np.linalg.norm(a,axis=-1,keepdims=True),1e-12)
 for name,digest in info['input_sha256'].items():
     assert hashlib.sha256((INPUT/name).read_bytes()).hexdigest()==digest,name
-assert meta['brdfSourceSHA256']==hashlib.sha256((ROOT/'Assets/MaxRendererPipeline/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()
+assert meta['brdfSourceSHA256']==hashlib.sha256((ROOT/'Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()
 gpu=read(INPUT,'unity_direct_unshadowed')
 reference=read(INPUT,'blender_direct_delta_unshadowed')
 coverage=read(INPUT,'blender_combined_matched')

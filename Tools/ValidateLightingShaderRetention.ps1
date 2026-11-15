@@ -1,8 +1,8 @@
 param([string]$UnityEditorData = 'C:/Program Files/Unity/Hub/Editor/2022.3.62f2c1/Editor/Data')
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
-$taskRuntime = Join-Path $taskRoot 'Assets/MaxRendererPipeline/Runtime'
-$taskShader = Join-Path $taskRoot 'Assets/MaxRendererPipeline/Shaders/Realtime/PBRLitPass.shader'
+$taskRuntime = Join-Path $taskRoot 'Packages/com.maxsrp.render-pipelines.maxsrp/Runtime'
+$taskShader = Join-Path $taskRoot 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRLitPass.shader'
 $taskGuid = [regex]::Match([IO.File]::ReadAllText("$taskShader.meta"), '(?m)^guid: (\w+)').Groups[1].Value
 if (-not $taskGuid) { throw 'Lighting shader GUID is missing.' }
 $taskReference = "m_lightingShader: {fileID: 4800000, guid: $taskGuid, type: 3}"
@@ -43,11 +43,11 @@ $taskModules = @(
 )
 $taskPipelineMeta = Join-Path $taskRuntime 'MaxRendererPipelineAsset.cs.meta'
 foreach ($taskModule in $taskModules) {
-    $taskModulePath = 'Assets/MaxRendererPipeline/' + $taskModule[1] + '.asset'
+    $taskModulePath = 'Packages/com.maxsrp.render-pipelines.maxsrp/' + $taskModule[1] + '.asset'
     $taskModuleAsset = Join-Path $taskRoot $taskModulePath
     $taskModuleSource = Join-Path $taskRuntime ($taskModule[2] + '.cs')
     $taskModuleGuid = Get-TaskGuid $taskModulePath
-    $taskModuleScriptGuid = Get-TaskGuid ('Assets/MaxRendererPipeline/Runtime/' + $taskModule[2] + '.cs')
+    $taskModuleScriptGuid = Get-TaskGuid ('Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/' + $taskModule[2] + '.cs')
     Assert-TaskLine $taskModuleAsset ('  m_Script: {fileID: 11500000, guid: ' + $taskModuleScriptGuid + ', type: 3}')
     Assert-TaskLine $taskPipelineMeta ('  - ' + $taskModule[0] + ': {fileID: 11400000, guid: ' + $taskModuleGuid + ', type: 2}')
     foreach ($taskAsset in $taskAssets) {
@@ -83,31 +83,31 @@ foreach ($taskAsset in $taskAssets) {
 # Assert both default assets and new-asset script references. Dependencies are
 # top-level fields; profiles share these shaders while retaining their parameters.
 $taskDependencies = @(
-    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_iblCS', 'Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute', 7200000),
-    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_aerialPerspectiveCompute', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute', 7200000),
-    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_proceduralSkyboxShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/SkyboxProcedural.shader', 4800000),
-    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_transmittanceShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/TransmittanceLUT.shader', 4800000),
-    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_multiscatteringShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/MultiscatteringLUT.shader', 4800000),
-    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_skyviewShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/SkyviewLUT.shader', 4800000),
-    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_aerialPerspectiveLUTShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.shader', 4800000),
-    @('DefaultTemporalAA', 'MaxTemporalAAConfig', 'm_temporalShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAA.shader', 4800000),
-    @('DefaultCloud', 'MaxCloudConfig', 'm_layerLightingShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/CloudLayerLighting.shader', 4800000),
-    @('DefaultCloud', 'MaxCloudConfig', 'm_sixWayShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/SixWayCloud.shader', 4800000),
-    @('DefaultShadow', 'MaxShadowConfig', 'm_tileClearShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/ShadowTileClear.shader', 4800000),
-    @('DefaultClusteredLighting', 'MaxClusteredLightingConfig', 'm_compute', 'Assets/MaxRendererPipeline/Shaders/Realtime/ClusteredLighting.compute', 7200000),
-    @('DefaultAO', 'MaxAOConfig', 'm_compute', 'Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute', 7200000),
-    @('DefaultAO', 'MaxAOConfig', 'm_ssaoShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.shader', 4800000),
-    @('DefaultPostProcess', 'MaxPostProcessConfig', 'm_exposureCompute', 'Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessExposure.compute', 7200000),
-    @('DefaultPostProcess', 'MaxPostProcessConfig', 'm_bloomShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.shader', 4800000),
-    @('DefaultPostProcess', 'MaxPostProcessConfig', 'm_outputShader', 'Assets/MaxRendererPipeline/Shaders/Realtime/ColorOutput.shader', 4800000)
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_iblCS', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PrecomputeIBL.compute', 7200000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_aerialPerspectiveCompute', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute', 7200000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_proceduralSkyboxShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/SkyboxProcedural.shader', 4800000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_transmittanceShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/TransmittanceLUT.shader', 4800000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_multiscatteringShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/MultiscatteringLUT.shader', 4800000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_skyviewShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/SkyviewLUT.shader', 4800000),
+    @('DefaultAtmosphere', 'MaxAtmosphereConfig', 'm_aerialPerspectiveLUTShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.shader', 4800000),
+    @('DefaultTemporalAA', 'MaxTemporalAAConfig', 'm_temporalShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/TemporalAA.shader', 4800000),
+    @('DefaultCloud', 'MaxCloudConfig', 'm_layerLightingShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/CloudLayerLighting.shader', 4800000),
+    @('DefaultCloud', 'MaxCloudConfig', 'm_sixWayShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SixWayCloud.shader', 4800000),
+    @('DefaultShadow', 'MaxShadowConfig', 'm_tileClearShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ShadowTileClear.shader', 4800000),
+    @('DefaultClusteredLighting', 'MaxClusteredLightingConfig', 'm_compute', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ClusteredLighting.compute', 7200000),
+    @('DefaultAO', 'MaxAOConfig', 'm_compute', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/GTAO/MaxGTAO.compute', 7200000),
+    @('DefaultAO', 'MaxAOConfig', 'm_ssaoShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SSAO/MaxSSAO.shader', 4800000),
+    @('DefaultPostProcess', 'MaxPostProcessConfig', 'm_exposureCompute', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessExposure.compute', 7200000),
+    @('DefaultPostProcess', 'MaxPostProcessConfig', 'm_bloomShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessBloom.shader', 4800000),
+    @('DefaultPostProcess', 'MaxPostProcessConfig', 'm_outputShader', 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ColorOutput.shader', 4800000)
 )
 foreach ($taskDependency in $taskDependencies) {
     $taskDependencyGuid = Get-TaskGuid $taskDependency[3]
     $taskDependencyReference = $taskDependency[2] + ': {fileID: ' + $taskDependency[4] + ', guid: ' + $taskDependencyGuid + ', type: 3}'
-    Assert-TaskLine (Join-Path $taskRoot ('Assets/MaxRendererPipeline/' + $taskDependency[0] + '.asset')) ('  ' + $taskDependencyReference)
+    Assert-TaskLine (Join-Path $taskRoot ('Packages/com.maxsrp.render-pipelines.maxsrp/' + $taskDependency[0] + '.asset')) ('  ' + $taskDependencyReference)
     Assert-TaskLine (Join-Path $taskRuntime ($taskDependency[1] + '.cs.meta')) ('  - ' + $taskDependencyReference)
 }
-$taskAOGuid = Get-TaskGuid 'Assets/MaxRendererPipeline/DefaultAO.asset'
+$taskAOGuid = Get-TaskGuid 'Packages/com.maxsrp.render-pipelines.maxsrp/DefaultAO.asset'
 Assert-TaskLine (Join-Path $taskRuntime 'MaxAOSettings.cs.meta') ('  - m_legacyConfiguration: {fileID: 11400000, guid: ' + $taskAOGuid + ', type: 2}')
 
 # Bind production sources to installed Unity engine/editor APIs for both contexts.
@@ -135,22 +135,57 @@ namespace UnityEngine.Rendering {
     }
 }
 '@)
-foreach ($taskContext in @('Player', 'Editor')) {
-    $taskArguments = @('/nologo', '/target:library', '/nostdlib+', '/langversion:9.0', '/warn:4', '/nowarn:0649')
-    $taskArguments += '/out:"' + (Join-Path $taskTemporary "$taskContext.dll") + '"'
-    $taskContextReferences = $taskReferences + $taskEngineReferences
-    $taskContextSources = $taskSources + $taskCoreDeclarations
-    if ($taskContext -eq 'Editor') {
-        $taskArguments += '/define:UNITY_EDITOR'
-        $taskContextReferences += @(Get-ChildItem (Join-Path $UnityEditorData 'Managed/UnityEngine') -Filter 'UnityEditor*.dll' | ForEach-Object FullName)
-        $taskContextSources += Join-Path $taskRoot 'Assets/MaxRendererPipeline/Editor/MaxLightingShaderBuildValidator.cs'
-    }
-    $taskArguments += $taskContextReferences | Select-Object -Unique | ForEach-Object { '/reference:"' + $_ + '"' }
-    $taskArguments += $taskContextSources | ForEach-Object { '"' + $_ + '"' }
-    $taskResponse = Join-Path $taskTemporary "$taskContext.rsp"
-    [IO.File]::WriteAllLines($taskResponse, $taskArguments)
-    & dotnet $taskCompiler "@$taskResponse"
-    if ($LASTEXITCODE -ne 0) { throw "$taskContext Unity API compilation failed." }
+function Invoke-TaskCompilation([string]$assemblyName, [string[]]$sources, [string[]]$references, [bool]$editorContext) {
+    $arguments = @('/nologo', '/target:library', '/nostdlib+', '/langversion:9.0', '/warn:4', '/nowarn:0649')
+    $output = Join-Path $taskContextDirectory ($assemblyName + '.dll')
+    $arguments += '/out:"' + $output + '"'
+    if ($editorContext) { $arguments += '/define:UNITY_EDITOR' }
+    $arguments += $references | Select-Object -Unique | ForEach-Object { '/reference:"' + $_ + '"' }
+    $arguments += $sources | ForEach-Object { '"' + $_ + '"' }
+    $response = Join-Path $taskContextDirectory ($assemblyName + '.rsp')
+    [IO.File]::WriteAllLines($response, $arguments)
+    & dotnet $taskCompiler "@$response" | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { throw "$taskContext / $assemblyName Unity API compilation failed." }
+    return $output
 }
-Write-Output "PASS: $($taskAssets.Count) pipeline asset(s), seven PC/Mobile configurations and $($taskDependencies.Count) module shader dependencies retained; Player/Editor Unity API compilation passed."
-Write-Output "Compilation artifacts: $taskTemporary (not a Player build)."
+function Get-TaskSources([string]$directory) {
+    return @(Get-ChildItem (Join-Path $taskRoot $directory) -Filter '*.cs' -Recurse | ForEach-Object FullName)
+}
+$taskPipelinePackage = 'Packages/com.maxsrp.render-pipelines.maxsrp'
+$taskTerrainPackage = 'Packages/com.maxsrp.terrain'
+$taskTerrainManifest = Get-Content (Join-Path $taskRoot "$taskTerrainPackage/package.json") -Raw | ConvertFrom-Json
+if (-not $taskTerrainManifest.dependencies.'com.maxsrp.render-pipelines.maxsrp') {
+    throw 'MaxTerrain package must depend on the MaxSRP package.'
+}
+$taskPipelineManifest = Get-Content (Join-Path $taskRoot "$taskPipelinePackage/package.json") -Raw | ConvertFrom-Json
+if ($taskPipelineManifest.dependencies.'com.maxsrp.terrain') { throw 'MaxSRP must not depend on MaxTerrain.' }
+$taskRuntimeDefinition = Get-Content (Join-Path $taskRuntime 'MaxSRP.Runtime.asmdef') -Raw | ConvertFrom-Json
+if ($taskRuntimeDefinition.references -contains 'MaxTerrain') { throw 'MaxSRP.Runtime must not depend on MaxTerrain.' }
+$taskTerrainDefinition = Get-Content (Join-Path $taskRoot "$taskTerrainPackage/Runtime/MaxTerrain.asmdef") -Raw | ConvertFrom-Json
+if ($taskTerrainDefinition.references -notcontains 'MaxSRP.Runtime') { throw 'MaxTerrain must reference MaxSRP.Runtime.' }
+foreach ($taskContext in @('Player', 'Editor')) {
+    $taskContextDirectory = Join-Path $taskTemporary $taskContext
+    [void][IO.Directory]::CreateDirectory($taskContextDirectory)
+    $taskEditorContext = $taskContext -eq 'Editor'
+    $taskContextReferences = $taskReferences + $taskEngineReferences
+    if ($taskEditorContext) {
+        $taskContextReferences += @(Get-ChildItem (Join-Path $UnityEditorData 'Managed/UnityEngine') -Filter 'UnityEditor*.dll' | ForEach-Object FullName)
+    }
+    # Compile each assembly separately so accessibility and dependency direction
+    # are checked as Unity will see them, rather than combining all source files.
+    $taskCoreAssembly = Invoke-TaskCompilation 'Unity.RenderPipelines.Core.Runtime' @($taskCoreDeclarations) $taskContextReferences $taskEditorContext
+    $taskRuntimeAssembly = Invoke-TaskCompilation 'MaxSRP.Runtime' $taskSources ($taskContextReferences + $taskCoreAssembly) $taskEditorContext
+    $taskTerrainAssembly = Invoke-TaskCompilation 'MaxTerrain' (Get-TaskSources "$taskTerrainPackage/Runtime") ($taskContextReferences + $taskRuntimeAssembly) $taskEditorContext
+    if ($taskEditorContext) {
+        $taskPipelineEditorAssembly = Invoke-TaskCompilation 'MaxSRP.Editor' (Get-TaskSources "$taskPipelinePackage/Editor") ($taskContextReferences + $taskRuntimeAssembly) $true
+        $taskTerrainEditorAssembly = Invoke-TaskCompilation 'MaxTerrain.Editor' (Get-TaskSources "$taskTerrainPackage/Editor") ($taskContextReferences + $taskRuntimeAssembly + $taskTerrainAssembly) $true
+        # Project-specific Bistro setup, validation and MCP bootstrap are consumers
+        # of the packages and stay in the predefined project Editor assembly.
+        # The optional MCP bootstrap binds to its separately installed tool package;
+        # it does not consume the render packages and is checked by Unity import.
+        $taskProjectSources = @(Get-TaskSources 'Assets/Editor' | Where-Object { [IO.Path]::GetFileName($_) -ne 'MaxUnityMcpBootstrap.cs' })
+        $taskProjectAssembly = Invoke-TaskCompilation 'Assembly-CSharp-Editor' $taskProjectSources ($taskContextReferences + $taskCoreAssembly + $taskRuntimeAssembly + $taskPipelineEditorAssembly + $taskTerrainAssembly + $taskTerrainEditorAssembly) $true
+    }
+}
+Write-Output "PASS: $($taskAssets.Count) pipeline asset(s), seven PC/Mobile configurations and $($taskDependencies.Count) module shader dependencies retained; independent MaxSRP/MaxTerrain Player and Editor assemblies compiled against Unity APIs."
+Write-Output "Compilation artifacts: $taskTemporary (core helper declarations only; not a Unity import, Player build or GPU test)."

@@ -4,7 +4,7 @@
 
 ## 配置与启用
 
-- 独立配置资产为 `Assets/MaxRendererPipeline/DefaultAO.asset`，类型是 `MaxAOConfig`，由管线资产的 `AOConfiguration` 引用。选中配置可分别编辑 PC / Mobile 参数；创建其他配置使用 `Create > MaxSRP > Ambient Occlusion Configuration`。
+- 独立配置资产为 `Packages/com.maxsrp.render-pipelines.maxsrp/DefaultAO.asset`，类型是 `MaxAOConfig`，由管线资产的 `AOConfiguration` 引用。选中配置可分别编辑 PC / Mobile 参数；创建其他配置使用 `Create > MaxSRP > Ambient Occlusion Configuration`。
 - PC（GTAO）与 Mobile（SSAO）参数各有独立的 `Enabled`，默认均开启；它与场景组件启停共同控制 AO。关闭当前档会停止 AO 计算并释放资源，同时停用 `AOOnly` 显示；切换当前档开关会使受影响相机的共享 TAA 历史重新累积，修改非当前档开关不影响当前历史。
 - 场景组件为 `MaxSRP/Ambient Occlusion`（`MaxAOSettings`），只负责所属场景的 AO 启停与 `AOOnly`。原场景的配置引用以隐藏兼容字段保留，当前管线的 AO 引用优先生效。
 - **Platform 只在当前 MaxRendererPipelineAsset 上选择**，同时控制大气、后处理及其他模块；AO 配置中没有独立档位开关。总控与运行时刷新方式见 [RenderConfiguration.md](RenderConfiguration.md)。
@@ -30,7 +30,7 @@
 
 本轮保持现有 Intel 核心文件 `XeGTAO.hlsl`、`XeGTAOConstants.hlsl` 不动；质量选择、多个去噪 dispatch 和 Unity 输出格式适配位于 wrapper，不修改核心积分。固定上游版本为 [`a5b1686c7ea37788eeb3576b5be47f7c03db532c`](https://github.com/GameTechDev/XeGTAO/tree/a5b1686c7ea37788eeb3576b5be47f7c03db532c)，MIT 许可证保留在 Shader 目录。
 
-维护入口：[MaxGTAOPass.cs](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxGTAOPass.cs>)、[MaxGTAO.compute](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute>)。上游依据：[质量入口](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/vaGTAO.hlsl#L90-L130)、[去噪调度](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Effects/vaGTAO.cpp#L333-L348)。
+维护入口：[MaxGTAOPass.cs](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxGTAOPass.cs>)、[MaxGTAO.compute](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/GTAO/MaxGTAO.compute>)。上游依据：[质量入口](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/vaGTAO.hlsl#L90-L130)、[去噪调度](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Effects/vaGTAO.cpp#L333-L348)。
 
 ## Mobile：UE 5.8 SSAO
 
@@ -78,7 +78,7 @@ D3D11 / D3D12、Metal、Vulkan 且满足 Shader Model 4.5 要求的设备使用 
 
 移植保留上述数学与主要分支，但适配了 MaxSRP 的数据与单位：使用现有 GBuffer 世界法线并转换到视空间；米替代 UE 厘米；保留 half 工作纹理的 UE packed 24-bit 深度约定；只建立当前参数实际使用的 half-resolution HZB mip 0，采用 2×2 最远深度约定。未接入完整多级 AO mip 混合、UE Depth Bounds Test 和 Shading Model 排除掩码。不能将此移植表述为 UE 全部 AO 功能或整个渲染流程逐像素等价。
 
-维护入口：[MaxSSAOPass.cs](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxSSAOPass.cs>)、[MaxSSAO.hlsl](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl>)、[MaxSSAO.shader](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.shader>)。Shader 名为 `Hidden/MaxSRP/MobileSSAO`；源码内保留对应源文件与移植差异说明。
+维护入口：[MaxSSAOPass.cs](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxSSAOPass.cs>)、[MaxSSAO.hlsl](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SSAO/MaxSSAO.hlsl>)、[MaxSSAO.shader](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SSAO/MaxSSAO.shader>)。Shader 名为 `Hidden/MaxSRP/MobileSSAO`；源码内保留对应源文件与移植差异说明。
 
 ## 共享 Lighting、TAA 与资源生命周期
 

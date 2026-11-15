@@ -23,7 +23,7 @@ Max Mobile 的主要采样预算与资源格式已对齐 UE 移动预设。Max P
 
 这些选择会改变散射分布或多散射能量估计。增加采样数只能减小数值离散误差，不能消除模型差异。“解析”指段内介质系数恒定时的积分。
 
-依据：[Max 相函数](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl:62>)、[Max 多散射](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl>)、[UE 反馈分支](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Shaders/Private/SkyAtmosphere.usf:785>)。
+依据：[Max 相函数](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl:62>)、[Max 多散射](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl>)、[UE 反馈分支](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Shaders/Private/SkyAtmosphere.usf:785>)。
 
 ## 3. AP 的单体积布局与平均透射率
 
@@ -41,7 +41,7 @@ L_out.rgb = L_surface.rgb × T_average + L_scatter.rgb
 
 按每视图一套数据计算，PC 的 AP 逻辑存储为 **256 KiB**（原双体积 512 KiB），Mobile 为 **32 KiB**（原 64 KiB）。这些数字只计算 AP 纹理内容，不包含其他大气资源或驱动分配开销。
 
-依据：[UE AP 输出的平均透射率](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Shaders/Private/SkyAtmosphere.usf:1701>)、[Max AP 合成与查询](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl>)。
+依据：[UE AP 输出的平均透射率](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Shaders/Private/SkyAtmosphere.usf:1701>)、[Max AP 合成与查询](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl>)。
 
 ## 4. 其他仍存在的差异
 
@@ -50,7 +50,7 @@ L_out.rgb = L_surface.rgb × T_average + L_scatter.rgb
 - **HDR 与调度**：UE 使用 PreExposure，Max 使用固定光度缩放和现有最终曝光。UE 原生大气 pass 将预曝光后的光盘亮度限制到 64000，这是浮点范围 / TAA 保护，不是物理亮度参数。Max 在写入 RGBA16F 之前，对固定 HDR 单位的光盘清理 NaN、限制非负并限至 64000，为叠加天空留出余量；该存储保护与曝光无关，常规太阳值不会触发，不能称为 UE 预曝光限幅的等效换算。最终曝光不反馈到天空和颜色历史。关闭 Bloom 后，两种极高盘亮度经 Film 均进入白色高光区；这不代表开启 Bloom 时两套能量处理逐像素相同。Max 按参数和相机视图缓存 LUT；调度差异应按失效依赖和更新开销单独评估。
 - **局部边界细节**：近地观察参考高度保护为 Max 1 m、UE 5 m。AP 的近地路径边界处理也保留本项目的射线截断规则，不将资源格式对齐表述成逐像素结果完全相同。
 
-依据：[Max 日月输入](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/GI/MaxBakedSolarGI.cs:148>)、[Max 资源与视图缓存](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs>)、[UE 参考高度](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Source/Runtime/Engine/Public/Rendering/SkyAtmosphereCommonData.cpp:277>)。
+依据：[Max 日月输入](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/GI/MaxBakedSolarGI.cs:148>)、[Max 资源与视图缓存](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxProceduralSkybox.cs>)、[UE 参考高度](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Source/Runtime/Engine/Public/Rendering/SkyAtmosphereCommonData.cpp:277>)。
 
 ## 5. 本轮资源约定
 
@@ -60,7 +60,7 @@ PC 的天空、多散射和透射率 LUT 使用 **R11G11B10 浮点格式**；Mob
 
 两档 AP 为 **一张原生 3D RGBA16F 体积**，保存 RGB 入散射与 Alpha 平均透射率；范围和起点已按第 1 节对齐。这里不再重复列已经一致的 UE 格式数据。
 
-依据：[UE 格式选择与分配](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Source/Runtime/Renderer/Private/SkyAtmosphereRendering.cpp:1284>)、[UE 透射率编解码](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Shaders/Private/SkyAtmosphereCommon.ush:233>)、[Max 资源分配](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs>)。
+依据：[UE 格式选择与分配](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Source/Runtime/Renderer/Private/SkyAtmosphereRendering.cpp:1284>)、[UE 透射率编解码](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Shaders/Private/SkyAtmosphereCommon.ush:233>)、[Max 资源分配](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxProceduralSkybox.cs>)。
 
 ## 6. 采样预算：只保留仍需区分的数字
 
@@ -78,10 +78,10 @@ Mobile 的主要数值预算已对齐 UE 移动预设：96×50 SkyView、每纹�
 
 实际成本还取决于表尺寸、格式和重新生成的频率。静态缓存帧、相机转动帧和 TOD 连续变化帧应分别测量；源码中的步数或查询次数不能直接换算成整帧性能倍率。
 
-依据：[Max 数值预算](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereSampling.hlsl:8>)、[Max AP Compute 生成](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute>)、[AP 体素积分](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUTCommon.hlsl>)、[UE 桌面预设](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Config/BaseScalability.ini:901>)、[UE 预算合并](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Source/Runtime/Renderer/Private/SkyAtmosphereRendering.cpp:1422>)、[移动预设](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Config/Android/AndroidScalability.ini:173>)。
+依据：[Max 数值预算](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereSampling.hlsl:8>)、[Max AP Compute 生成](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute>)、[AP 体素积分](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUTCommon.hlsl>)、[UE 桌面预设](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Config/BaseScalability.ini:901>)、[UE 预算合并](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Source/Runtime/Renderer/Private/SkyAtmosphereRendering.cpp:1422>)、[移动预设](<D:/Program Files (x86)/EPIC/UE_5.8/Engine/Config/Android/AndroidScalability.ini:173>)。
 
 ## 7. 维护入口
 
-- 档位入口是 [Max Renderer Pipeline Asset.asset](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Max Renderer Pipeline Asset.asset>) 的 **Platform**，同时控制其他渲染模块。[DefaultAtmosphere.asset](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/DefaultAtmosphere.asset>) 分别保存 PC / Mobile 的大气、GroundAlbedo 和 SkyIBL 参数，没有独立档位开关；本次迁移将原参数复制到两档，既有物理公式和预算差异保留。配置总览见 [RenderConfiguration.md](RenderConfiguration.md)。
-- AP 生产入口是 `AerialPerspectiveLUT.compute` 的 `BuildAerialPerspective`，AP / IBL Compute 与五个大气 Shader 引用统一保存在 [MaxAtmosphereConfig.cs](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxAtmosphereConfig.cs>)；体素数学位于 `AerialPerspectiveLUTCommon.hlsl`。资源分配、覆盖范围和失效依赖位于 [MaxProceduralSkybox.cs](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs>)，数值预算位于 [AtmosphereSampling.hlsl](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereSampling.hlsl>)。旧 Fragment 包装保留作参考，不作为当前生成路径。
-- 原均匀经纬映射、64 方向表、固定 32 步中点积分和旧 AP 布局的核心逻辑，仍可在 [Helper.hlsl](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/Helper.hlsl>)、[RayMarching.hlsl](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl>) 与 [AerialPerspective.hlsl](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl>) 的停用代码或恢复说明中找到。
+- 档位入口是 [Max Renderer Pipeline Asset.asset](<D:/UnityProject/MaxSRP/Assets/Settings/MaxSRP/Max Renderer Pipeline Asset.asset>) 的 **Platform**，同时控制其他渲染模块。[DefaultAtmosphere.asset](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/DefaultAtmosphere.asset>) 分别保存 PC / Mobile 的大气、GroundAlbedo 和 SkyIBL 参数，没有独立档位开关；本次迁移将原参数复制到两档，既有物理公式和预算差异保留。配置总览见 [RenderConfiguration.md](RenderConfiguration.md)。
+- AP 生产入口是 `AerialPerspectiveLUT.compute` 的 `BuildAerialPerspective`，AP / IBL Compute 与五个大气 Shader 引用统一保存在 [MaxAtmosphereConfig.cs](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxAtmosphereConfig.cs>)；体素数学位于 `AerialPerspectiveLUTCommon.hlsl`。资源分配、覆盖范围和失效依赖位于 [MaxProceduralSkybox.cs](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxProceduralSkybox.cs>)，数值预算位于 [AtmosphereSampling.hlsl](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereSampling.hlsl>)。旧 Fragment 包装保留作参考，不作为当前生成路径。
+- 原均匀经纬映射、64 方向表、固定 32 步中点积分和旧 AP 布局的核心逻辑，仍可在 [Helper.hlsl](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/Helper.hlsl>)、[RayMarching.hlsl](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl>) 与 [AerialPerspective.hlsl](<D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl>) 的停用代码或恢复说明中找到。

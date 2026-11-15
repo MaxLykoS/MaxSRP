@@ -1,0 +1,83 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1b369fce17514259aa89ae5aaf93bfa1, type: 3}
+  m_Name: Surface16
+  m_EditorClassIdentifier: 
+  version: 1
+  resolution: 1024
+  relativeDirectory: DirectDeltaSurface16
+  sourceFingerprint: 00f405173868fedc5934036ce8a58f7c90710d39d5a58baca06a5db685b8468b
+  sourceLicense: CC0-1.0 / Poly Haven
+  names:
+  - Grass Ground
+  - Leafy Grass
+  - Withered Grass
+  - Forest Ground 04
+  - Dry Ground 01
+  - Brown Mud Dry
+  - Brown Mud 02
+  - Aerial Mud 1
+  - Rock Face
+  - Rock Surface
+  - Rocky Terrain
+  - Gravel Ground 01
+  - River Small Rocks
+  - Dry River Pebbles
+  - Coast Sand 01
+  - Damp Sand
+  uvPerMetre:
+  - {x: 0.4, y: 0.4, z: 0, w: 0}
+  - {x: 0.5, y: 0.5, z: 0, w: 0}
+  - {x: 0.5, y: 0.5, z: 0, w: 0}
+  - {x: 0.33333334, y: 0.33333334, z: 0, w: 0}
+  - {x: 0.33333334, y: 0.33333334, z: 0, w: 0}
+  - {x: 0.33333334, y: 0.33333334, z: 0, w: 0}
+  - {x: 0.33333334, y: 0.33333334, z: 0, w: 0}
+  - {x: 0.125, y: 0.125, z: 0, w: 0}
+  - {x: 0.16666667, y: 0.16666667, z: 0, w: 0}
+  - {x: 0.25, y: 0.25, z: 0, w: 0}
+  - {x: 0.16666667, y: 0.16666667, z: 0, w: 0}
+  - {x: 0.33333334, y: 0.33333334, z: 0, w: 0}
+  - {x: 0.33333334, y: 0.33333334, z: 0, w: 0}
+  - {x: 0.33333334, y: 0.33333334, z: 0, w: 0}
+  - {x: 0.33333334, y: 0.33333334, z: 0, w: 0}
+  - {x: 0.5, y: 0.5, z: 0, w: 0}
+  parameters:
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  - {x: 0.75, y: 1024, z: 10, w: 1}
+  variants:
+  - format: 25
+    albedoHeightFile: albedo-height.bc7.bin
+    normalRoughAoFile: normal-rough-ao.bc7.bin
+    albedoHeightSha256: 0a1595f829a591703456ab5609702c2574b8d842cd690e5711ea0d6ced220f99
+    normalRoughAoSha256: e1b6a2fc644c6fc09b56706e0dd35444fe8b1cc16fdfd6a0aa9dd08fdeac3828
+    arrayBytes: 22370048
+  - format: 50
+    albedoHeightFile: albedo-height.astc6x6.bin
+    normalRoughAoFile: normal-rough-ao.astc6x6.bin
+    albedoHeightSha256: 22a953f823c4a205ffd6b093d0b919328896a0af9a61b935be9da9648e92ea2b
+    normalRoughAoSha256: c345a67ef0b08eff9e90413b280a33d4355114d1f11790f39df66e34731cbfe8
+    arrayBytes: 10020608

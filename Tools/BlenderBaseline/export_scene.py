@@ -209,7 +209,7 @@ def main():
             objects.append({'name': name, 'transform': t, 'kind': 'unity_mesh', 'path': str(mesh_out),
                             'materials': [material(m) for m in mr['m_Materials']]})
 
-    setting_path = ROOT / 'Assets/MaxRendererPipeline/Max Renderer Pipeline Asset.asset'
+    setting_path = ROOT / 'Assets/Settings/MaxSRP/Max Renderer Pipeline Asset.asset'
     track(setting_path)
     settings = next(iter(documents(setting_path).values()))['MonoBehaviour']
     ground_srgb8 = [170, 170, 170, 255]

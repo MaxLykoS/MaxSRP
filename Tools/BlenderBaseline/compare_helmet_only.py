@@ -13,7 +13,7 @@ from PIL import Image,ImageDraw,ImageFont
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT/'OfflineBaseline/HelmetOnly'
 meta = json.loads((OUT/'unity_helmet.json').read_text(encoding='utf-8'))
-source_hash = hashlib.sha256((ROOT/'Assets/MaxRendererPipeline/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()
+source_hash = hashlib.sha256((ROOT/'Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()
 if meta.get('brdfSourceSHA256'):
     assert meta['brdfSourceSHA256']==source_hash, 'Unity BRDF capture is stale; recapture after compilation'
 W,H = meta['width'],meta['height']

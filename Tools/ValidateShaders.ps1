@@ -13,6 +13,7 @@ function Expand-TaskShader([string]$path){
  $pattern=[regex]::new('(?m)^[ \t]*#include[ \t]+"([^"]+)"[^\r\n]*')
  $s=$pattern.Replace($s,[System.Text.RegularExpressions.MatchEvaluator]{param($m)
   $include=Join-Path $directory $m.Groups[1].Value
+  if(-not(Test-Path -LiteralPath $include)){$include=Join-Path $taskRoot $m.Groups[1].Value}
   if(-not(Test-Path -LiteralPath $include)){$include=Join-Path $taskCgRoot $m.Groups[1].Value}
   # Optional upstream debug includes can sit inside inactive #if branches.
   # Leave unresolved includes to the compiler so active missing includes still fail.
@@ -49,56 +50,56 @@ public static class MaxSrpNativeShaderCheck {
 "@
 $taskDefines="#define SHADER_API_D3D11 1`n#define UNITY_COMPILER_HLSL 1`n#define SHADER_TARGET 50`n#define UNITY_VERSION 202230`n"
 $taskChecks=@(
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessExposure.compute','ClearExposureStatistics','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessExposure.compute','MeterHistogram','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessExposure.compute','MeterBasic','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessExposure.compute','ResolveExposure','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomVertex','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomSetupPC','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomDownsamplePC','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomGaussianX','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomGaussianYAdd','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomSetupMobile','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomDownsampleMobile','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomUpsampleMobile','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PostProcessBloom.hlsl','BloomMergeMobile','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute','BuildAerialPerspective','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','PrefilterDepths','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','EvaluateGTAO','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','DenoiseGTAO','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/GTAO/MaxGTAO.compute','DenoiseGTAOIntermediate','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOVertex','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOSetup','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOEvaluate','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOFilter','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOUpscale','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/CloudLayerLighting.hlsl','CloudBakeVertex','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/CloudLayerLighting.hlsl','CloudBakeFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/SixWayCloudPass.hlsl','SixWayVertex','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/SixWayCloudPass.hlsl','SixWayFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/ClusteredLighting.compute','PrepareLights','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/ClusteredLighting.compute','BuildClusters','cs_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxBistroSkyVisibility.compute','TraceSky','cs_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxBistroSkyVisibility.compute','TraceSurface','cs_5_0'),
- @('Assets/MaxRendererPipeline/Editor/MaxBistroSkyVisibility.compute','FinishSky','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaVertex','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaResolve','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaCopy','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionVertex','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeDiffuse','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeSpec','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeBRDFLut','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','SkyToEnvironment','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','FilterSkyDiffuse','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','FilterSkySpecular','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PrecomputeIBL.compute','BuildDynamicBRDF','cs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRLitPass.hlsl','PBRVertex','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRLitPass.hlsl','PBRFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferVertex','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferFragment','ps_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRMetaPass.hlsl','PBRMetaVertex','vs_5_0'),
- @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRMetaPass.hlsl','PBRMetaFragment','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessExposure.compute','ClearExposureStatistics','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessExposure.compute','MeterHistogram','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessExposure.compute','MeterBasic','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessExposure.compute','ResolveExposure','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessBloom.hlsl','BloomVertex','vs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessBloom.hlsl','BloomSetupPC','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessBloom.hlsl','BloomDownsamplePC','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessBloom.hlsl','BloomGaussianX','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessBloom.hlsl','BloomGaussianYAdd','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessBloom.hlsl','BloomSetupMobile','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessBloom.hlsl','BloomDownsampleMobile','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessBloom.hlsl','BloomUpsampleMobile','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PostProcessBloom.hlsl','BloomMergeMobile','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute','BuildAerialPerspective','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/GTAO/MaxGTAO.compute','PrefilterDepths','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/GTAO/MaxGTAO.compute','EvaluateGTAO','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/GTAO/MaxGTAO.compute','DenoiseGTAO','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/GTAO/MaxGTAO.compute','DenoiseGTAOIntermediate','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOVertex','vs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOSetup','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOEvaluate','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOFilter','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SSAO/MaxSSAO.hlsl','SSAOUpscale','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/CloudLayerLighting.hlsl','CloudBakeVertex','vs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/CloudLayerLighting.hlsl','CloudBakeFragment','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SixWayCloudPass.hlsl','SixWayVertex','vs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SixWayCloudPass.hlsl','SixWayFragment','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ClusteredLighting.compute','PrepareLights','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ClusteredLighting.compute','BuildClusters','cs_5_0'),
+ @('Assets/Editor/MaxSRP/MaxBistroSkyVisibility.compute','TraceSky','cs_5_0'),
+ @('Assets/Editor/MaxSRP/MaxBistroSkyVisibility.compute','TraceSurface','cs_5_0'),
+ @('Assets/Editor/MaxSRP/MaxBistroSkyVisibility.compute','FinishSky','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/TemporalAAPass.hlsl','TaaVertex','vs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/TemporalAAPass.hlsl','TaaResolve','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/TemporalAAPass.hlsl','TaaCopy','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionVertex','vs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionFragment','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeDiffuse','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeSpec','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PrecomputeIBL.compute','PrecomputeBRDFLut','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PrecomputeIBL.compute','SkyToEnvironment','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PrecomputeIBL.compute','FilterSkyDiffuse','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PrecomputeIBL.compute','FilterSkySpecular','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PrecomputeIBL.compute','BuildDynamicBRDF','cs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRLitPass.hlsl','PBRVertex','vs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRLitPass.hlsl','PBRFragment','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferVertex','vs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferFragment','ps_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRMetaPass.hlsl','PBRMetaVertex','vs_5_0'),
+ @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRMetaPass.hlsl','PBRMetaFragment','ps_5_0'),
  @('Assets/Scenes/BistroTest/Shaders/BistroMetaPass.hlsl','BistroMetaVertex','vs_5_0'),
  @('Assets/Scenes/BistroTest/Shaders/BistroMetaPass.hlsl','BistroMetaFragment','ps_5_0'),
  @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroGBufferVertex','vs_5_0'),
@@ -109,14 +110,14 @@ $taskChecks=@(
  @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroMotionFragment','ps_5_0')
 )
 foreach($name in @('TransmittanceLUT','MultiscatteringLUT','SkyviewLUT','AerialPerspectiveLUT','SkyboxProcedural')){
- $path='Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/'+$name+'Pass.hlsl'
+ $path='Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/'+$name+'Pass.hlsl'
  $taskChecks+=,@($path,'vert','vs_5_0')
  $taskChecks+=,@($path,'frag','ps_5_0')
 }
-$taskChecks+=,@('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','ShadowCasterVertex','vs_5_0')
-$taskChecks+=,@('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','ShadowCasterFragment','ps_5_0')
-$taskChecks+=,@('Assets/MaxRendererPipeline/Shaders/Realtime/ColorOutputPass.hlsl','ColorOutputVertex','vs_5_0')
-$taskChecks+=,@('Assets/MaxRendererPipeline/Shaders/Realtime/ColorOutputPass.hlsl','ColorOutputFragment','ps_5_0')
+$taskChecks+=,@('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRGBufferPass.hlsl','ShadowCasterVertex','vs_5_0')
+$taskChecks+=,@('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRGBufferPass.hlsl','ShadowCasterFragment','ps_5_0')
+$taskChecks+=,@('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ColorOutputPass.hlsl','ColorOutputVertex','vs_5_0')
+$taskChecks+=,@('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ColorOutputPass.hlsl','ColorOutputFragment','ps_5_0')
 foreach($check in $taskChecks){
  $source=$taskDefines+(Expand-TaskShader (Join-Path $taskRoot $check[0]))
  [MaxSrpNativeShaderCheck]::Compile($source,$check[0],$check[1],$check[2])
@@ -125,7 +126,7 @@ foreach($check in $taskChecks){
 
 # Exercise the SSAO inline quad and both depth/texture coordinate conventions.
 # These HLSL checks do not replace native GLES, Metal, or Vulkan validation.
-$taskSSAOPath='Assets/MaxRendererPipeline/Shaders/Realtime/SSAO/MaxSSAO.hlsl'
+$taskSSAOPath='Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/SSAO/MaxSSAO.hlsl'
 foreach($variant in @('InlineQuad','OrdinaryGLDepth','BottomOrigin')) {
  foreach($entry in @('SSAOSetup','SSAOEvaluate','SSAOFilter','SSAOUpscale')) {
   $source=$taskDefines+(Expand-TaskShader (Join-Path $taskRoot $taskSSAOPath))
@@ -146,13 +147,13 @@ foreach($check in @(@('SSAOVertex','vs_4_0'),@('SSAOSetup','ps_4_0'),@('SSAOEval
 
 # Compile the complete Mobile numerical/phase/closure profile as one local variant.
 foreach($name in @('TransmittanceLUT','MultiscatteringLUT','SkyviewLUT','AerialPerspectiveLUT')) {
- $path='Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/'+$name+'Pass.hlsl'
+ $path='Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/'+$name+'Pass.hlsl'
  $source="#define MAX_ATMOSPHERE_MOBILE 1`n"+$taskDefines+(Expand-TaskShader (Join-Path $taskRoot $path))
  [MaxSrpNativeShaderCheck]::Compile($source,$path,'frag','ps_5_0')
  Write-Output ('PASS: AtmosphereMobile '+$name)
 }
 
-$taskMobileAerialPath='Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute'
+$taskMobileAerialPath='Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUT.compute'
 $taskMobileAerial="#define MAX_ATMOSPHERE_MOBILE 1`n"+$taskDefines+(Expand-TaskShader (Join-Path $taskRoot $taskMobileAerialPath))
 [MaxSrpNativeShaderCheck]::Compile($taskMobileAerial,$taskMobileAerialPath,'BuildAerialPerspective','cs_5_0')
 Write-Output 'PASS: AtmosphereMobile BuildAerialPerspective'
@@ -161,11 +162,11 @@ Write-Output 'PASS: AtmosphereMobile BuildAerialPerspective'
 # and [-1,1] clip depth under the HLSL compiler; this is not a native GLSL/GPU test.
 foreach($variant in @('OrdinaryGLDepth','RGBNormal','ASTCNormal')) {
  foreach($check in @(
-  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRLitPass.hlsl','PBRFragment'),
-  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferFragment'),
+  @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRLitPass.hlsl','PBRFragment'),
+  @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferFragment'),
   @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroGBufferFragment'),
-  @('Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUTPass.hlsl','frag'),
-  @('Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/SkyboxProceduralPass.hlsl','frag')
+  @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUTPass.hlsl','frag'),
+  @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/SkyboxProceduralPass.hlsl','frag')
  )) {
   $source=$taskDefines+(Expand-TaskShader (Join-Path $taskRoot $check[0]))
   if($variant -eq 'OrdinaryGLDepth'){$source=[regex]::Replace($source,'(?m)^#define UNITY_REVERSED_Z 1\r?$','// Ordinary Z for GL depth emulation')}
@@ -184,8 +185,8 @@ foreach($lightmapVariant in @(
  @('DirectionalLightmapDLDR',"#define LIGHTMAP_ON 1`n#define DIRLIGHTMAP_COMBINED 1`n#define UNITY_LIGHTMAP_DLDR_ENCODING 1`n")
 )) {
  foreach($check in @(
-  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferVertex','vs_5_0'),
-  @('Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferFragment','ps_5_0'),
+  @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferVertex','vs_5_0'),
+  @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRGBufferPass.hlsl','PBRGBufferFragment','ps_5_0'),
   @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroGBufferVertex','vs_5_0'),
   @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroGBufferFragment','ps_5_0')
  )) {
@@ -197,9 +198,9 @@ foreach($lightmapVariant in @(
 
 foreach($variant in @('OrdinaryGLDepth','BottomOrigin')) {
  foreach($check in @(
-  @('Assets/MaxRendererPipeline/Shaders/Realtime/TemporalAAPass.hlsl','TaaResolve','ps_5_0'),
-  @('Assets/MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionVertex','vs_5_0'),
-  @('Assets/MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionFragment','ps_5_0'),
+  @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/TemporalAAPass.hlsl','TaaResolve','ps_5_0'),
+  @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionVertex','vs_5_0'),
+  @('Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/MotionVectorsPass.hlsl','MaxMotionFragment','ps_5_0'),
   @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroMotionVertex','vs_5_0'),
   @('Assets/Scenes/BistroTest/Shaders/BistroGBuffer.hlsl','BistroMotionFragment','ps_5_0')
  )) {

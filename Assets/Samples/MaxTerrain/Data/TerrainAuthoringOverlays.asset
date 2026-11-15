@@ -1,0 +1,18 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3a72bd749f9742c89a501861f09bdd2c, type: 3}
+  m_Name: TerrainAuthoringOverlays
+  m_EditorClassIdentifier: 
+  roads: []
+  decals: []
+  writerShader: {fileID: 4800000, guid: 2996dc3993ef4efca8eb1025cc5da41a, type: 3}
+  repackShader: {fileID: 4800000, guid: 173edfb3d7194f0f88635a76272177cc, type: 3}

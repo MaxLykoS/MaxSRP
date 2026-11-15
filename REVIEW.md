@@ -16,7 +16,7 @@ P1 表示优先修复的正确性问题；P2 表示条件性错误、精度问�
 
 状态：**本轮新增，设置消费路径确认；不是光照能量公式问题**。
 
-位置：[SunLightData.cs](Assets/MaxRendererPipeline/Runtime/SunLightData.cs)、[Lighting.hlsl](Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Lighting.hlsl)、[Shadow.hlsl](Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Shadow.hlsl)。
+位置：[SunLightData.cs](Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/SunLightData.cs)、[Lighting.hlsl](Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Lighting.hlsl)、[Shadow.hlsl](Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Shadow.hlsl)。
 
 只把 `Light.shadows != None` 转为布尔开关。`Light.shadowStrength` 没有上传或混合，Lighting 直接乘以原始可见度；因此把阴影强度设为 0 仍不会使阴影全亮。Hard 与 Soft 也进入相同路径；10 月 21 日更新后均走四级 PCSS，尚未接通灯光模式选择。当前 demo 的强度若为 1，不影响已验收的照明，但 Inspector 控制语义不完整。
 
@@ -78,10 +78,10 @@ P1 表示优先修复的正确性问题；P2 表示条件性错误、精度问�
 
 | 原编号 | 修复结果 | 代码位置 |
 | --- | --- | --- |
-| 4 | 四级连续覆盖相机 near 到 min(camera far, ShadowDistance)，CPU 与 Shader 共同使用累积分界 0.07 / 0.20 / 0.45 / 1.00。采样使用重建位置的相机视空间深度；范围外和空深度返回全亮。正交宽度覆盖光空间 AABB，并预留 texel 对齐余量；远两级 HardShadow 补齐世界位置的 w=1。ShadowDistance 每次更新同步到生成与采样。 | [MaxShadowCasterPass.cs:150](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxShadowCasterPass.cs:150)、[ScreenSpaceShadowMapPass.hlsl:56](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/ScreenSpaceShadowMapPass.hlsl:56)、[Shadow.hlsl:150](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Shadow.hlsl:150) |
-| 5 | 增加每个采样点到太阳的行星遮挡判断，接入天空单次散射及多重散射 LUT 的直射源项。高空仍按自身地平线保留受光；通用的大气顶端透射率查询继续用于其他路径。 | [RayMarching.hlsl:24](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl:24) |
-| 12 | Rayleigh、Mie、Ozone 倍率接入对应系数；Mie 倍率同时缩放散射与吸收，保持原有比例。负倍率按 0 处理，1 保持原系数，0 关闭对应介质贡献。 | [Scattering.hlsl:28](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl:28) |
-| PCSS 补充项 | blocker 计数从整数 0 开始，无 blocker 时在除法前返回有效的 (0, 0)，调用方继续返回全亮；有 blocker 时保留原平均值计算。 | [Shadow.hlsl:105](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Shadow.hlsl:105) |
+| 4 | 四级连续覆盖相机 near 到 min(camera far, ShadowDistance)，CPU 与 Shader 共同使用累积分界 0.07 / 0.20 / 0.45 / 1.00。采样使用重建位置的相机视空间深度；范围外和空深度返回全亮。正交宽度覆盖光空间 AABB，并预留 texel 对齐余量；远两级 HardShadow 补齐世界位置的 w=1。ShadowDistance 每次更新同步到生成与采样。 | [MaxShadowCasterPass.cs:150](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxShadowCasterPass.cs:150)、[ScreenSpaceShadowMapPass.hlsl:56](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ScreenSpaceShadowMapPass.hlsl:56)、[Shadow.hlsl:150](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Shadow.hlsl:150) |
+| 5 | 增加每个采样点到太阳的行星遮挡判断，接入天空单次散射及多重散射 LUT 的直射源项。高空仍按自身地平线保留受光；通用的大气顶端透射率查询继续用于其他路径。 | [RayMarching.hlsl:24](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl:24) |
+| 12 | Rayleigh、Mie、Ozone 倍率接入对应系数；Mie 倍率同时缩放散射与吸收，保持原有比例。负倍率按 0 处理，1 保持原系数，0 关闭对应介质贡献。 | [Scattering.hlsl:28](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl:28) |
+| PCSS 补充项 | blocker 计数从整数 0 开始，无 blocker 时在除法前返回有效的 (0, 0)，调用方继续返回全亮；有 blocker 时保留原平均值计算。 | [Shadow.hlsl:105](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Shadow.hlsl:105) |
 
 问题 5 的处理与 Hillaire 作者公开实现的逐点太阳可见性判定一致，参考 [RenderSkyRayMarching.hlsl](https://github.com/sebh/UnrealEngineSkyAtmosphere/blob/master/Resources/RenderSkyRayMarching.hlsl#L164-L180)。目前采用几何遮挡边界，未加入有限太阳圆盘的半影平滑。
 
@@ -97,7 +97,7 @@ P1 表示优先修复的正确性问题；P2 表示条件性错误、精度问�
 
 对本步近似恒定的消光 sigma_t 和光源项 source，贡献为 `T_before * source * (1-exp(-sigma_t*ds))/sigma_t`。实现把小值判断放在无量纲光学厚度 `tau=sigma_t*ds` 上；tau < 0.01 时用泰勒展开计算权重，避免 `1-exp(-tau)` 的消减误差，零消光时权重恰好为 ds。RGB 分量独立处理，兼容某个分量为零的情况。
 
-代码：[RayMarching.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl)。处理方式参考 [Hillaire 作者公开实现](https://github.com/sebh/UnrealEngineSkyAtmosphere/blob/master/Resources/RenderSkyRayMarching.hlsl#L205-L212)。这是离散积分质量改进，步内密度和光源仍采用常量近似。
+代码：[RayMarching.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl)。处理方式参考 [Hillaire 作者公开实现](https://github.com/sebh/UnrealEngineSkyAtmosphere/blob/master/Resources/RenderSkyRayMarching.hlsl#L205-L212)。这是离散积分质量改进，步内密度和光源仍采用常量近似。
 
 验证：22 个 HLSL SM5 入口独立编译通过。将实际标量积分函数抽取为 CPU 单精度计算，与稳定双精度参考比较 10,033 个零/极小/较大光学厚度及分支边界案例，最大相对误差约 2.61e-6；零步长、零消光、零光源、混合 RGB 消光和分段常量介质/光源通过。均匀介质总光学厚度 4、单位消光和光源、32 步的结果从 0.92160699 改为 0.98168439，解析参考为 0.98168436；1 / 2 / 64 / 256 步也通过误差检查。这些数值不代表实际天空画面的误差或 GPU 实测精度。
 
@@ -115,7 +115,7 @@ P1 表示优先修复的正确性问题；P2 表示条件性错误、精度问�
 
 ACES 采用 [Narkowicz 的拟合曲线](https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/)，是线性 RGB 的紧凑近似，不是完整 ACES 色彩管理或 UE 的全部 Film 设置。当前工程使用 Linear 色彩空间，sRGB 输出目标执行显示编码，Shader 不再重复 pow/gamma 处理；线性 RenderTexture 保留线性数值。此实现提供手动曝光，自动曝光和 HDR 显示器输出校准不在本次实现范围内。
 
-代码：[MaxRendererPipeline.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs)、[MaxColorOutputPass.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxColorOutputPass.cs)、[ColorOutputPass.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/ColorOutputPass.hlsl)、[管线资产](<D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Max Renderer Pipeline Asset.asset>)。
+代码：[MaxRendererPipeline.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxRendererPipeline.cs)、[MaxColorOutputPass.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxColorOutputPass.cs)、[ColorOutputPass.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ColorOutputPass.hlsl)、[管线资产](<D:/UnityProject/MaxSRP/Assets/Settings/MaxSRP/Max Renderer Pipeline Asset.asset>)。
 
 验证：Player/Editor C# 托管 API 绑定编译通过（Unity 2022.3 程序集，CoreUtils/CommandBufferPool 接口替身），24 个 HLSL SM5 入口独立编译通过。新增 [Tools/ValidateColorOutput.ps1](D:/UnityProject/MaxSRP/Tools/ValidateColorOutput.ps1) 可直接运行：从当前源码抽取输出分组、尺寸、资源方法，在内存图形 API 替身上检查相机共享/隔离、分屏与小数视口、尺寸变化、MSAA 与目标深度变化、分配失败及幂等释放；从 Shader 抽取 ACES 表达式检查 10,001 个输入的单调性/有限性/范围、黑白点、超 1 的颜色、曝光和叠加顺序。另检查光照/天空接线、输出顺序、alpha/深度输出及构建所需的 Shader 引用。
 
@@ -141,7 +141,7 @@ ACES 采用 [Narkowicz 的拟合曲线](https://knarkowicz.wordpress.com/2016/01
 
 天空顶点位于远平面，ZTest LEqual、ZWrite Off，仅覆盖没有不透明物体的背景并保留场景深度。观察方向用当前离屏逆 VP 与相机位置重建，正交相机使用逆 view 的前向方向；避免依赖内置天空盒 mesh 或 object transform。太阳方向与单次散射使用同一朝向，并夹取 acos 输入到 [-1,1]。
 
-位置：[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs)、[SkyboxProceduralPass.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/SkyboxProceduralPass.hlsl)、[SkyboxProcedural.shader](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/SkyboxProcedural.shader)。
+位置：[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxProceduralSkybox.cs)、[SkyboxProceduralPass.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/SkyboxProceduralPass.hlsl)、[SkyboxProcedural.shader](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/SkyboxProcedural.shader)。
 
 验证：C# 托管绑定和 24 个 HLSL SM5 入口独立编译通过；ValidateColorOutput.ps1 检查显式材质绘制接线、远平面深度规则、平移/旋转相机的天空射线回投影与正交观察方向，涵盖顶/底纹理原点及普通/reversed Z 模型。实际天空画面和新增 Frame Debugger 事件仍需 Unity 刷新后复验；没有据独立编译推断 GPU 画面已验证。全程未访问 Library。
 
@@ -155,7 +155,7 @@ ACES 采用 [Narkowicz 的拟合曲线](https://knarkowicz.wordpress.com/2016/01
 
 SkyView LUT、太阳盘和空气透视 LUT 统一调用 AtmosphereCameraPosition。大气计算的相机高度下限为海平面以上 1 米，低于该高度或进入地下时使用此下限；这是近地表的数值边界约定，不会移动实际相机或改变场景几何。保留散射系数、采样步数、太阳强度及曝光设置。
 
-代码：[Helper.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/Helper.hlsl)、[RayMarching.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl)、[Scattering.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl) 及对应天空、太阳盘和空气透视 Pass。
+代码：[Helper.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/Helper.hlsl)、[RayMarching.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl)、[Scattering.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl) 及对应天空、太阳盘和空气透视 Pass。
 
 验证：[Tools/ValidateAtmosphereGround.ps1](D:/UnityProject/MaxSRP/Tools/ValidateAtmosphereGround.ps1) 抽取实际 HLSL 函数进行 CPU 单精度计算，对照独立双精度求交，覆盖从地下 100 米到高空 60 千米的 140,910 组高度/方向及 LUT 行，并检查地表朝上/朝下、相切、地下起点、球内出射、未命中、平移球体、非单位和零方向。最大交点距离相对误差约 3.80e-6；贴地的 64 个向下 LUT 行，旧实现有 38 行零距离、15 行远交点，新实现均命中近处地面。共享相机原点、地面截断和零长度保护的接线检查通过；24 个 HLSL SM5 入口独立编译和 ValidateColorOutput.ps1 回归检查通过。
 
@@ -171,7 +171,7 @@ SkyView LUT、太阳盘和空气透视 LUT 统一调用 AtmosphereCameraPosition
 
 同时处理用户粘贴的 LUT 报错：调用栈在 Blit，Expected 为大气 LUT Shader，Actual 为 Hidden/Internal-Loading。大气数据 LUT 不应使用异步编译期间的占位 Shader 生成数据。Editor 中仅在四张 LUT 烘焙命令范围内调用 ShaderUtil.SetAsyncCompilation(cmd,false)，随后 RestoreAsyncCompilation 恢复原模式；Player 不引入 UnityEditor 依赖，也不修改全局异步编译设置。参考 [Unity 的命令缓冲异步编译控制](https://docs.unity3d.com/2022.3/Documentation/ScriptReference/ShaderUtil.SetAsyncCompilation.html)。该处理针对占位 Shader 路径，尚未实测确认日志断言已消失。
 
-代码：[MaxShadowCasterPass.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxShadowCasterPass.cs)、[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs)、[MaxColorOutputDiagnostics.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Editor/MaxColorOutputDiagnostics.cs)。太阳角半径和屏幕射线公式保持原实现。
+代码：[MaxShadowCasterPass.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxShadowCasterPass.cs)、[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxProceduralSkybox.cs)、[MaxColorOutputDiagnostics.cs](D:/UnityProject/MaxSRP/Assets/Editor/MaxSRP/MaxColorOutputDiagnostics.cs)。太阳角半径和屏幕射线公式保持原实现。
 
 验证：[Tools/ValidateShadowCameraIsolation.ps1](D:/UnityProject/MaxSRP/Tools/ValidateShadowCameraIsolation.ps1) 抽取实际 Execute/Dispose 方法，在图形 API 替身上检查源相机自动/手动 aspect、视口缩放、自定义矩阵、分屏视口、目标纹理、四个级联、隐藏相机复用、剔除失败、异常、空范围、无太阳以及幂等资源释放，并检查 LUT 编译模式作用域。按 Unity 文档模拟 aspect setter，旧实现从 5:4 视口切换到 16:9 后，居中角圆盘宽高比为 1.422；新路径保留自动更新，宽高比为 1。Player/Editor C# 使用 Unity 2022.3 托管程序集绑定编译通过（CoreUtils/CommandBufferPool 接口替身）；ValidateColorOutput.ps1 与 140,910 组近地表求交回归通过。
 
@@ -193,7 +193,7 @@ Lighting 根据 GBuffer 深度重建物体位置，透视相机使用相机到�
 
 管线资产 **Atmosphere Scattering Setting > Enable Aerial Perspective** 默认启用；`_AerialPerspectiveDistance` 默认 32,000 米，表示 LUT 的最大覆盖距离，并非雾浓度。关闭开关或设为 0 会停用物体雾并跳过空气透视 LUT 绘制，天空仍可绘制。雾也可作用于非 Skybox 清屏相机。移除无消费者的旧 AerialPerspective 合成材质及错误的独立合成 Shader 引用；新增透射率图集与既有资源一起释放。
 
-代码：[MaxRendererPipeline.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs)、[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs)、[PBRLitPass.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/PBRLitPass.hlsl)、[AerialPerspective.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl)、[AerialPerspectiveLUTPass.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUTPass.hlsl)、[RayMarching.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl)。
+代码：[MaxRendererPipeline.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxRendererPipeline.cs)、[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxProceduralSkybox.cs)、[PBRLitPass.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRLitPass.hlsl)、[AerialPerspective.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl)、[AerialPerspectiveLUTPass.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/AerialPerspectiveLUTPass.hlsl)、[RayMarching.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl)。
 
 验证：[Tools/ValidateAerialPerspective.ps1](D:/UnityProject/MaxSRP/Tools/ValidateAerialPerspective.ps1) 抽取实际 HLSL 的图集坐标、深度插值和 32 步积分，对照独立图集/解析参考：10,000 组屏幕坐标与距离、全部切片边缘、零距离、零介质、RGB 消光和散射、地面截断、线性 HDR 合成、108 组透视和 36 组正交的 FOV/宽高比/纹理原点/Z 约定射线回投影及距离。图集采样最大绝对误差约 3.90e-6，均匀介质 RGB 积分通过 3e-6 的绝对误差检查。检查当前相机数据准备先于 Lighting、背景绕过合成、双 MRT/纹理接线、开关和资源释放。Player/Editor C# 托管绑定、24 个 HLSL SM5 入口独立编译，以及 HDR 输出、140,910 组近地表求交和阴影相机隔离回归通过。
 
@@ -211,7 +211,7 @@ Lighting 根据 GBuffer 深度重建物体位置，透视相机使用相机到�
 
 ShadowDistance 仍按当前相机向前深度限制，默认 500 米，不改为以 Scene View 焦点为中心的额外范围。问题 18 的多方向光选择差异仍单独待处理。
 
-代码：[MaxShadowCasterPass.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxShadowCasterPass.cs)、[MaxSceenSpaceShadowMapPass.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxSceenSpaceShadowMapPass.cs)、[ScreenSpaceShadowMapPass.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/ScreenSpaceShadowMapPass.hlsl)、[Shadow.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Shadow.hlsl)、[ShadowInput.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/ShadowInput.hlsl) 及管线调用和 Shader Pass 状态。
+代码：[MaxShadowCasterPass.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxShadowCasterPass.cs)、[MaxSceenSpaceShadowMapPass.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxSceenSpaceShadowMapPass.cs)、[ScreenSpaceShadowMapPass.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ScreenSpaceShadowMapPass.hlsl)、[Shadow.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Shadow.hlsl)、[ShadowInput.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/ShadowInput.hlsl) 及管线调用和 Shader Pass 状态。
 
 验证：[Tools/ValidateSceneShadows.ps1](D:/UnityProject/MaxSRP/Tools/ValidateSceneShadows.ps1) 抽取实际角点、光空间包围盒和阴影相机配置函数，核验 384 个非对称透视/正交/负 near 角点、1,536 个光空间覆盖案例（包括宽视口和竖直太阳）、24 组透视/正交及纹理原点/Z 约定的深度重建，并检查专用相机输入、Caster/receiver 矩阵和纹理行对应关系。阴影相机隔离测试增加实际可用状态和剔除失败检查。Player/Editor C# 托管绑定、26 个 HLSL SM5 入口独立编译（新增显式 Caster 顶点/片元入口），以及 HDR 输出、近地表大气与空气透视回归通过。
 
@@ -227,7 +227,7 @@ Game 相机直接使用实际 pixelRect；有 targetTexture 时使用其完整�
 
 相机剔除矩阵及六个剔除平面、GBuffer/光照/天空矩阵、阴影级联角点、屏幕空间阴影和空气透视 LUT 全部使用同一有效投影，直接上传 Shader 使用的 view、GPU projection、VP 及逆矩阵，避免只修正颜色而让剔除、阴影或雾仍使用旧比例。Gizmos 与最终输出使用真实视窗。
 
-代码：[CameraViewport.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/CameraViewport.cs)、[MaxRendererPipeline.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs)、[ShaderBinding.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/ShaderBinding.cs) 及阴影、大气和输出调用。
+代码：[CameraViewport.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/CameraViewport.cs)、[MaxRendererPipeline.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxRendererPipeline.cs)、[ShaderBinding.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/ShaderBinding.cs) 及阴影、大气和输出调用。
 
 验证：[Tools/ValidateCameraViewport.ps1](D:/UnityProject/MaxSRP/Tools/ValidateCameraViewport.ps1) 执行实际布局/投影代码，核验 10,000 组真实视窗、圆形不变椭圆和 GBuffer 尺寸案例，窗口横竖切换、分屏偏移、targetTexture、非 Game 相机隔离及 FOV/lens/depth/源设置保持，并检查有效投影贯穿剔除、绘制、阴影和大气。Player/Editor C# 托管绑定和 26 个 HLSL SM5 入口独立编译通过；HDR、Scene 阴影、阴影相机隔离、近地表大气和空气透视回归通过。
 
@@ -241,7 +241,7 @@ Game 相机直接使用实际 pixelRect；有 targetTexture 时使用其完整�
 
 删除主相机与阴影 Pass 的两处调用。相机继续直接上传 GPU view/projection/VP 和逆矩阵；阴影 Caster 与 receiver 使用同一个专用 ShadowVP。保留此前 RenderTexture/屏幕目标的输出 UV 约定，颜色与深度仍使用同一采样方向；实际视窗尺寸、无固定比例/无新增黑边的逻辑保留。
 
-代码：[ShaderBinding.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/ShaderBinding.cs)、[MaxShadowCasterPass.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxShadowCasterPass.cs)。
+代码：[ShaderBinding.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/ShaderBinding.cs)、[MaxShadowCasterPass.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxShadowCasterPass.cs)。
 
 验证：Player/Editor C# 托管绑定、视窗/正交参数、HDR 输出方向、阴影相机隔离和 Scene 阴影数值检查通过。ValidateColorOutput.ps1 新增检查，禁止在相机与阴影路径中混用该 Built-in 接口，并确认相机及专用 Caster 矩阵直接上传。此前这些测试只检查矩阵数值与采样公式，没有覆盖该 Unity 状态 API 的兼容性，不能用之前通过的 CPU 检查否定用户的实际画面反馈。
 
@@ -253,19 +253,19 @@ Game 相机直接使用实际 pixelRect；有 targetTexture 时使用其完整�
 
 | 原编号 | 修复结果 | 代码位置 |
 | --- | --- | --- |
-| 20 | Mie 吸收改为 extinction - scattering，即 (4.440 - 3.996)e-6 /m；倍率同时作用于散射与吸收，总消光恢复地球基准的 4.440e-6 /m。未用曝光补偿这个介质参数错误。 | [Scattering.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl:62) |
-| 21 | 统一观察方向查询：正交使用 inverse view 的 +Z（指向观察者），透视保留 cameraPosition - position；点光循环只更新光线方向，不再覆盖 V。 | [Lighting.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Lighting.hlsl:8) |
-| 22 | 法线解码覆盖 RGB、AG/DXT5nm、BC5 和 ASTC；两处 Shader 的缺省法线改为 bump，与新解码组合得到切线空间 +Z。 | [Packing.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Packing.hlsl:5)、[PBRGBuffer.shader](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/PBRGBuffer.shader:9) |
-| 23 | blocker 距近平面为零时，使用由 Depth24 精度和最小世界距离约束的正分母；滤波 UV 半径限制在 [0,1]，搜索和滤波越界样本按无覆盖处理。保留 count=0 提前返回，两条零分母路径均有边界检查。 | [Shadow.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Shadow.hlsl:143) |
-| 24 | 四级 DepthNormalBias 接入 PCSS/HardShadow，定义为世界单位，按级联完整深度范围换算为归一化深度，并在掠射角适当放大。reversed-Z 与普通 Z 分别向光源方向偏移。保留独立的 ShadingPointNormalBias 世界位置偏移。 | [Shadow.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Shadow.hlsl:105)、[ShadowSetting.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/ShadowSetting.cs:50) |
-| 25 | 增加采样深度 [0,1] 与 clip depth 的双向转换，Lighting/屏幕空间阴影反投影共用。PCSS/HardShadow 的比较、距离换算、有效深度范围和 bias 符号均按 UNITY_REVERSED_Z 分支处理。 | [SpaceTransform.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/SpaceTransform.hlsl:6)、[Shadow.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Shadow.hlsl:86) |
-| 26 | 稳定求大气球的完整 entry/exit 区间，只积分与大气及地面裁剪后重叠的部分。maxDis 仍从原观察者计量，正确跳过真空；层外透射率查询移到入射点，无大气相交时返回单位透射率，太阳盘在太空仍可见。LUT 映射约束边界输入，避免负判别式开方。 | [Helper.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/Helper.hlsl:76)、[RayMarching.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl:218)、[SkyboxProceduralPass.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/AtmosphereScattering/SkyboxProceduralPass.hlsl:26) |
+| 20 | Mie 吸收改为 extinction - scattering，即 (4.440 - 3.996)e-6 /m；倍率同时作用于散射与吸收，总消光恢复地球基准的 4.440e-6 /m。未用曝光补偿这个介质参数错误。 | [Scattering.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl:62) |
+| 21 | 统一观察方向查询：正交使用 inverse view 的 +Z（指向观察者），透视保留 cameraPosition - position；点光循环只更新光线方向，不再覆盖 V。 | [Lighting.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Lighting.hlsl:8) |
+| 22 | 法线解码覆盖 RGB、AG/DXT5nm、BC5 和 ASTC；两处 Shader 的缺省法线改为 bump，与新解码组合得到切线空间 +Z。 | [Packing.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Packing.hlsl:5)、[PBRGBuffer.shader](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRGBuffer.shader:9) |
+| 23 | blocker 距近平面为零时，使用由 Depth24 精度和最小世界距离约束的正分母；滤波 UV 半径限制在 [0,1]，搜索和滤波越界样本按无覆盖处理。保留 count=0 提前返回，两条零分母路径均有边界检查。 | [Shadow.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Shadow.hlsl:143) |
+| 24 | 四级 DepthNormalBias 接入 PCSS/HardShadow，定义为世界单位，按级联完整深度范围换算为归一化深度，并在掠射角适当放大。reversed-Z 与普通 Z 分别向光源方向偏移。保留独立的 ShadingPointNormalBias 世界位置偏移。 | [Shadow.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Shadow.hlsl:105)、[ShadowSetting.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/ShadowSetting.cs:50) |
+| 25 | 增加采样深度 [0,1] 与 clip depth 的双向转换，Lighting/屏幕空间阴影反投影共用。PCSS/HardShadow 的比较、距离换算、有效深度范围和 bias 符号均按 UNITY_REVERSED_Z 分支处理。 | [SpaceTransform.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/SpaceTransform.hlsl:6)、[Shadow.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Shadow.hlsl:86) |
+| 26 | 稳定求大气球的完整 entry/exit 区间，只积分与大气及地面裁剪后重叠的部分。maxDis 仍从原观察者计量，正确跳过真空；层外透射率查询移到入射点，无大气相交时返回单位透射率，太阳盘在太空仍可见。LUT 映射约束边界输入，避免负判别式开方。 | [Helper.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/Helper.hlsl:76)、[RayMarching.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl:218)、[SkyboxProceduralPass.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/AtmosphereScattering/SkyboxProceduralPass.hlsl:26) |
 
 Mie 基准来自 [Hillaire 作者公开的 SetupEarthAtmosphere](https://github.com/sebh/UnrealEngineSkyAtmosphere/blob/master/Application/SkyAtmosphereCommon.cpp#L30-L35)，原文件单位 /km，此处已换为 /m。默认 Mie 消光较修复前减小，因此天空、雾及太阳衰减会相应变化；曝光设置保持原值。
 
 ### 大气 LUT 改为按依赖失效
 
-代码：[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs:160)。透射率和多重散射全局共享，SkyView 与两张空气透视贴图按相机分别保存。仅需要天空或雾时生成对应数据，命中缓存时仍重新绑定当前相机的雾纹理及布局。
+代码：[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxProceduralSkybox.cs:160)。透射率和多重散射全局共享，SkyView 与两张空气透视贴图按相机分别保存。仅需要天空或雾时生成对应数据，命中缓存时仍重新绑定当前相机的雾纹理及布局。
 
 | LUT | 重新生成条件 |
 | --- | --- |
@@ -312,7 +312,7 @@ GPU 路径要求 Compute Shader、2D Array 与不同纹理类型间 CopyTexture 
 
 旧 Runtime/GI 的手动/离线 probe 工具保留，仍含同步回读和 RGBA32 输出；它们已不参与这条实时天空 IBL 路径。问题 8 的关闭范围是当前实时管线，不能解读为这些遗留工具也已改为 HDR。问题 19 的 Lighting Shader 构建引用后于 10 月 20 日单独修复。
 
-代码：[SunLightData.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/SunLightData.cs)、[MaxUpdateGIPass.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxUpdateGIPass.cs)、[DynamicSkyIBL.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/DynamicSkyIBL.hlsl)、[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs)、[MaxRendererPipeline.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs)、[MaxLightConfigurator.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxLightConfigurator.cs)。
+代码：[SunLightData.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/SunLightData.cs)、[MaxUpdateGIPass.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxUpdateGIPass.cs)、[DynamicSkyIBL.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/DynamicSkyIBL.hlsl)、[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxProceduralSkybox.cs)、[MaxRendererPipeline.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxRendererPipeline.cs)、[MaxLightConfigurator.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxLightConfigurator.cs)。
 
 验证：
 
@@ -349,7 +349,7 @@ Lighting 的方向光新增 `SurfaceSunTransmittance`：用物体实际世界高
 
 测试还检查垂直大气柱的解析 Beer–Lambert 透射率、太阳输入加倍时天空严格加倍、0.2725°/1°/2° 圆盘积分能量、夜间行星遮挡、太空无衰减、真空无衰减及关闭太阳无残留；单太阳测试增加 lux 转换与零/负入射照度，缓存测试改用共享太阳能量驱动失效。C# Player/Editor 绑定、45 项 Shader 独立编译、动态 IBL/归一化、大气缓存/空气透视、HDR 输出和光照阴影数值回归通过。
 
-代码：[SunLightData.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/SunLightData.cs)、[MaxRendererPipelineAsset.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxRendererPipelineAsset.cs)、[Lighting.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Lighting.hlsl)、[RayMarching.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl)、[Scattering.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl)、[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxProceduralSkybox.cs)。
+代码：[SunLightData.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/SunLightData.cs)、[MaxRendererPipelineAsset.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxRendererPipelineAsset.cs)、[Lighting.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Lighting.hlsl)、[RayMarching.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/RayMarching.hlsl)、[Scattering.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl)、[MaxProceduralSkybox.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxProceduralSkybox.cs)。
 
 未访问 Library 或取得本轮 Unity GPU 对照。刷新后首先在阳光下看白色粗糙地面，再看阴影区；受光区应由直射主导，阴影可偏蓝。改变 Light.intensity 或 Sun Illuminance Lux 应同时改变直射/天空/雾/IBL，改变 Exposure EV 应只改变整体显示亮度。此阶段点光仍保留旧单位、输出仍缺少物理曝光基准；这两项随后造成亮度适配不完整，已在下方补齐。自动曝光、白平衡和 cluster lighting 仍未增加。
 
@@ -361,7 +361,7 @@ Lighting 的方向光新增 `SurfaceSunTransmittance`：用物体实际世界高
 
 删除管线资产 Sun Illuminance Lux 与 Light.intensity 相乘的双参数设计。指定太阳直接把 **Light.intensity 解释为大气外 lux**；点光将 Light.intensity 解释为 **candela 或 lumen**。所有灯共用 Light.color.linear，启用色温时再乘 Unity 的线性色温 RGB，颜色不再由不同路径分别处理。RenderSettings.sun 仍是唯一平行光，其照度同时驱动直射、大气、雾与天空 IBL。
 
-新增 [MaxPhysicalLight.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/MaxPhysicalLight.cs) 和 [MaxPhysicalLightEditor.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Editor/MaxPhysicalLightEditor.cs)：在灯上添加 **MaxSRP / Physical Light**，或 Light 组件菜单的 **MaxSRP Photometric Controls**，可见带 lux/lm/cd 单位的强度输入。该面板编辑的是原生 Light.intensity，没有另外保存一个重复强度；点光切换单位时按 4π 转换数值并保留物理能量，支持 Undo、多选及 prefab 修改记录。组件仅存点光单位，默认 candela；没有该组件的灯也按方向光 lux、点光 candela 的明确约定读取，旧的 1/5/10 不会被自动当成任意亮度倍率。
+新增 [MaxPhysicalLight.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxPhysicalLight.cs) 和 [MaxPhysicalLightEditor.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Editor/MaxPhysicalLightEditor.cs)：在灯上添加 **MaxSRP / Physical Light**，或 Light 组件菜单的 **MaxSRP Photometric Controls**，可见带 lux/lm/cd 单位的强度输入。该面板编辑的是原生 Light.intensity，没有另外保存一个重复强度；点光切换单位时按 4π 转换数值并保留物理能量，支持 Undo、多选及 prefab 修改记录。组件仅存点光单位，默认 candela；没有该组件的灯也按方向光 lux、点光 candela 的明确约定读取，旧的 1/5/10 不会被自动当成任意亮度倍率。
 
 点光 lumen 表示各向均匀发光的总光通量，`I_cd = Φ_lm / (4π)`；上传 `linearColor × I_cd / 100000`，Lighting 使用 `I/r² × N·L` 得到照度，再乘同一 BRDF 得到亮度。原有 `(1 - r²/range²)²` 有限范围淡出保留，所以接近 Range 时仍是有意的工程近似；一世界单位约定为一米。上传/读取的点光颜色改为 float4，避免低值先被 half 精度截掉；零范围返回零，光源中心使用有界方向计算以避免 normalize(0)。仍保留最多 32 个点光，按用户选择未扩展聚光灯、面光源或 cluster lighting。
 
@@ -410,7 +410,7 @@ Player/Editor 使用 Unity 2022.3 程序集完成运行时代码与新增 Inspec
 
 验证：[ValidateDynamicSkyIBL.ps1](D:/UnityProject/MaxSRP/Tools/ValidateDynamicSkyIBL.ps1) 增加全局绑定被覆盖、按活动输出显式绑定和切换后的绑定更新检查，并核对 DrawProcedural 使用属性块及编译状态作用范围。[ValidatePhysicalLighting.ps1](D:/UnityProject/MaxSRP/Tools/ValidatePhysicalLighting.ps1) 抽取实际 GetDiffuseIBL/GetSpecularIBL 与直射 BRDF，向漫反射/镜面/BRDF 数据注入 NaN、正负 Inf，确认有效直射仍保留；有限 HDR 和其他正常通道仍参与照明。[ValidateSkyIBLMath.ps1](D:/UnityProject/MaxSRP/Tools/ValidateSkyIBLMath.ps1) 原有面向、归一化和解析卷积对照通过。Player/Editor C# 绑定及 45 项 Shader 独立编译通过，相关 HDR 输出和大气/IBL 回归通过。
 
-代码：[MaxUpdateGIPass.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxUpdateGIPass.cs)、[MaxLightPass.cs](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Runtime/Passes/MaxLightPass.cs)、[IBLValidation.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/IBLValidation.hlsl)、[DynamicSkyIBL.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/DynamicSkyIBL.hlsl)、[GlobalIllumination.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/GlobalIllumination.hlsl)。
+代码：[MaxUpdateGIPass.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxUpdateGIPass.cs)、[MaxLightPass.cs](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/Passes/MaxLightPass.cs)、[IBLValidation.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/IBLValidation.hlsl)、[DynamicSkyIBL.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/DynamicSkyIBL.hlsl)、[GlobalIllumination.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/GlobalIllumination.hlsl)。
 
 本次没有证明现场曾发生 IBL 全局变量覆盖、NaN/Inf 或加载占位 Shader；以上补丁是针对自查发现的缺口，不能把风险推断写成抓帧证实的根因。未访问 Library，未要求用户重新抓帧；需要继续以实际运行是否再闪黑检验补丁。
 
@@ -424,7 +424,7 @@ Player/Editor 使用 Unity 2022.3 程序集完成运行时代码与新增 Inspec
 - **空气透视合成**：对采样后的每个透射率/散射分量检查有效性。非有限透射率使用 1，非有限散射使用 0，使故障雾分量退化为中性效果，保留有效表面光照；其余通道正常合成。有限透射率限制到 [0,1]，散射限制为非负。这不能检测所有有限但错误的纹理内容，也不能替代对异常 LUT 来源的定位。
 - **HDR 输出**：ACES 拟合曲线对大于 1 的输入采用代数等价的倒数形式，避免 HDR 乘曝光后因平方溢出发生 `Inf/Inf`。正无穷视作超范围高光映射为白色，NaN 与非正输入归零；普通有限 HDR 保持原曲线。没有通过降低太阳、点光、天空强度或修改曝光来掩盖问题。
 
-代码：[BRDF.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/BRDF.hlsl)、[GlobalIllumination.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/GlobalIllumination.hlsl)、[Lighting.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/Lighting.hlsl)、[AerialPerspective.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl)、[ColorOutputPass.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/Shaders/Realtime/ColorOutputPass.hlsl)。
+代码：[BRDF.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/BRDF.hlsl)、[GlobalIllumination.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/GlobalIllumination.hlsl)、[Lighting.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Lighting.hlsl)、[AerialPerspective.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl)、[ColorOutputPass.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ColorOutputPass.hlsl)。
 
 验证：45 项 Shader 独立编译通过；光照测试新增余弦越界、零半程向量、GGX 峰值与乘权后异常值；空气透视测试注入 NaN/正负 Inf，确认有效表面光照与其他正常通道保留；输出测试使用实际单精度算法验证极大有限值、正负 Inf/NaN，以及 10001 个普通 HDR 输入与双精度曲线的误差不超过 3e-7。动态 IBL、天空卷积、大气缓存与光照/阴影数值回归通过。这些是独立编译与 CPU/API 模型验证，尚未确认新补丁在 Unity GPU 上消除了截图中的马赛克；未访问 Library。
 ## 修正上一版 BRDF 引入的法线贴图黑斑回归（2026-10-15）
@@ -433,7 +433,7 @@ Player/Editor 使用 Unity 2022.3 程序集完成运行时代码与新增 Inspec
 
 当几何地面仍然可见，且着色法线满足 `N·L > 0、N·V <= 0` 时，这条提前返回会额外删除原本的直射漫反射，产生沿法线细节突然变暗的边界。新增回归先在旧实现上失败，错误为 `Normal-map N.V horizon discards directly lit diffuse`；撤掉 `NdotV <= 0` 的整体清零后通过。保留 `NdotL <= 0` 判断及半程向量除零保护；Smith 几何项在 `NdotV <= 0` 时仍令镜面贡献为零，漫反射恢复原有计算。没有翻转法线或增加额外补光。
 
-本轮产品代码仅修改 [BRDF.hlsl](D:/UnityProject/MaxSRP/Assets/MaxRendererPipeline/ShaderLibrary/Realtime/BRDF.hlsl)。[ValidatePhysicalLighting.ps1](D:/UnityProject/MaxSRP/Tools/ValidatePhysicalLighting.ps1) 增加 401 个法线跨越 `N·V=0` 的连续样本、背向视线时漫反射解析对照、相同照度方向光/点光一致性，以及纯金属背向镜面保持零的检查。45 项 Shader 独立编译与光照/阴影回归通过。
+本轮产品代码仅修改 [BRDF.hlsl](D:/UnityProject/MaxSRP/Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/BRDF.hlsl)。[ValidatePhysicalLighting.ps1](D:/UnityProject/MaxSRP/Tools/ValidatePhysicalLighting.ps1) 增加 401 个法线跨越 `N·V=0` 的连续样本、背向视线时漫反射解析对照、相同照度方向光/点光一致性，以及纯金属背向镜面保持零的检查。45 项 Shader 独立编译与光照/阴影回归通过。
 
 已确认并修正上述代码回归；本轮仍未取得截图黑斑像素的逐指令 GPU 证据，实际画面恢复程度待 Unity 运行验证。当前 RenderDoc 打开的捕获只有 LightCookies/UberPostProcess 等事件，没有本管线的 Lighting/大气事件，未把它当作本次截图的证明。未访问 Library。
 ## 天空 IBL 与 Blender 的实际辐照度对照（2026-10-19）
@@ -653,7 +653,7 @@ GPU 同帧对照：在当前 Scene 相机 1397×780 输出八组遮罩，区分�
 
 状态：**2026-10-21 接入 TAA 时修复。以下为原始问题描述，修复及复测见下节。**
 
-位置：[MaxRendererPipeline.cs:50](Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs:50)、[MaxRendererPipeline.cs:243](Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs:243)、[MaxRendererPipeline.cs:257](Assets/MaxRendererPipeline/Runtime/MaxRendererPipeline.cs:257)。
+位置：[MaxRendererPipeline.cs:50](Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxRendererPipeline.cs:50)、[MaxRendererPipeline.cs:243](Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxRendererPipeline.cs:243)、[MaxRendererPipeline.cs:257](Packages/com.maxsrp.render-pipelines.maxsrp/Runtime/MaxRendererPipeline.cs:257)。
 
 `PruneCameraResources` 将不在本次 `Render(cameras)` 数组中的相机释放，`PruneOutputResources` 同样只保留本次输出键。Scene、Game、材质预览等可能来自不同 Render 调用；缺席一次调用不等于相机销毁。后一次调用再为仍存活的相机分配资源，形成往返重建。天空 LUT 的 `PruneDestroyedCameras` 已经按存活状态处理，但 GBuffer/输出缓存尚未采用相同原则。
 

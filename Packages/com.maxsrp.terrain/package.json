@@ -1,0 +1,13 @@
+{
+  "name": "com.maxsrp.terrain",
+  "version": "0.1.0",
+  "displayName": "MaxTerrain",
+  "description": "CDLOD terrain authoring, virtual texturing and geometry rendering for MaxSRP.",
+  "unity": "2022.3",
+  "dependencies": {
+    "com.maxsrp.render-pipelines.maxsrp": "0.1.0",
+    "com.unity.modules.imageconversion": "1.0.0",
+    "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0"
+  }
+}

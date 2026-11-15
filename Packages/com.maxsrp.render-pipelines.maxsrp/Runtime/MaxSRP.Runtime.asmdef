@@ -1,0 +1,6 @@
+{
+  "name": "MaxSRP.Runtime",
+  "rootNamespace": "MaxSRP",
+  "references": ["Unity.RenderPipelines.Core.Runtime"],
+  "autoReferenced": true
+}

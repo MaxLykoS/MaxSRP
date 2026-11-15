@@ -1,0 +1,12 @@
+{
+  "name": "com.maxsrp.render-pipelines.maxsrp",
+  "version": "0.1.0",
+  "displayName": "MaxSRP Render Pipeline",
+  "description": "MaxSRP deferred render pipeline, shared temporal rendering infrastructure, shaders and editor tools.",
+  "unity": "2022.3",
+  "dependencies": {
+    "com.unity.render-pipelines.core": "14.0.12",
+    "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0"
+  }
+}

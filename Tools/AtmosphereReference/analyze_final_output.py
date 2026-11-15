@@ -107,7 +107,7 @@ before, _ = audit(OUT / 'Before')
 after, base = audit(OUT)
 assert after['screen_registration']['valid_for_stage_comparison'], 'Screen/RT captures do not match; capture after Present with a stable camera.'
 capture = json.loads((OUT / 'capture.json').read_text())
-shader = ROOT / 'Assets/MaxRendererPipeline/Shaders/Realtime/ColorOutputPass.hlsl'
+shader = ROOT / 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ColorOutputPass.hlsl'
 assert hashlib.sha256(shader.read_bytes()).hexdigest() == capture['colorOutputShaderSha256']
 
 # Controlled identical-color tests isolate channel correlation from the spatial

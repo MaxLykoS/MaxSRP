@@ -16,7 +16,7 @@ OUT=args.output_directory or BASE/'HighlightDiagnosis'
 OUT.mkdir(exist_ok=True)
 INPUT=args.input_directory or (OUT/'SourceUnityInputs' if (OUT/'SourceUnityInputs/unity_helmet.json').exists() else BASE)
 meta=json.loads((INPUT/'unity_helmet.json').read_text(encoding='utf-8'))
-assert hashlib.sha256((ROOT/'Assets/MaxRendererPipeline/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()==meta['brdfSourceSHA256']
+assert hashlib.sha256((ROOT/'Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()==meta['brdfSourceSHA256']
 W,H=meta['width'],meta['height']
 def read(name):return np.fromfile(INPUT/(name+'.f32'),np.float32).reshape(H,W,4)
 def unit(v):return v/np.maximum(np.linalg.norm(v,axis=-1,keepdims=True),1e-12)

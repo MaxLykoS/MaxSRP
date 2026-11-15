@@ -11,11 +11,14 @@ Git 只保存代码、场景、材质源配置、烘焙设置、UV recipe 和生
 | `Assets/LocalGIBakes/Bistro/SkyVisibility/` | 天空可见度数组及生成的材质绑定 | 整个目录本地保留 |
 | `Assets/LocalGIBakes/Bistro/SolarGI/` | 太阳 GI volume、共享距离/布局及驻留图集 | 整个目录本地保留 |
 | `Assets/StreamingAssets/MaxSRP/SolarTOD/` | 流式 GI irradiance 帧；volume 保存相对目录 | 整个目录本地保留 |
+| `Assets/StreamingAssets/DirectDeltaControls16MaladetasV1/`、`DirectDeltaMaladetas10km/`、`DirectDeltaSurface16Ordered/`、`DirectDeltaWorldSvt05/` | MaxTerrain 的高度／控制图分块、压缩材质与 SVT 发布载荷 | 目录及对应 `.meta` 本地保留 |
 | `Assets/ThirdParty/Bistro/LightmapUV/` | 离线 xatlas 缓存与 manifest | 只提交 `.meta`，缓存重新生成 |
 | `Assets/ThirdParty/Bistro/NativeGI/` | 本地参考几何导出 | 只提交 `.meta` |
 | `OfflineBaseline/` | 烘焙原始输出、报告、捕获、参考 PDF 与准备备份 | 整个目录本地保留 |
 
 旧版 TOD、TODCompact 和当前 Uniform2mColorTOD 数据位于 `SolarGI/` 的各自子目录，方便对照；不自动删除旧数据。原生烘焙会短暂在场景旁写文件，完成回调将其移到 `Lightmaps/`；忽略规则同时覆盖场景旁的临时产物。通过 Unity AssetDatabase 移动已有资产及其 `.meta`，保留 GUID；不要单独复制或重建元数据。流式帧保留既有相对路径，避免改变运行时加载位置。
+
+MaxTerrain 的代码、场景、材质配置、发布记录及带来源说明的 Maladetas 高度源文件保存在包或 `Assets/Samples/MaxTerrain/` 中。上表四组地形流式目录不进入 Git；在新机器运行示例前，需要另行提供对应的本地载荷，保持发布记录中的相对路径和内容身份。仅克隆仓库或安装两个 package 不会包含这些数据。目录布局和验证入口见 [PackageStructure.md](PackageStructure.md) 与 [MaxTerrain 说明](../Packages/com.maxsrp.terrain/README.md)。
 
 ## 人工光与天空可见度
 

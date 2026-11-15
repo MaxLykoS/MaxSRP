@@ -1,0 +1,135 @@
+#pragma kernel ClearHash
+#pragma kernel GatherBuffer
+#pragma kernel Pack
+#pragma target 5.0
+
+// 主地形PS稀疏写入局部AVT页键；0表示没有请求。
+StructuredBuffer<uint> _RawFeedback; // 主地形 PS 的追加列表，首 uint 存尝试写入的请求数。
+RWStructuredBuffer<uint2> _Hash;   // (原始页键, 像素数)
+RWStructuredBuffer<uint2> _Packed; // 首项为 (哈希表有效键数, 插入失败像素数)
+
+uint _HashCapacity;
+uint _PackedCapacity;
+uint _HashStart;
+uint _HashSeed;
+uint _GatherStride;
+uint _GatherPhase;
+uint _RawCapacity;
+
+#define PACK_THREADS 256
+#define MAX_HASH_PROBES 64
+
+groupshared uint PrefixCounts[PACK_THREADS * 2];
+
+[numthreads(256, 1, 1)]
+void ClearHash(uint3 thread : SV_DispatchThreadID)
+{
+    if (thread.x < _HashCapacity)
+        _Hash[thread.x] = 0;
+    if (thread.x == 0)
+        _Packed[0] = 0;
+}
+
+uint HashPageKey(uint key)
+{
+    // 局部坐标和 mip 占固定的位，先打散这些位再用低位选桶。
+    uint hash = key ^ _HashSeed;
+    hash ^= hash >> 16;
+    hash *= 0x7feb352du;
+    hash ^= hash >> 15;
+    hash *= 0x846ca68bu;
+    return hash ^ (hash >> 16);
+}
+
+void CountFeedbackKey(uint key)
+{
+    if (key == 0)
+        return;
+
+    uint hash = HashPageKey(key);
+    uint mask = _HashCapacity - 1;
+    uint bucket = hash & mask;
+    uint step = (hash >> 16) | 1u; // 奇数步长与 2 的幂容量互质。
+    [loop]
+    for (uint probe = 0; probe < MAX_HASH_PROBES; ++probe)
+    {
+        uint previousKey;
+        InterlockedCompareExchange(_Hash[bucket].x, 0, key, previousKey);
+        if (previousKey == 0 || previousKey == key)
+        {
+            InterlockedAdd(_Hash[bucket].y, 1);
+            return;
+        }
+        bucket = (bucket + step) & mask;
+    }
+
+    // 探测有界。CPU 从表头读到失败数后可换哈希种子并分批重试。
+    InterlockedAdd(_Packed[0].y, 1);
+}
+
+[numthreads(64, 1, 1)]
+void GatherBuffer(uint3 thread : SV_DispatchThreadID)
+{
+    if (_RawCapacity <= 1u) return;
+    uint attempted = _RawFeedback[0];
+    uint stored = min(attempted, _RawCapacity - 1u);
+
+    // 原始追加缓冲也有固定容量。只由一个线程累计上游丢失数，
+    // CPU 能分别观察正常压实和原始写入压力，回读大小保持固定。
+    if (thread.x == 0 && attempted > stored)
+        InterlockedAdd(_Packed[0].y, attempted - stored);
+    if (thread.x >= stored) return;
+    if (_GatherStride > 1 && thread.x % _GatherStride != _GatherPhase) return;
+    CountFeedbackKey(_RawFeedback[thread.x + 1u]);
+}
+
+[numthreads(PACK_THREADS, 1, 1)]
+void Pack(uint lane : SV_GroupIndex)
+{
+    // 只调度一个工作组。每个线程沿环读取一段连续槽位，最多 32 个。
+    // 用前缀和确定顺序，溢出时输出从 _HashStart 起的前 N 项，不受线程调度先后影响。
+    uint slotsPerLane = (_HashCapacity + PACK_THREADS - 1) / PACK_THREADS;
+    uint firstSlot = lane * slotsPerLane;
+    uint mask = _HashCapacity - 1;
+    uint occupied = 0;
+
+    [loop]
+    for (uint offset = 0; offset < slotsPerLane; ++offset)
+    {
+        uint slot = firstSlot + offset;
+        if (slot < _HashCapacity && _Hash[(_HashStart + slot) & mask].x != 0)
+            occupied |= 1u << offset;
+    }
+
+    uint laneCount = countbits(occupied);
+    uint bank = 0;
+    PrefixCounts[lane] = laneCount;
+    GroupMemoryBarrierWithGroupSync();
+
+    // 两块共享内存交替读写，避免同一步扫描读到尚未完成的结果。
+    [unroll]
+    for (uint stride = 1; stride < PACK_THREADS; stride <<= 1)
+    {
+        uint nextBank = PACK_THREADS - bank;
+        uint count = PrefixCounts[bank + lane];
+        if (lane >= stride)
+            count += PrefixCounts[bank + lane - stride];
+        PrefixCounts[nextBank + lane] = count;
+        GroupMemoryBarrierWithGroupSync();
+        bank = nextBank;
+    }
+
+    uint inclusiveCount = PrefixCounts[bank + lane];
+    if (lane == PACK_THREADS - 1)
+        _Packed[0].x = inclusiveCount;
+
+    // 下标 0 留给表头。只写落在输出容量内的记录，表头保留截断前的总数。
+    uint outputIndex = 1 + inclusiveCount - laneCount;
+    [loop]
+    while (occupied != 0 && outputIndex < _PackedCapacity)
+    {
+        uint offset = firstbitlow(occupied);
+        _Packed[outputIndex++] = _Hash[(_HashStart + firstSlot + offset) & mask];
+        occupied &= occupied - 1;
+    }
+}

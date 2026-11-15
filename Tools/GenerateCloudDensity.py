@@ -125,7 +125,7 @@ def main():
     parser.add_argument("--altitude", type=float, default=2000)
     args = parser.parse_args()
     started = time.monotonic()
-    output = ROOT/"Assets/MaxRendererPipeline/Res/MainCloudDensity.png"
+    output = ROOT/"Packages/com.maxsrp.render-pipelines.maxsrp/Res/MainCloudDensity.png"
     if not args.procedural:
         import hashlib
         source = ROOT/"Tools/CloudAssets/Unity/DefaultCloudMap.png"

@@ -32,7 +32,7 @@ OUT = ROOT / 'OfflineBaseline/OutputTransfer/SkyReplay'
 r = json.loads((OUT / 'capture.json').read_text())
 source_path = Path(r['sourceFile'])
 assert hashlib.sha256(source_path.read_bytes()).hexdigest() == r['sourceSha256']
-assert hashlib.sha256((ROOT/'Assets/MaxRendererPipeline/Shaders/Realtime/ColorOutputPass.hlsl').read_bytes()).hexdigest() == r['shaderSha256']
+assert hashlib.sha256((ROOT/'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ColorOutputPass.hlsl').read_bytes()).hexdigest() == r['shaderSha256']
 w, h = r['width'], r['height']
 source = np.fromfile(source_path, np.float32).reshape(h, w, 4)[..., :3].astype(float)
 color = np.maximum(source * r['parameters']['x'], 0)

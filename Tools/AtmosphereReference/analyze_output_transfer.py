@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / 'OfflineBaseline/OutputTransfer'
 capture = json.loads((OUT / 'capture.json').read_text())
-assert hashlib.sha256((ROOT / 'Assets/MaxRendererPipeline/Shaders/Realtime/ColorOutputPass.hlsl').read_bytes()).hexdigest() == capture['shaderSha256']
+assert hashlib.sha256((ROOT / 'Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/ColorOutputPass.hlsl').read_bytes()).hexdigest() == capture['shaderSha256']
 w, h = capture['width'], capture['height']
 start = np.array([capture['startCodes'][c] for c in 'xyz'])
 base = start + capture['rangeCodes'] * (np.arange(w)[:, None] + .5) / w

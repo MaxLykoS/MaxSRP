@@ -43,6 +43,8 @@ TAA 参数与 Shader 引用位于独立的 `DefaultTemporalAA.asset` / `MaxTempo
 - **颜色历史是解析后的规范像素网格**：`historyUV = uv − Motion.xy`，不再加入 jitter 差。
 - **深度历史是原始栅格位置的数据**：`previousDepthUV = historyUV + previousJitter − currentJitter`。不能把颜色与原始深度历史的坐标约定混用。
 - GBuffer2.r/g 分别保存天空可见度与 Lightmap 有效性；不得作为速度读取。速度真值来自独立 MotionVectors 纹理。无烘焙数据的材质写入天空可见度 1、有效性 0。
+- GBuffer3.a 的普通材质约定为材质 AO 可见度（0–1，默认1）；它调节天空 IBL 和太阳 Probe 等间接光，不能与 GBuffer2 的天空可见度混用，也不遮蔽实时直射或自发光。烘焙漫反射在材质 writer 中应用 AO 后再与自发光合并。负值（当前为 -1）专供地形材质/VT 的 unlit 诊断，Lighting 在背景判断后直接输出 GBuffer3.rgb，绕过 BRDF、AO 查询和大气雾；之后仍使用同一份 TAA、曝光和最终输出。
+- MaxTerrain 的程序化地形通过公开渲染桥在宿主 GBuffer、MotionVectors 和更新中的 CSM 级联内显式提交，不依赖 `DrawRenderers` 自动发现。地形运动 Pass 共享当前 jitter 栅格和深度，以当前/上一帧 CDLOD 形变及无 jitter VP 输出速度；无有效上一形变时拒绝历史，不能把它假定为静止或增加独立 TAA。Scene View 线框在共享 TAA 后写场景颜色，不能写入四张 GBuffer。
 - 静态人工光 Lightmap 在 jitter GBuffer 中按 UV2 采样，已乘接收材质的间接出射亮度与自发光合并写入 GBuffer3.rgb。Lighting 与实时直射、天空 IBL 合成后进入雾及共享 TAA，不新增 GI 历史。更换烘焙数据时显式清空受影响相机历史。
 - PC XeGTAO 与 Mobile UE SSAO 均在 Lighting 前计算，使用本相机的 jitter 投影和共享 TAA 相位，随最终场景颜色进入这一份 TAA。Mobile 不新增独立 AO 历史或第二次时间解析；无共享 TAA 时使用固定噪声，仅按 UE 的全分辨率条件增加空间 Smooth，半分辨率沿用空间重建。
 

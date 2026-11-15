@@ -1,0 +1,12 @@
+{
+  "name": "MaxTerrain.Editor",
+  "rootNamespace": "MaxTerrain.Editor",
+  "references": [
+    "MaxTerrain",
+    "MaxSRP.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "autoReferenced": true
+}

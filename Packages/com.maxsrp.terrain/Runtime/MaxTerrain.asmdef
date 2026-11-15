@@ -1,0 +1,8 @@
+{
+  "name": "MaxTerrain",
+  "rootNamespace": "MaxTerrain",
+  "references": [
+    "MaxSRP.Runtime"
+  ],
+  "autoReferenced": true
+}

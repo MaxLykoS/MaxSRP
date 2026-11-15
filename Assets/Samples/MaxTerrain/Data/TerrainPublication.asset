@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 748287d6831a51a4da852ca48887cbc7, type: 3}
+  m_Name: Local terrain publication
+  m_EditorClassIdentifier: 
+  overlays: {fileID: 11400000, guid: 74d3b3232a3d16144abf8ff2fdd3a95c, type: 2}
+  surfaceMaterials: {fileID: -5369887313323641003, guid: 74d3b3232a3d16144abf8ff2fdd3a95c, type: 2}
+  datasetRelativeDirectory: DirectDeltaMaladetas10km
+  controlRelativeDirectory: DirectDeltaControls16MaladetasV1
+  archiveRelativeDirectory: DirectDeltaWorldSvt05/20261113-181119-d75ccdad
+  hexTiling: 1
+  versionId: 20261113-181119-d75ccdad
+  recipeIdentity: 733b431f2e0b2f494929ee0484b9272afdf6ae44f4b2ab6ed7e9893eec8124ad
+  overlayContentHash: cabf3d1f9277b9fb21c7e09969809178dc8b8e1011387582f369b93ce64e5a93
+  rawPayloadSha256: b70129a513ac9c878078bb3cb085043807c808207a57d48bf0a9d9e97b89827b
+  bc3PayloadSha256: 69393d317bfd9735b5576ac13fce0e6f0057c498f3d55a08b3aa2fbc4ef17dc6
+  authoringScenePath: Assets/Samples/MaxTerrain/Scenes/DirectDeltaAuthoring10km.unity

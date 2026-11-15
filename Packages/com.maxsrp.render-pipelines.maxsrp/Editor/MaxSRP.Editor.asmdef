@@ -1,0 +1,7 @@
+{
+  "name": "MaxSRP.Editor",
+  "rootNamespace": "MaxSRP.EditorTools",
+  "references": ["MaxSRP.Runtime"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

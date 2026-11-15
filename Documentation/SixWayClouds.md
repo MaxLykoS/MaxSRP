@@ -8,7 +8,7 @@ The default cloud configuration enables **SixWay** and disables **Layer** in bot
 
 ## Source and rendering
 
-The resources are Unity's CC0 `TX_Pyro_Clouds_A_2x4_P/N` sample maps. See `Assets/ThirdParty/UnitySixWayClouds/SOURCE.md` for the official license declaration, download link and original checksums. `Tools/PrepareUnitySixWayClouds.py` reproduces the runtime PNGs. The 2x4 atlas contains **eight different static cloud shapes**, not an animated simulation. Each shape is 1024x512 in the prepared 2048-square atlas.
+The resources are Unity's CC0 `TX_Pyro_Clouds_A_2x4_P/N` sample maps. See `Packages/com.maxsrp.render-pipelines.maxsrp/ThirdParty/UnitySixWayClouds/SOURCE.md` for the official license declaration, download link and original checksums. `Tools/PrepareUnitySixWayClouds.py` reproduces the runtime PNGs. The 2x4 atlas contains **eight different static cloud shapes**, not an animated simulation. Each shape is 1024x512 in the prepared 2048-square atlas.
 
 The sample uses 25 deterministic world-space billboards on a jittered 5x5 grid. Cloud centres move in world XZ at Wind Speed in metres/second; changing heading or speed preserves accumulated displacement. Billboards face the observer with world-up orientation; their centres do not rotate around or follow the camera. A periodic field and outer distance fade hide recycling. Height, cloud width and field size are exposed in the active cloud configuration profile.
 

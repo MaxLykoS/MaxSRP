@@ -5,7 +5,7 @@
 工程包引用与锁文件均使用上述固定 Git 提交，避免将本机绝对路径提交到仓库。若本机需要临时覆盖，整理提交前恢复这两个文件。Codex 服务端仍需单独安装和配置。
 
 - Unity 包：`Packages/manifest.json`。
-- 自动连接：`Assets/MaxRendererPipeline/Editor/MaxUnityMcpBootstrap.cs`，仅 Editor 生效，每次程序集重载后恢复本机 stdio 桥接。
+- 自动连接：`Assets/Editor/MaxSRP/MaxUnityMcpBootstrap.cs`，仅 Editor 生效，每次程序集重载后恢复本机 stdio 桥接。
 - Codex 配置：`C:/Users/pc/.codex/config.toml` 中的 `mcp_servers.unity`。默认实例固定为 `MaxSRP@7d90526a`，避免命中其他已打开工程。
 - 本机服务端：`C:/Users/pc/.codex/unity-mcp/Server/.venv/Scripts/mcp-for-unity.exe`，由客户端按需启动和结束。
 - 服务端和 Unity 包均关闭遥测；禁用服务端自动抢焦点。传输使用本机桥接，不启动常驻 HTTP 服务。

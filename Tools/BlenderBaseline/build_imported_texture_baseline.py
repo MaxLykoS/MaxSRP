@@ -14,7 +14,7 @@ OUT=ROOT/'OfflineBaseline/HelmetOnly/ImportedTextures'
 meta=json.loads((OUT/'unity_helmet.json').read_text(encoding='utf-8'))
 imported=json.loads((OUT/'imported_textures.json').read_text(encoding='utf-8'))
 W,H=meta['width'],meta['height']
-assert meta['brdfSourceSHA256']==hashlib.sha256((ROOT/'Assets/MaxRendererPipeline/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()
+assert meta['brdfSourceSHA256']==hashlib.sha256((ROOT/'Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()
 scene=bpy.context.scene
 helmet=next(o for o in scene.objects if o.type=='MESH')
 sun=next(o for o in scene.objects if o.type=='LIGHT' and o.data.type=='SUN')

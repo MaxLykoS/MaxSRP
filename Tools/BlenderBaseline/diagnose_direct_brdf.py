@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT/'OfflineBaseline/HelmetOnly'
 meta = json.loads((OUT/'unity_helmet.json').read_text(encoding='utf-8'))
 sky = json.loads((ROOT/'OfflineBaseline/SkyboxScene/sky_info.json').read_text())
-source = (ROOT/'Assets/MaxRendererPipeline/ShaderLibrary/Realtime/BRDF.hlsl').read_text(encoding='latin1')
+source = (ROOT/'Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/BRDF.hlsl').read_text(encoding='latin1')
 current_geometry = 'smith_correlated' if 'float VisibilitySmithGGXCorrelated(' in source else 'schlick'
 W,H = meta['width'],meta['height']
 Y = np.array([.2126,.7152,.0722])

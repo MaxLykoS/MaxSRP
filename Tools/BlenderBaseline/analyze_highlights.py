@@ -42,7 +42,7 @@ report={'scope':'No GI. Delta Sun, no shadows; 137k common interior pixels. All 
         'unity_capture':meta['capturedUtc'],'brdf_sha256':meta['brdfSourceSHA256'],
         'pixels':int(mask.sum()),'vs_unity_GPU':{n:stats(a,gpu) for n,a in images.items()},
         'projection_checks':{},'normal_angles_degrees':{},'unity_normal_variants':{}}
-assert hashlib.sha256((ROOT/'Assets/MaxRendererPipeline/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()==meta['brdfSourceSHA256']
+assert hashlib.sha256((ROOT/'Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()==meta['brdfSourceSHA256']
 pa=read(OUT/'projected_albedo.f32');pn=read(OUT/'projected_normal.f32');prm=read(OUT/'projected_rm.f32')
 report['projection_checks']['albedo_mean_absolute_RGB_error']=float(np.abs(pa[mask,:3]-g0[mask,:3]).mean())
 report['projection_checks']['normal_mean_absolute_encoded_RGB_error']=float(np.abs(pn[mask,:3]-g1[...,[0,2,1]][mask]).mean())

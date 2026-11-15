@@ -88,6 +88,15 @@ __pycache__/
 # Generated solar GI frames used by runtime streaming stay local.
 /Assets/StreamingAssets/MaxSRP/SolarTOD/
 /Assets/StreamingAssets/MaxSRP/SolarTOD.meta
+# Generated MaxTerrain demo streams stay local, including their importer metadata.
+/Assets/StreamingAssets/DirectDeltaControls16MaladetasV1/
+/Assets/StreamingAssets/DirectDeltaControls16MaladetasV1.meta
+/Assets/StreamingAssets/DirectDeltaMaladetas10km/
+/Assets/StreamingAssets/DirectDeltaMaladetas10km.meta
+/Assets/StreamingAssets/DirectDeltaSurface16Ordered/
+/Assets/StreamingAssets/DirectDeltaSurface16Ordered.meta
+/Assets/StreamingAssets/DirectDeltaWorldSvt05/
+/Assets/StreamingAssets/DirectDeltaWorldSvt05.meta
 /Tools/NativeGI/
 
 # Native bake outputs may appear beside a scene before being relocated.

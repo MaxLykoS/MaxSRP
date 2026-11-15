@@ -1,10 +1,10 @@
 #ifndef MAX_BISTRO_GBUFFER_INCLUDED
 #define MAX_BISTRO_GBUFFER_INCLUDED
 
-#include "../../../MaxRendererPipeline/ShaderLibrary/Realtime/SpaceTransform.hlsl"
-#include "../../../MaxRendererPipeline/ShaderLibrary/Realtime/Packing.hlsl"
-#include "../../../MaxRendererPipeline/ShaderLibrary/Realtime/MaxBakedLighting.hlsl"
-#include "../../../MaxRendererPipeline/Shaders/Realtime/MotionVectorsPass.hlsl"
+#include "Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/SpaceTransform.hlsl"
+#include "Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Packing.hlsl"
+#include "Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/MaxBakedLighting.hlsl"
+#include "Packages/com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/MotionVectorsPass.hlsl"
 
 CBUFFER_START(UnityPerMaterial)
 float4 _BaseColorMap_ST;
@@ -94,6 +94,9 @@ void BistroGBufferFragment(BistroVaryings input, bool frontFace : SV_IsFrontFace
     float3 emission = UNITY_SAMPLE_TEX2D(_EmissionMap, input.uv).rgb * (max(_EmissionNits, 0.0) / 100000.0);
     float3 bakedDiffuse = MaxSampleBakedDiffuse(input.lightmapUV, input.positionWS,
         mappedNormal, albedo.rgb, mask.b, mask.g, frontFace ? normal : -normal);
+    // RGB stores baked outgoing light together with emission. Apply the material
+    // AO before combining them so emissive surfaces do not get occluded here.
+    bakedDiffuse *= saturate(mask.r);
     GBuffer3 = float4(MaxDiagnosticGBufferLighting(bakedDiffuse, emission), saturate(mask.r));
 }
 

@@ -24,7 +24,7 @@ def stats(a,b):
     ay=a[mask,:3]@Y;by=b[mask,:3]@Y
     return {'mean':float(ay.mean()),'reference_mean':float(by.mean()),'mean_ratio':float(ay.mean()/by.mean()),
             'relative_L1':float(np.abs(ay-by).sum()/by.sum())}
-assert hashlib.sha256((ROOT/'Assets/MaxRendererPipeline/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()==meta['brdfSourceSHA256']
+assert hashlib.sha256((ROOT/'Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/BRDF.hlsl').read_bytes()).hexdigest()==meta['brdfSourceSHA256']
 for e in info['textures']:
     assert e['width']==2048 and e['height']==2048 and e['mipCount']==12
     assert hashlib.sha256((ROOT/e['sourcePath']).read_bytes()).hexdigest()==e['sourceSHA256']
