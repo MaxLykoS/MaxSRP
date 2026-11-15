@@ -5,7 +5,7 @@ Shader "MaxSRP/Bistro GBuffer"
         [MainTexture] _BaseColorMap("Base Color / Opacity", 2D) = "white" {}
         [HideInInspector] _MainTex("Lightmapper Opacity Alias", 2D) = "white" {}
         [HideInInspector] _Color("Lightmapper Opacity Color", Color) = (1, 1, 1, 1)
-        _MaskMap("AO (R), Roughness (G), Metalness (B)", 2D) = "white" {}
+        _MaskMap("Roughness (G), Metalness (B); Source R Unused", 2D) = "white" {}
         [Normal] _NormalMap("Normal Map", 2D) = "bump" {}
         _EmissionMap("Emission Color", 2D) = "black" {}
         _EmissionNits("Emission Luminance Scale (cd/m2)", Float) = 0

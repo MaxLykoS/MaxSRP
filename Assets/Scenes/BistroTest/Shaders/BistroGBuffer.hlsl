@@ -94,10 +94,11 @@ void BistroGBufferFragment(BistroVaryings input, bool frontFace : SV_IsFrontFace
     float3 emission = UNITY_SAMPLE_TEX2D(_EmissionMap, input.uv).rgb * (max(_EmissionNits, 0.0) / 100000.0);
     float3 bakedDiffuse = MaxSampleBakedDiffuse(input.lightmapUV, input.positionWS,
         mappedNormal, albedo.rgb, mask.b, mask.g, frontFace ? normal : -normal);
-    // RGB stores baked outgoing light together with emission. Apply the material
-    // AO before combining them so emissive surfaces do not get occluded here.
-    bakedDiffuse *= saturate(mask.r);
-    GBuffer3 = float4(MaxDiagnosticGBufferLighting(bakedDiffuse, emission), saturate(mask.r));
+    // All 131 supplied ORCA Specular maps have an all-zero R channel, not
+    // usable AO visibility. Keep the neutral AO default for these materials;
+    // do not let this unused lane erase baked light, sky IBL and solar GI.
+    const float materialAO = 1.0;
+    GBuffer3 = float4(MaxDiagnosticGBufferLighting(bakedDiffuse, emission), materialAO);
 }
 
 struct BistroShadowAttributes
