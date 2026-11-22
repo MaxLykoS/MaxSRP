@@ -1,15 +1,41 @@
-# MaxTerrain：10km 地形制作与延迟渲染
+# MaxTerrain：10240 米地形制作与延迟渲染
 
 地形包为 `com.maxsrp.terrain`，源码位于 `Packages/com.maxsrp.terrain`。`package.json` 声明依赖 `com.maxsrp.render-pipelines.maxsrp`，运行时程序集 `MaxTerrain` 和编辑器程序集 `MaxTerrain.Editor` 显式引用 `MaxSRP.Runtime`。地形通过 MaxSRP 的公共 `MaxRenderBridge` / `IMaxRenderParticipant` 提交几何；MaxSRP 管理 GBuffer、阴影、光照、雾、TAA、曝光和后效。MaxSRP 包不依赖地形包，可单独使用。
 
-包内只保存代码、Shader、原生插件和第三方算法。项目中可编辑的场景、材质和发布记录位于 `Assets/Samples/MaxTerrain`；固定高度、控制图、压缩材质与 VT 载荷保留在 `Assets/StreamingAssets`。编辑器工作流只在这些项目目录写入资源，不修改包目录。安装到其他项目时须同时提供对应的项目场景和 StreamingAssets 数据，并为项目配置 MaxSRP 管线资产；仅安装包不会生成 10km 示例数据。
+包内保存代码、默认运行配置、Shader、原生插件和第三方算法。项目中可编辑的场景、材质和发布记录位于 `Assets/Samples/MaxTerrain`；固定高度、控制图、压缩材质与 VT 载荷保留在 `Assets/StreamingAssets`。地形制作与发布工作流只在这些项目目录写入资源。安装到其他项目时须同时提供对应的项目场景和 StreamingAssets 数据，并为项目配置 MaxSRP 管线资产；仅安装包不会生成 10km 示例数据。
+
+VT 运行配置为包根目录的 `DefaultConfigs/DefaultTerrain.asset`（`MaxTerrainConfig`），两套示例场景的 `MeshComparison.terrainConfiguration` 共用它。PC / Mobile 档位跟随当前 `MaxRendererPipelineAsset.Platform`；每帧页预算 PC 默认 20、Mobile 默认 4，两档均限制为 4–20。物理缓存预算 PC 默认 360 MB、Mobile 默认 64 MB，1 MB = 1,000,000 字节，不包含页表、源材质和合成暂存。预算由 RVT 与 SVT 共用；源数据未准备好时不会等待或强行填满页预算。BC3 保持每批最多 4 页，一帧可以提交多批。修改缓存预算会重建运行期物理池，不要求为容量重新烘焙。
+
+同一配置还控制 Delta / MaxTerrain 的几何密度：
+
+| 参数 | PC 默认 | Mobile 默认 | 作用 |
+| --- | --- | --- | --- |
+| Geometry Preset | Direct | Budget | 分别沿用 Direct 参照和原 Delta 的整套 LOD 距离、morph 比例及垂直距离度量 |
+| Lod Distance Scale | 1 | 1 | 范围 0.25–2；调大让高密度网格保留到更远处，调小提早降级，仍受防裂缝安全下限约束 |
+| Minimum Geometry Lod | 0 | 0 | 范围 0–4；最近顶点间距依次为 1/2/4/8/16 米，跳过更细的几何 LOD |
+
+两套预设都使用每块 32×32 quad，默认最近顶点间距为 1 米。Direct 的初始 LOD0 结束距离为 140 米，Budget 为 64 米；后续各级分别沿用原有的距离曲线，安全校验可能抬高实际距离。距离倍率控制高密度网格的覆盖范围，最低几何 LOD 控制最近顶点间距，都不增加高度图采样密度。Direct 左侧参照和制作场景保持原始 Direct 设置；右侧 Delta 跟随当前平台配置，阴影使用相同的几何设置。运行时修改当前档的几何设置会清理旧 morph 历史并使该相机 TAA、缓存阴影失效；不重建 VT、不重烘 SVT。
+
+Delta 在相机所在 mip8 区域中心周围约 400 米全向预取粗精度 SVT 页（0.625 米 / 材质纹素），需求只在跨越 80 米的区域边界时更新，转动相机不清空。周边最多保留 128 个预取目标，与可见请求共用配置的物理池；可见需求优先生产，随后填充周边。预取与 GPU 可见反馈独立，不为隐藏区域分配精细 AVT 页表，也不改变材质混合、材质 UV 或可见细节的 mip 选择。此保底预取尚未实现隐藏区域的中精度 RVT 预合成。Game 中 VT 状态显示当前档位、实际页预算和周边预取驻留进度。
 
 ## 两个场景
 
-- [DirectDeltaAuthoring10km.unity](../../Assets/Samples/MaxTerrain/Scenes/DirectDeltaAuthoring10km.unity)：DirectDelta 高保真制作场景。Game 相机全屏显示 Direct；道路、静态贴花可以通过独立 GameObject 的 Transform 和 Inspector 编辑。Scene View 使用独立的材质、控制图、高度 Clipmap 和几何选择，编辑可即时预览。
+当前示例素材为壹岐岛：原高度采样点按 XYZ 2.56 倍映射到 1 米网格，7168 米整岛保持 [1416,8584] 的原坐标；地图域扩展到 10240 米，只增加外围海底，不拉伸岛屿或重拟合既有控制点。材质表实际加载 50 层、容量上限 64；原控制数据离线拟合成现有两层控制点和三材质三角。材质混合、Hex、随机投影相位与过滤算法保留，几何/VT 世界边界同步为新尺寸。新控制采用 RGBA8，旧 R16 数据仍可读取。场景文件名中的 `10km` 为兼容旧链接保留。转换、近似边界和重建步骤见 [Iki import](../../Tools/ImportIki/README.md)。
+
+- [DirectDeltaAuthoring10km.unity](../../Assets/Samples/MaxTerrain/Scenes/DirectDeltaAuthoring10km.unity)：DirectDelta 高保真制作场景。Game 相机全屏显示 Direct；道路、静态贴花可以通过独立 GameObject 的 Transform 和 Inspector 编辑。进入 Play 模式后，可在 Game View 查看制作效果。
 - [DeltaPublished10km.unity](../../Assets/Samples/MaxTerrain/Scenes/DeltaPublished10km.unity)：冻结发布输入的对照场景。左侧 DirectDelta，右侧 Delta AVT＋RVT/SVT；静态道路、贴花已经合成到 VT 中。场景不保留静态作者对象，加载的是上一次成功发布的固定记录。
 
 两个场景的地形都写入 MaxSRP 的四张 GBuffer，与普通不透明物体共用延迟光照。太阳按 MaxSRP 的 lux 单位设置，摄像机使用宿主天空。Direct 保留独立的三平面高保真材质参照；Delta 使用已接受的随机单投影。潮湿和积水仍暂缓。
+
+## GotGrass 植被
+
+两个场景的初始机位为参照视角 9、草地材质 39（世界 XZ 为 5248、5424 米）。在 Play 中可用原有机位快捷键切回其他地形视角。`MeshComparison.gotGrassSettings` 引用 [GotGrass 配置](Foliage/DefaultConfigs/GotGrass.asset)。示例把泥草材质 19 映射到草种 2，把草地材质 39 映射到草种 14。放置比较使用地形控制图的权重，水位以下或坡度超过配置的地面跳过。作者场景和发布场景的配置工具保留现有植被资产引用。
+
+每个地形相机更新高度和控制数据以后，派发 8 米草块中的世界坐标候选。候选格间距为 25/256 米。草根按最终 XZ 在地形 LOD0 的 1 米三角形内插，并在进入 CDLOD 顶点形变前淡出。默认草视距上限 64 米，每个视口的绘制容量为 262,144 株。草生成读取原地形输入，与 VT 页是否已到达无关。双视口各自准备可见列表，按草种和 7/3 段叶片拓扑执行索引式 indirect draw。
+
+草写入宿主的不透明 GBuffer 和深度，接受 PC 档 GTAO 或 Mobile 档 SSAO。地形仍向宿主提交 CSM；草只录制 GBuffer 绘制。草像素通过共享 TAA 的历史拒绝标志处理风和叶片形变。示例使用 MaxSRP 的 PBR 光照和场景 AO 开关。
+
+两台相机共用风和世界空间 RG16F 位移图。需要交互时，把实例的球或胶囊 `Collider` 指定到 `MeshComparison.gotGrassColliders`。供球和胶囊使用的贴地高度来自 MaxTerrain 高度源，[交互配置](Foliage/DefaultConfigs/GotGrassInteraction.asset)延用 GrassFinal 封版参数。移植依据为 GrassFinal 封版里的 `MaxGrassWorldDisplay.compute` 的 `GenerateGotTile`、`MaxGrassField.World.cs` 的 `UpdateGotGrassWind` 和 `MaxGrassField.GotDisplacement.cs` 的交互与尾迹更新。
 
 ## 制作与发布
 
@@ -28,9 +54,7 @@
 
 `StreamingAssets` 中沿用既有数据目录名以保留配方和内容身份，包括固定源高度、R16 控制数据、压缩材质数组和当前 SVT 版本。场景、材质、脚本与 Shader 的 GUID 已随模块保留；当前 archive 由 `Assets/Samples/MaxTerrain/Data/TerrainPublication.asset` 指定。
 
-每个相机先准备地形及页面资源，再由宿主按阶段调用地形 GBuffer、ShadowCaster 和 MotionVectors。地形 GBuffer Pass 同时向像素 UAV 写页面请求；四 MRT 下反馈使用 `u4`。压实与异步回读跟随同一相机的 SRP 提交顺序，保持每次 4KiB。世界 VT 仍使用统一双 BC3 物理池，载荷 63,991,296B。
-
-Scene View 预览仅匹配 SceneView 相机，不参与 Game 相机 VT。线框在宿主颜色阶段叠加，不能覆盖打包 GBuffer。预览没有上一帧 CDLOD 状态时明确拒绝 TAA 历史；Game 地形的运动由专门运动向量 Pass 表达。
+每个相机先准备地形及页面资源，再由宿主按阶段调用地形 GBuffer、ShadowCaster 和 MotionVectors。地形 GBuffer Pass 同时向像素 UAV 写页面请求；四 MRT 下反馈使用 `u4`。压实与异步回读跟随同一相机的 SRP 提交顺序，保持每次 4KiB。世界 VT 使用统一双 BC3 物理池，每页有效 128²、含边框 144²、单物理 mip；每个数组层打包 4×4 页，页表槽位扩为 16 位。按完整数组层向下取整后，360 MB 实际容纳 8672 页 / 359,645,184 B，64 MB 容纳 1536 页 / 63,700,992 B；另有 165,888 B 的四页压缩提交暂存。所有虚拟 mip 共用此容量，不为 SVT 单独分池。
 
 三个页生产 Shader 的历史名称参与 v4 内容身份，迁移时保留它们的名字以复用现有归档；屏幕入口和程序集使用 MaxTerrain。原生 BC3 后端的源码与重建入口在 [Tools/MaxTerrainBc3D3D11](../../Tools/MaxTerrainBc3D3D11/Build.ps1)，运行不依赖原 Terrain 工程。包中的现有原生后端限 Windows x64 / D3D11，平台范围不因本次包迁移扩大。
 
@@ -52,8 +76,8 @@ F1/F3、LOD及VT来源等诊断输出使用宿主已有中性输出路径，旁�
 
 ## Shader 阅读顺序
 
-1. `Shaders/MeshGeometry.cginc`：固定高度Clipmap、CDLOD和当前世界位置重建；DirectReference保留独立副本。
-2. `Shaders/WorldVtConsumer.cginc`：查页、缓存采样和缺页材质求值；出口统一返回表面属性。
-3. `Shaders/MaxTerrainGBuffer.cginc`：把表面属性编码为宿主四张GBuffer，区分正常材质与诊断输出。
-4. `Shaders/MaxTerrainGeometryPasses.cginc`：只重建几何的CSM与上一帧morph运动向量，不写VT反馈。
-5. [宿主 PBRLitPass.hlsl](../com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/PBRLitPass.hlsl)：统一光照、间接项AO和雾；地形不再自行执行旧简化光照。
+1. `Shaders/Geometry/MeshGeometry.cginc`：固定高度Clipmap、CDLOD和当前世界位置重建；DirectReference保留独立副本。
+2. `Shaders/VirtualTexturing/World/WorldVtConsumer.cginc`：查页、缓存采样和缺页材质求值；出口统一返回表面属性。
+3. `Shaders/Rendering/MaxTerrainGBuffer.cginc`：把表面属性编码为宿主四张GBuffer，区分正常材质与诊断输出。
+4. `Shaders/Rendering/MaxTerrainGeometryPasses.cginc`：只重建几何的CSM与上一帧morph运动向量，不写VT反馈。
+5. [宿主 PBRLitPass.hlsl](../com.maxsrp.render-pipelines.maxsrp/Shaders/Realtime/Lighting/PBRLitPass.hlsl)：统一光照、间接项AO和雾；地形不再自行执行旧简化光照。

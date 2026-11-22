@@ -16,7 +16,7 @@ float MeshNormalLevelMargin(float2 worldXZ, int level)
     float4 origin = _MeshClipOrigins[level];
     // ±一个源格点的差分，每次硬件双线性还需右上邻点；世界边界用单边差分。
     float2 low = max(worldXZ - stride, 0);
-    float2 high = min(worldXZ + stride, 10000);
+    float2 high = min(worldXZ + stride, MESH_WORLD_SIZE);
     // 上界预留一个完整双线性邻点，且用连续世界位置算余量。
     // 这里不能floor到整数格，否则过渡权重也会每格跳一次，重新引入细条带。
     float2 room = min(low - origin.xy, origin.xy + (MESH_HEIGHT_CLIP_SIZE - 2) * stride - high);
@@ -26,7 +26,7 @@ float MeshNormalLevelMargin(float2 worldXZ, int level)
 float2 MeshSourceSlopeAtLevel(float2 worldXZ, int level, out float invalid)
 {
     float stride = 1 << level;
-    float2 low = max(worldXZ - stride, 0), high = min(worldXZ + stride, 10000);
+    float2 low = max(worldXZ - stride, 0), high = min(worldXZ + stride, MESH_WORLD_SIZE);
     float il, ir, ib, it;
     float left = SampleHeight(float2(low.x,worldXZ.y),level,il);
     float right = SampleHeight(float2(high.x,worldXZ.y),level,ir);
@@ -39,7 +39,7 @@ float2 MeshSourceSlopeAtLevel(float2 worldXZ, int level, out float invalid)
 
 float3 MeshSourceHeightNormal(float2 worldXZ, out float invalid, out float sourceLevel)
 {
-    worldXZ = clamp(worldXZ,0,10000);
+    worldXZ = clamp(worldXZ,0,MESH_WORLD_SIZE);
     int selected = -1;
     float margin = -1;
     [unroll] for (int level=0;level<5;level++)

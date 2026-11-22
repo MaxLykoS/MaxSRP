@@ -38,6 +38,7 @@ namespace MaxSRP
         private bool m_disposed;
 
         internal MaxBakedSolarProbeData Source { get; }
+        internal bool IsLoading => m_jobKey >= 0;
 
         internal MaxSolarIrradianceStream(MaxBakedSolarProbeData source)
         {
@@ -126,13 +127,12 @@ namespace MaxSRP
             return path;
         }
 
-        internal bool Tick(float hour)
+        internal void Tick(float hour)
         {
-            if (m_disposed || m_directory == null) return false;
-            TryGetTextures(hour, out _, out _, out var beforeFirst, out var beforeSecond);
+            if (m_disposed || m_directory == null) return;
             MaxBakedSolarProbeData.GetIrradianceKeys(m_hours, hour, out int lower, out int upper);
             UpdatePrefetch(hour, lower, upper);
-            bool lostBacking = RetireUnused(hour, lower, upper);
+            RetireUnused(hour, lower, upper);
             AdvanceJob(lower, upper);
             if (m_jobKey < 0)
             {
@@ -144,8 +144,6 @@ namespace MaxSRP
                 else if (NeedsKey(second)) BeginRead(second);
                 else if (NeedsKey(m_prefetch)) BeginRead(m_prefetch);
             }
-            TryGetTextures(hour, out _, out _, out var firstTexture, out var secondTexture);
-            return lostBacking || !ReferenceEquals(beforeFirst, firstTexture) || !ReferenceEquals(beforeSecond, secondTexture);
         }
 
         internal bool TryGetTextures(float hour, out int lower, out int upper,
@@ -205,20 +203,17 @@ namespace MaxSRP
             if (now >= m_prefetchExpiry) m_prefetch = -1;
         }
 
-        private bool RetireUnused(float hour, int lower, int upper)
+        private void RetireUnused(float hour, int lower, int upper)
         {
             bool hasLower = m_loaded.TryGetValue(lower, out var first) && IsReady(first);
             bool hasUpper = m_loaded.TryGetValue(upper, out var second) && IsReady(second);
             int fallback = !hasLower && !hasUpper ? ClosestLoaded(hour) : -1;
-            bool lostBacking = false;
             m_retired.Clear();
             foreach (var entry in m_loaded)
             {
                 int key = entry.Key;
-                bool lost = !IsReady(entry.Value);
-                if (lost || (key != lower && key != upper && key != m_prefetch && key != fallback))
+                if (!IsReady(entry.Value) || (key != lower && key != upper && key != m_prefetch && key != fallback))
                     m_retired.Add(key);
-                lostBacking |= lost;
             }
             foreach (int key in m_retired)
             {
@@ -226,10 +221,9 @@ namespace MaxSRP
                 m_loaded.Remove(key);
                 MaxRenderResources.Destroy(ref texture);
             }
-            return lostBacking;
         }
 
-        private bool NeedsKey(int key) => key >= 0 && !m_loaded.ContainsKey(key) && !m_failed.Contains(key);
+        private bool NeedsKey(int key) => key >= 0 && key < m_hours.Length && !m_loaded.ContainsKey(key) && !m_failed.Contains(key);
 
         private void BeginRead(int key)
         {

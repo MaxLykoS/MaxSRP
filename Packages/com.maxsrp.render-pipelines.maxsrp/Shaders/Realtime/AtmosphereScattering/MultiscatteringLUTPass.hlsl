@@ -1,11 +1,11 @@
 #ifndef MAX_MULTISCATTERING_PASS_INCLUDED
 #define MAX_MULTISCATTERING_PASS_INCLUDED
 
-#include "../../../ShaderLibrary/Realtime/SpaceTransform.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Helper.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereParameter.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Raymarching.hlsl"
+#include "../../../ShaderLibrary/Realtime/Core/SpaceTransform.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/Helper.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/Scattering.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/AtmosphereParameter.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/RayMarching.hlsl"
 
 struct appdata
 {

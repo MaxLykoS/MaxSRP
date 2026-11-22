@@ -6,15 +6,15 @@
 // 注释标记：[PPT原文]/[PPT公式]为用户给出的原文；[等价改写]对应当前实现；
 // [工程实现]/[工程约定]/[亮带修复]为本工程设计，不能当成三角洲未公开的源码。
 // 16个稳定ID就是数组slice；全部源常驻，无DTA/RVT/SVT。
-Texture2DArray<float> _DDControlClip;
-Texture2D<float> _DDControlResident;
+Texture2DArray<float4> _DDControlClip;
+Texture2D<float4> _DDControlResident;
 float4 _DDControlOrigins[6]; // world origin X/Z, source stride, valid
 float4 _DDControlInfo; // world metres, texture/Clipmap side, levels, base spacing
 Texture2DArray<float4> _DDAlbedoHeight;
 Texture2DArray<float4> _DDNormalRoughAo;
 SamplerState sampler_DDAlbedoHeight; // Repeat / Trilinear, shared by both arrays
-float4 _DDMaterialUv[16]; // UV per world metre X/Z, offset U/V
-float4 _DDMaterialInfo[16]; // normal strength, source resolution, last mip, valid
+float4 _DDMaterialUv[64]; // UV per world metre X/Z, offset U/V
+float4 _DDMaterialInfo[64]; // normal strength, source resolution, last mip, valid
 float4 _DDHeightBlend; // Fixed Scale, Sharpness; Z/W unused
 float _DDCliffProjection; // 1=确定性直接三平面；0=旧XZ验证对照。与VT无关。
 float _DDHexTiling; // 1=直接Hex去重复，0=已验收的周期平铺对照；没有VT。
@@ -52,7 +52,7 @@ struct DDSurface
 #include "DeltaHexTiling.cginc"
 #include "DeltaMaterial.cginc"
 #include "DeltaLighting.cginc"
-#include "../MeshSurfaceOverlays.cginc"
+#include "../Overlays/MeshSurfaceOverlays.cginc"
 
 // 工程调试配色，不参与材质混合。
 float3 DDIdColor(int id)

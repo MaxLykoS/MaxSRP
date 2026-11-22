@@ -13,7 +13,7 @@ Downloaded 2026-10-30. Original SHA-256:
 - P: `07a59d738f1a79a36c5641d6e02dbfd3a71ac7ebf6750310dccd4dbc4f71f20a`
 - N: `ad241e1fde892cd9ef9be1e7d7b8a6740c6e93d20677d6481eeeb86f4eb12bad`
 
-The repository's [PrepareUnitySixWayClouds.py](../../../../Tools/PrepareUnitySixWayClouds.py) verifies the originals and resizes each cell independently from 2048x1024 to 1024x512, preserving eight static cloud variants in a 2x4 atlas. The converted runtime textures ship with this package. Originals remain in the repository's ignored OfflineBaseline directory and are not needed to use the package. No six-way lighting is generated from the old planar cloud map.
+The repository's [PrepareUnitySixWayClouds.py](../../../../Tools/CloudAssets/PrepareUnitySixWayClouds.py) verifies the originals and resizes each cell independently from 2048x1024 to 1024x512, preserving eight static cloud variants in a 2x4 atlas. The converted runtime textures ship with this package. Originals remain in the repository's ignored OfflineBaseline directory and are not needed to use the package.
 
 P.rgb = Right, Top, Back. N.rgb = Left, Bottom, Front. P.a = opacity; N has no alpha. These are linear lighting coefficients, not sRGB color. No emission is used.
 

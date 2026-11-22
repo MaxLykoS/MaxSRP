@@ -24,7 +24,7 @@ Shader "Hidden/MaxTerrain/WorldVtCompressBc3"
                 return float4(corner * 2.0 - 1.0, 0.0, 1.0);
             }
 
-            #include "../WorldVtBc3Common.cginc"
+            #include "../VirtualTexturing/World/WorldVtBc3Common.cginc"
 
             struct BlockOutputs
             {

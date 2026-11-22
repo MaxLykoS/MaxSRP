@@ -1,14 +1,12 @@
 #ifndef MAX_PROCEDURALSKYBOX_PASS_INCLUDED
 #define MAX_PROCEDURALSKYBOX_PASS_INCLUDED
 
-#include "../../../ShaderLibrary/Realtime/SpaceTransform.hlsl"
-#include "../../../ShaderLibrary/Realtime/LightInput.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Helper.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereParameter.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Raymarching.hlsl"
-#define MAX_CLOUD_FRAGMENT_SAMPLING
-#include "../CloudLayer.hlsl"
+#include "../../../ShaderLibrary/Realtime/Core/SpaceTransform.hlsl"
+#include "../../../ShaderLibrary/Realtime/Lighting/LightInput.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/Helper.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/Scattering.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/AtmosphereParameter.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/RayMarching.hlsl"
 
 float4 _AtmosphereSkyViewRight;
 float4 _AtmosphereSkyViewForward;
@@ -54,6 +52,28 @@ float3 GetSunDisk(in AtmosphereParameter param, float3 eyePos, float3 viewDir, f
     return clamp(sunLuminance, 0.0, 64000.0);
 }
 
+float3 GetMoonDisk(in AtmosphereParameter param, float3 eyePos, float3 viewDir)
+{
+    // The effective lunar source already contains the TOD fade. Keep the disk's
+    // angular size fixed and vary its radiance, rather than its coverage or the sky.
+    if (param.MoonDiskAngle <= 0.0 || !any(param.LunarIrradiance > 0.0)) return 0.0;
+    float3 moonDirection = param.MoonDirection * rsqrt(max(dot(param.MoonDirection, param.MoonDirection), 1e-12));
+    float cosineTheta = clamp(dot(viewDir, moonDirection), -1.0, 1.0);
+    float cosineRadius = cos(param.MoonDiskAngle * (PI / 180.0));
+    float edgeWidth = max(fwidth(cosineTheta), 1e-8);
+    float coverage = smoothstep(cosineRadius - 0.5 * edgeWidth, cosineRadius + 0.5 * edgeWidth, cosineTheta);
+    if (coverage <= 0.0 || RayIntersectGroundSphere(param.PlanetRadius, eyePos, viewDir) >= 0.0) return 0.0;
+
+    // First version is a neutral full-moon disk. Its light traverses the same
+    // atmosphere once; foreground atmospheric scattering remains in SkyView.
+    float3 moonLuminance = LunarDiskRadiance(param) * coverage *
+        TransmittanceToAtmosphere(param, eyePos, viewDir);
+    moonLuminance = float3(isnan(moonLuminance.r) ? 0.0 : moonLuminance.r,
+        isnan(moonLuminance.g) ? 0.0 : moonLuminance.g,
+        isnan(moonLuminance.b) ? 0.0 : moonLuminance.b);
+    return clamp(moonLuminance, 0.0, 64000.0);
+}
+
 v2f vert(uint vertexID : SV_VertexID)
 {
     v2f o;
@@ -84,19 +104,12 @@ float4 frag(v2f i) : SV_Target
 	float2 skyUV = SkyViewLutLocalDirToUV(localViewDir, eyePos.y, param.PlanetRadius, _AtmosphereSkyViewSizeAndInvSize);
 	color.rgb += UNITY_SAMPLE_TEX2D(_SkyviewLUT, skyUV).rgb;
 	color.rgb += GetSunDisk(param, eyePos, viewDir, lightDir);
-    if (_MaxCloudShape.x > 0.5)
-    {
-        float3 cloudPosition = float3(0, param.PlanetRadius + _MaxCloudGeometry.x * ATMOSPHERE_METRES_TO_KM, 0);
-        float3 cloudLightDirection = lightDir;
-        float3 solar = param.SolarIrradiance * TransmittanceToSun(param, cloudPosition, cloudLightDirection);
-        // Legacy uniform map sampled zenith at float2(0.5, 1).
-        float2 zenithUV = SkyViewLutLocalDirToUV(float3(0, 1, 0), eyePos.y,
-            param.PlanetRadius, _AtmosphereSkyViewSizeAndInvSize);
-        float3 ambient = UNITY_SAMPLE_TEX2D_LOD(_SkyviewLUT, zenithUV, 0).rgb;
-        float4 cloud = EvaluateMaxCloudLayer(viewDir, cloudLightDirection, solar, ambient);
-        color.rgb = cloud.rgb + cloud.a * color.rgb;
-    }
+    color.rgb += GetMoonDisk(param, eyePos, viewDir);
 
+    // Protect the combined fixed-HDR target, including overlapping light disks.
+    color.rgb = float3(isnan(color.r) ? 0.0 : color.r,
+        isnan(color.g) ? 0.0 : color.g, isnan(color.b) ? 0.0 : color.b);
+    color.rgb = clamp(color.rgb, 0.0, 64000.0);
 	return color;
 }
 

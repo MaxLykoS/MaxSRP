@@ -6,8 +6,8 @@
 #pragma only_renderers d3d11
 #pragma target 5.0
 
-#include "../WorldVtBc3Common.cginc"
-#include "../SinglePageRvtCommon.cginc"
+#include "../VirtualTexturing/World/WorldVtBc3Common.cginc"
+#include "../VirtualTexturing/SinglePage/SinglePageRvtCommon.cginc"
 
 // Source0始终是sRGB视图，Load得到线性底色；其余视图均为线性UNorm。
 // kind=0：Source0=Albedo/AO，Source1=OctNormal/Roughness/HeightCode，Source2忽略。

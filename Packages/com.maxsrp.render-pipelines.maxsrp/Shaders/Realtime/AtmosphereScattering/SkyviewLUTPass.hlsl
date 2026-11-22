@@ -2,12 +2,12 @@
 #define MAX_SKYVIEW_PASS_INCLUDED
 
 
-#include "../../../ShaderLibrary/Realtime/SpaceTransform.hlsl"
-#include "../../../ShaderLibrary/Realtime/LightInput.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Helper.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Scattering.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/AtmosphereParameter.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Raymarching.hlsl"
+#include "../../../ShaderLibrary/Realtime/Core/SpaceTransform.hlsl"
+#include "../../../ShaderLibrary/Realtime/Lighting/LightInput.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/Helper.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/Scattering.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/AtmosphereParameter.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/RayMarching.hlsl"
 
 float _AtmosphereCameraY;
 float4 _AtmosphereSkyViewRight;
@@ -49,6 +49,8 @@ float4 frag(v2f i) : SV_Target
 
 	float3 eyePos = AtmosphereCameraPosition(_AtmosphereCameraY, param.SeaLevel, param.PlanetRadius);
 
+	// Both sources are integrated together; the environment uses this same
+    // scattering-only path and deliberately excludes the visible light disks.
 	color.rgb = GetSkyView(
 		param, eyePos, viewDir, lightDir, -1.0f);
 	return color;

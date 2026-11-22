@@ -1,0 +1,140 @@
+#pragma kernel BuildHilbertLut
+#pragma kernel PrefilterDepths
+#pragma kernel EvaluateGTAOLow
+#pragma kernel EvaluateGTAOMedium
+#pragma kernel EvaluateGTAOHigh
+#pragma kernel EvaluateGTAOUltra
+#pragma kernel DenoiseGTAO
+#pragma kernel DenoiseGTAOIntermediate
+#pragma target 5.0
+#pragma multi_compile_local _ XE_GTAO_FP32_DEPTHS
+
+#include "UnityCG.cginc"
+
+// Intel XeGTAO, https://github.com/GameTechDev/XeGTAO/tree/a5b1686c7ea37788eeb3576b5be47f7c03db532c
+// MIT license in LICENSE.txt. The entry points follow vaGTAO.hlsl.
+#define VA_SATURATE saturate
+#if defined(XE_GTAO_FP32_DEPTHS)
+#define XE_GTAO_USE_HALF_FLOAT_PRECISION 0
+#endif
+
+// D3D discards out-of-range UAV stores. Guard partial groups on other backends.
+#if !defined(SHADER_API_D3D11) && !defined(SHADER_API_D3D12)
+#define XE_GTAO_MAXSRP_BOUNDS_CHECKS
+#endif
+#include "XeGTAO.hlsl"
+
+Texture2D<float> _GDepth;
+Texture2D<float4> _GBuffer1;
+Texture2D<uint> _GTAOHilbertLUT;
+RWTexture2D<uint> _GTAOHilbertLUTOutput;
+
+float4 _GTAOViewport;
+float4 _GTAODepthUnpack;
+float4 _GTAOViewRays;
+float4x4 _GTAOView;
+float _GTAORadius;
+float _GTAODenoiseBlurBeta;
+int _GTAONoiseIndex;
+
+RWTexture2D<lpfloat> _GTAODepthMip0;
+RWTexture2D<lpfloat> _GTAODepthMip1;
+RWTexture2D<lpfloat> _GTAODepthMip2;
+RWTexture2D<lpfloat> _GTAODepthMip3;
+RWTexture2D<lpfloat> _GTAODepthMip4;
+
+Texture2D<lpfloat> _GTAOViewDepth;
+RWTexture2D<uint> _GTAORawAO;
+RWTexture2D<unorm float> _GTAOEdges;
+
+Texture2D<uint> _GTAORawAOInput;
+Texture2D<lpfloat> _GTAOEdgesInput;
+RWTexture2D<uint> _GTAOOutput;
+
+SamplerState gtao_point_clamp_sampler;
+
+[numthreads(8, 8, 1)]
+void BuildHilbertLut(uint2 pixel : SV_DispatchThreadID)
+{
+    _GTAOHilbertLUTOutput[pixel] = HilbertIndex(pixel.x, pixel.y);
+}
+
+GTAOConstants MaxGTAOConstants()
+{
+    GTAOConstants constants = (GTAOConstants)0;
+    constants.ViewportSize = int2(_GTAOViewport.xy);
+    constants.ViewportPixelSize = _GTAOViewport.zw;
+    constants.DepthUnpackConsts = _GTAODepthUnpack.xy;
+#if !defined(UNITY_REVERSED_Z)
+    constants.DepthUnpackConsts.y -= UNITY_NEAR_CLIP_VALUE;
+    constants.DepthUnpackConsts /= 1.0 - UNITY_NEAR_CLIP_VALUE;
+#endif
+    constants.NDCToViewMul = _GTAOViewRays.xy;
+    constants.NDCToViewAdd = _GTAOViewRays.zw;
+    constants.CameraTanHalfFOV = abs(constants.NDCToViewMul) * 0.5;
+    constants.NDCToViewMul_x_PixelSize = constants.NDCToViewMul * constants.ViewportPixelSize;
+    constants.EffectRadius = _GTAORadius;
+    constants.EffectFalloffRange = XE_GTAO_DEFAULT_FALLOFF_RANGE;
+    constants.RadiusMultiplier = XE_GTAO_DEFAULT_RADIUS_MULTIPLIER;
+    constants.FinalValuePower = XE_GTAO_DEFAULT_FINAL_VALUE_POWER;
+    constants.DenoiseBlurBeta = _GTAODenoiseBlurBeta;
+    constants.SampleDistributionPower = XE_GTAO_DEFAULT_SAMPLE_DISTRIBUTION_POWER;
+    constants.ThinOccluderCompensation = XE_GTAO_DEFAULT_THIN_OCCLUDER_COMPENSATION;
+    constants.DepthMIPSamplingOffset = XE_GTAO_DEFAULT_DEPTH_MIP_SAMPLING_OFFSET;
+    constants.NoiseIndex = _GTAONoiseIndex;
+    return constants;
+}
+
+[numthreads(8, 8, 1)]
+void PrefilterDepths(uint2 id : SV_DispatchThreadID, uint2 thread : SV_GroupThreadID)
+{
+    XeGTAO_PrefilterDepths16x16(id, thread, MaxGTAOConstants(), _GDepth, gtao_point_clamp_sampler,
+        _GTAODepthMip0, _GTAODepthMip1, _GTAODepthMip2, _GTAODepthMip3, _GTAODepthMip4);
+}
+
+lpfloat2 MaxGTAONoise(uint2 pixel, uint noiseIndex)
+{
+    uint index = _GTAOHilbertLUT.Load(int3(pixel % XE_HILBERT_WIDTH, 0)) + 288u * (noiseIndex % 64u);
+    return lpfloat2(frac(0.5 + index * float2(0.75487766624669276, 0.56984029099805327)));
+}
+
+void EvaluateGTAO(uint2 pixel, lpfloat sliceCount, lpfloat stepsPerSlice)
+{
+#if defined(XE_GTAO_MAXSRP_BOUNDS_CHECKS)
+    if (any(pixel >= uint2(_GTAOViewport.xy))) return;
+#endif
+    GTAOConstants constants = MaxGTAOConstants();
+    float3 worldNormal = normalize(_GBuffer1.Load(int3(pixel, 0)).rgb * 2.0 - 1.0);
+    lpfloat3 viewNormal = (lpfloat3)mul((float3x3)_GTAOView, worldNormal);
+    XeGTAO_MainPass(pixel, sliceCount, stepsPerSlice, MaxGTAONoise(pixel, constants.NoiseIndex), viewNormal,
+        constants, _GTAOViewDepth, gtao_point_clamp_sampler, _GTAORawAO, _GTAOEdges);
+}
+
+[numthreads(8, 8, 1)]
+void EvaluateGTAOLow(uint2 pixel : SV_DispatchThreadID) { EvaluateGTAO(pixel, 1, 2); }
+
+[numthreads(8, 8, 1)]
+void EvaluateGTAOMedium(uint2 pixel : SV_DispatchThreadID) { EvaluateGTAO(pixel, 2, 2); }
+
+[numthreads(8, 8, 1)]
+void EvaluateGTAOHigh(uint2 pixel : SV_DispatchThreadID) { EvaluateGTAO(pixel, 3, 3); }
+
+[numthreads(8, 8, 1)]
+void EvaluateGTAOUltra(uint2 pixel : SV_DispatchThreadID) { EvaluateGTAO(pixel, 9, 3); }
+
+void FilterGTAO(uint2 id, const uniform bool finalApply)
+{
+    uint2 pixel = id * uint2(2, 1);
+#if defined(XE_GTAO_MAXSRP_BOUNDS_CHECKS)
+    if (any(pixel >= uint2(_GTAOViewport.xy))) return;
+#endif
+    XeGTAO_Denoise(pixel, MaxGTAOConstants(), _GTAORawAOInput, _GTAOEdgesInput,
+        gtao_point_clamp_sampler, _GTAOOutput, finalApply);
+}
+
+[numthreads(8, 8, 1)]
+void DenoiseGTAO(uint2 id : SV_DispatchThreadID) { FilterGTAO(id, true); }
+
+[numthreads(8, 8, 1)]
+void DenoiseGTAOIntermediate(uint2 id : SV_DispatchThreadID) { FilterGTAO(id, false); }
+

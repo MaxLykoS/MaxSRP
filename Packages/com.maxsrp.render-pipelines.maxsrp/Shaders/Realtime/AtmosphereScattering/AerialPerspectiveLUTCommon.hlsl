@@ -1,10 +1,10 @@
 #ifndef MAX_AERIALPERSPECTIVE_COMMON_INCLUDED
 #define MAX_AERIALPERSPECTIVE_COMMON_INCLUDED
 
-#include "../../../ShaderLibrary/Realtime/LightInput.hlsl"
-#include "../../../ShaderLibrary/Realtime/SpaceTransform.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/Raymarching.hlsl"
-#include "../../../ShaderLibrary/Realtime/AtomsphereScattering/AerialPerspective.hlsl"
+#include "../../../ShaderLibrary/Realtime/Lighting/LightInput.hlsl"
+#include "../../../ShaderLibrary/Realtime/Core/SpaceTransform.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/RayMarching.hlsl"
+#include "../../../ShaderLibrary/Realtime/AtmosphereScattering/AerialPerspective.hlsl"
 
 // Dedicated inputs survive utility Blits that may overwrite Unity's camera matrices.
 float4x4 _AerialInverseProjection;
@@ -61,6 +61,7 @@ AerialVoxelResult EvaluateAerialPerspectiveVoxel(float2 screenUV, float slice)
     // used a neutral z=0 plus 32 uniform midpoint samples at every other slice.
     float sampleCount = max(1.0, (slice + 1.0) * _AtmosphereAerialSampleCountPerSlice);
     float3 transmittance;
+    // Sun and moon source terms share one integration and one transmission.
     float3 scattering = GetAtmosphereSegment(param, eyePos, viewDir, lightDir, distance, transmittance, sampleCount);
     o.scattering = float4(scattering, 1.0);
     o.transmittance = float4(transmittance, 1.0);

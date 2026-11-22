@@ -1,0 +1,108 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8fc3ab077ff4d289ff7813a48797d4d, type: 3}
+  m_Name: GotGrassInteraction
+  m_EditorClassIdentifier:
+  UseColliderContact: 1
+  ContactStrength: 2
+  ContactRecoverySeconds: 0.75
+  Strength: 1
+  QuadWidth: 0.75
+  SpawnSpacing: 0.390625
+  AmplitudeSpeedRange: {x: 0.25, y: 5.5}
+  SizeSpeedRange: {x: 0.25, y: 5.5}
+  LifetimeRange: {x: 3, y: 7}
+  FrequencyRange: {x: 3.5, y: 4.5}
+  SizeVariationRange: {x: 0.67, y: 1.33}
+  ReboundAmount: 1
+  Envelope:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 50
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.02
+      value: 1
+      inSlope: 50
+      outSlope: -2.2816901
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.162
+      value: 0.676
+      inSlope: -2.2816901
+      outSlope: -2.6170208
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.256
+      value: 0.43
+      inSlope: -2.6170208
+      outSlope: -1.5503879
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.385
+      value: 0.23
+      inSlope: -1.5503879
+      outSlope: -0.5555556
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.565
+      value: 0.13
+      inSlope: -0.5555556
+      outSlope: -0.37696338
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.756
+      value: 0.058
+      inSlope: -0.37696338
+      outSlope: -0.23770489
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 0
+      inSlope: -0.23770489
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  BrushTexture: {fileID: 0}
+  ForwardWeight: 0.46
+  SideWeight: 0.54
+  SpawnForwardOffset: 0

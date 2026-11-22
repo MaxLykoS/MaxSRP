@@ -1,240 +1,153 @@
-using System.Collections.Generic;
+using System;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
+#if UNITY_EDITOR
+using System.Threading;
+using UnityEditor;
+#endif
 
 namespace MaxSRP
 {
+#if UNITY_EDITOR
+    public enum MaxIndirectLightingDebugMode
+    {
+        [InspectorName("All Enabled")] AllEnabled = 0,
+        [InspectorName("Direct Only")] DirectOnly = 1,
+        [InspectorName("Sky Only")] SkyOnly = 2,
+        [InspectorName("DDGI Only")] DDGIOnly = 3,
+        [InspectorName("Lightmap Only")] LightmapOnly = 4,
+        [InspectorName("SkyVis Only")] SkyVisOnly = 5
+    }
+#endif
+
     [ExecuteAlways, DisallowMultipleComponent]
     [AddComponentMenu("MaxSRP/Baked Solar TOD")]
     public sealed class MaxBakedSolarGI : MonoBehaviour
     {
+        [Tooltip("Baked indirect-irradiance volume. The same volume is sampled throughout the 24-hour clock.")]
         public MaxBakedSolarProbeData Coarse;
-        public MaxBakedSolarProbeData Fine;
-        [Tooltip("Shared directional-light source for the sun and moon. Keep it enabled; night uses the moon settings below.")]
+        [Tooltip("Directional light used as the solar source and shared shadow settings for the active TOD. Keep it enabled.")]
         public Light Sun;
-        [Tooltip("24-hour clock. Night (18:00-06:00) reuses the daytime probe trajectory, offset by twelve hours.")]
+        [Tooltip("Continuous 24-hour solar clock. Moonlight fades in as the sun descends from 0 to -6 degrees, and fades out in reverse at dawn.")]
         [Range(0.0f, 24.0f)] public float Hour = 12.0f;
+        [Tooltip("Gain applied to the baked TOD indirect irradiance. Does not change direct lights, sky, emission or exposure.")]
         [Min(0.0f)] public float Intensity = 1.0f;
-        [Tooltip("Display only the diffuse sunlight bounced from the baked probe field.")]
+#if UNITY_EDITOR
+        [HideInInspector, Tooltip("Legacy serialized DDGI-only switch. Use the DDGI Only preset for new authoring.")]
         public bool SolarOnly;
 
+        [Tooltip("Lighting isolation for the active TOD. Only modes exclude other lighting, emission, atmosphere fog and the visible sky. SkyVis displays baked visibility as an unexposed 0-1 mask.")]
+        public MaxIndirectLightingDebugMode IndirectLightingDebug = MaxIndirectLightingDebugMode.AllEnabled;
+        public bool IsLightingDebugMode => isActiveAndEnabled && IndirectLightingDebug != MaxIndirectLightingDebugMode.AllEnabled;
+        public bool IsSkyVisibilityOnly => isActiveAndEnabled && IndirectLightingDebug == MaxIndirectLightingDebugMode.SkyVisOnly;
+#endif
+
         [Header("Moon Lighting")]
+        [Tooltip("Nominal fixed-moon illuminance in lux before the solar-altitude fade and the linear RGB color filter. The clear-sky prototype uses 0.2 lux.")]
         [Min(0.0f)] public float MoonIlluminanceLux = 0.2f;
         [ColorUsage(false)] public Color MoonColor = new Color(0.75f, 0.82f, 1.0f);
+        [Tooltip("Reference for the real-time moon direction. Snaps to the nearest above-horizon key in Coarse.")]
+        [Range(6.0f, 18.0f)] public float MoonBakeHour = 12.0f;
+        [Tooltip("Angular radius of the visible moon in degrees.")]
+        [Min(0.001f)] public float MoonAngularRadius = 0.26785f;
+        [Tooltip("Enable existing cloud rendering. Disabled by default while validating the clear-sky sun/moon transition.")]
+        public bool RenderClouds;
 
-        [Header("Fine Probe Receiver Override")]
-        [Tooltip("World-space center of the receiver region.")]
-        public Vector3 FineReceiverCenter;
-        [Tooltip("Size of the receiver region along its local axes, in meters.")]
-        public Vector3 FineReceiverSize;
-        public float FineReceiverYaw;
-        [Tooltip("Fraction of the fine probe blend retained on upward-facing surfaces in the receiver region.")]
-        [Range(0f, 1f)] public float FineReceiverWeight = 1f;
+        [Header("Ambient Occlusion")]
+        [Tooltip("Use the active PC or Mobile AO profile from the MaxSRP pipeline asset.")]
+        public bool AmbientOcclusionEnabled;
+        [Tooltip("Show linear ambient visibility as grayscale.")]
+        public bool AOOnly;
 
-        private static readonly List<MaxBakedSolarGI> Active = new List<MaxBakedSolarGI>();
-        private static readonly int SettingsId = Shader.PropertyToID("_MaxSolarProbeSettings");
-        private float ClockHour => float.IsNaN(Hour) || float.IsInfinity(Hour) ? 12.0f : Mathf.Repeat(Hour, 24.0f);
-        public bool IsNight => ClockHour < 6.0f || ClockHour >= 18.0f;
-        private float SolarHour => 6.0f + Mathf.Repeat(ClockHour - 6.0f, 12.0f);
-        private MaxSolarIrradianceStream m_coarseStream;
-        private MaxSolarIrradianceStream m_fineStream;
-        private int m_streamRevision;
+        [Header("Scene Exposure")]
+        [Tooltip("Override the pipeline's legacy manual exposure when no post-process configuration is active.")]
+        public bool UseSceneExposure;
+        [Range(-10.0f, 24.0f)] public float CameraEV100 = 10.5f;
+        [Range(-16.0f, 16.0f)] public float ExposureEV;
+
+        [Header("Baked Lighting")]
+        [Tooltip("Each array slice stores sky visibility in the matching Unity lightmap UV layout.")]
+        public Texture2DArray SkyVisibility;
+        [HideInInspector] public MaxBakedLighting.RendererMaterials[] OriginalMaterials = Array.Empty<MaxBakedLighting.RendererMaterials>();
+        [HideInInspector] public Material[] GeneratedMaterials = Array.Empty<Material>();
+        [TextArea] public string BakeDescription;
+
+        // Gameplay can update the pipeline clock independently of these serialized defaults.
+        public float CurrentHour
+        {
+            get
+            {
+                if (Application.IsPlaying(gameObject) &&
+                    RenderPipelineManager.currentPipeline is MaxRenderPipeline pipeline &&
+                    pipeline.IsTimeOfDayAuthor(GetInstanceID()) && pipeline.TryGetTimeOfDayHour(out float hour))
+                    return hour;
+                return MaxTimeOfDayState.NormalizeHour(Hour);
+            }
+        }
+
+        public bool IsNight => MaxTimeOfDayState.SolarDirection(CurrentHour).y <= 0.0f;
+        public float SolarAltitudeDegrees =>
+            Mathf.Asin(Mathf.Clamp(MaxTimeOfDayState.SolarDirection(CurrentHour).y, -1f, 1f)) * Mathf.Rad2Deg;
+        public float MoonWeight => MaxTimeOfDayState.EvaluateMoonWeight(SolarAltitudeDegrees);
+        public float ResolvedMoonBakeHour => MaxTimeOfDayState.ResolveMoonBakeHour(MoonBakeHour, Coarse);
+        public Vector3 MoonDirection => MaxTimeOfDayState.SolarDirection(ResolvedMoonBakeHour);
+        public float EffectiveMoonIlluminanceLux => MaxTimeOfDayState.NonNegativeFinite(MoonIlluminanceLux) * MoonWeight;
+
+#if UNITY_EDITOR
+        private int m_needsPublication;
+#endif
 
         private void OnEnable()
         {
-            if (!Active.Contains(this)) Active.Add(this);
+            MaxBakedLighting.RepairMissingMaterials(OriginalMaterials);
+            ApplyToPipeline();
 #if UNITY_EDITOR
-            UnityEditor.EditorApplication.update += UpdateEditorStreams;
-            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += DisposeStreams;
-            UnityEditor.EditorApplication.playModeStateChanged += OnStreamPlayModeChanged;
+            EditorApplication.update += PublishValidatedSettings;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
 #endif
         }
 
         private void OnDisable()
         {
-            Active.Remove(this);
 #if UNITY_EDITOR
-            UnityEditor.EditorApplication.update -= UpdateEditorStreams;
-            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload -= DisposeStreams;
-            UnityEditor.EditorApplication.playModeStateChanged -= OnStreamPlayModeChanged;
+            EditorApplication.update -= PublishValidatedSettings;
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
 #endif
-            DisposeStreams();
+            MaxTimeOfDay.Withdraw(GetInstanceID());
         }
 
-        private void Update()
+        /// <summary>Publish changes made to this component's authored fields.</summary>
+        public void ApplyToPipeline()
         {
-            if (Application.IsPlaying(gameObject))
-                UpdateStreams();
+#if UNITY_EDITOR
+            Interlocked.Exchange(ref m_needsPublication, 0);
+#endif
+            if (!isActiveAndEnabled) return;
+
+            Scene scene = gameObject.scene;
+            if (!scene.IsValid()) return;
+            MaxTimeOfDay.Publish(GetInstanceID(), scene, Application.IsPlaying(gameObject),
+                new MaxTimeOfDaySettings(this));
         }
 
 #if UNITY_EDITOR
-        private void UpdateEditorStreams()
+        // OnValidate can run on Unity's loading thread. Publish on the editor update.
+        private void OnValidate() => Interlocked.Exchange(ref m_needsPublication, 1);
+
+        private void PublishValidatedSettings()
         {
-            if (this && isActiveAndEnabled && !UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode &&
-                gameObject.scene.isLoaded)
-                UpdateStreams();
+            if (Interlocked.Exchange(ref m_needsPublication, 0) == 0) return;
+            ApplyToPipeline();
+            EditorApplication.QueuePlayerLoopUpdate();
+            SceneView.RepaintAll();
         }
 
-        private void OnStreamPlayModeChanged(UnityEditor.PlayModeStateChange state)
+        private void OnPlayModeStateChanged(PlayModeStateChange state)
         {
-            if (state == UnityEditor.PlayModeStateChange.ExitingEditMode ||
-                state == UnityEditor.PlayModeStateChange.ExitingPlayMode)
-                DisposeStreams();
+            if (state == PlayModeStateChange.EnteredEditMode || state == PlayModeStateChange.EnteredPlayMode)
+                ApplyToPipeline();
         }
 #endif
-
-        private void UpdateStreams()
-        {
-            float hour = SolarHour;
-            bool changed = TickStream(Coarse, ref m_coarseStream, hour);
-            changed |= TickStream(Fine, ref m_fineStream, hour);
-            if (!changed) return;
-            unchecked { ++m_streamRevision; }
-#if UNITY_EDITOR
-            if (!Application.isPlaying)
-            {
-                UnityEditor.EditorApplication.QueuePlayerLoopUpdate();
-                UnityEditor.SceneView.RepaintAll();
-            }
-#endif
-        }
-
-        private static bool TickStream(MaxBakedSolarProbeData volume, ref MaxSolarIrradianceStream stream, float hour)
-        {
-            bool usesStream = volume && volume.UsesIrradianceStream;
-            bool changed = false;
-            if (stream != null && (!usesStream || !stream.MatchesSourceConfiguration(volume)))
-            {
-                stream.Dispose();
-                stream = null;
-                changed = true;
-            }
-            if (usesStream)
-            {
-                if (stream == null)
-                    stream = new MaxSolarIrradianceStream(volume);
-                changed |= stream.Tick(hour);
-            }
-            return changed;
-        }
-
-        private void DisposeStreams()
-        {
-            if (m_coarseStream == null && m_fineStream == null) return;
-            m_coarseStream?.Dispose();
-            m_fineStream?.Dispose();
-            m_coarseStream = null;
-            m_fineStream = null;
-            unchecked { ++m_streamRevision; }
-        }
-
-        internal static MaxBakedSolarGI FindForCamera(Camera camera)
-        {
-            if (!camera || (camera.cameraType != CameraType.Game && camera.cameraType != CameraType.SceneView))
-                return null;
-            Scene scene = camera.cameraType == CameraType.SceneView
-                ? SceneManager.GetActiveScene() : camera.gameObject.scene;
-            MaxBakedSolarGI chosen = null;
-            for (int i = Active.Count - 1; i >= 0; --i)
-            {
-                var entry = Active[i];
-                if (!entry) { Active.RemoveAt(i); continue; }
-                if (!entry.isActiveAndEnabled || entry.gameObject.scene != scene) continue;
-                if (!chosen || entry.GetInstanceID() < chosen.GetInstanceID()) chosen = entry;
-            }
-            return chosen;
-        }
-
-        internal SunLightData AlignSun(SunLightData sun)
-        {
-            if (!sun.HasSun || sun.Source != Sun) return sun;
-
-            // Match the NativeGI bake's apparent solar hour and world axes (X east, Z north).
-            const float latitude = 39.9f * Mathf.Deg2Rad;
-            const float declination = -20.0f * Mathf.Deg2Rad;
-            float angle = (SolarHour - 12.0f) * (Mathf.PI / 12.0f);
-            float cosDeclination = Mathf.Cos(declination);
-            float cosAngle = Mathf.Cos(angle);
-            Vector3 direction = new Vector3(
-                -cosDeclination * Mathf.Sin(angle),
-                Mathf.Sin(latitude) * Mathf.Sin(declination) + Mathf.Cos(latitude) * cosDeclination * cosAngle,
-                Mathf.Cos(latitude) * Mathf.Sin(declination) - Mathf.Sin(latitude) * cosDeclination * cosAngle
-            ).normalized;
-            if (!IsNight) return sun.WithDirection(direction);
-
-            float moonLux = MoonIlluminanceLux > 0.0f && !float.IsInfinity(MoonIlluminanceLux)
-                ? MoonIlluminanceLux : 0.0f;
-            // The unit-white RGB bake is linear in source illumination. Use the same
-            // light snapshot for GI, direct light, atmosphere, clouds and sky IBL.
-            return sun.WithLighting(direction, MoonColor.linear * (moonLux / SunLightData.LuxPerUnit));
-        }
-
-        internal int HistoryKey
-        {
-            get
-            {
-                unchecked
-                {
-                    int key = GetInstanceID();
-                    key = key * 31 + (Coarse ? Coarse.GetInstanceID() : 0);
-                    key = key * 31 + (Fine ? Fine.GetInstanceID() : 0);
-                    key = key * 31 + SolarHour.GetHashCode();
-                    key = key * 31 + IsNight.GetHashCode();
-                    key = key * 31 + MoonIlluminanceLux.GetHashCode();
-                    key = key * 31 + MoonColor.GetHashCode();
-                    key = key * 31 + Intensity.GetHashCode();
-                    key = key * 31 + FineReceiverCenter.GetHashCode();
-                    key = key * 31 + FineReceiverSize.GetHashCode();
-                    key = key * 31 + FineReceiverYaw.GetHashCode();
-                    key = key * 31 + FineReceiverWeight.GetHashCode();
-                    key = key * 31 + m_streamRevision;
-                    return key * 31 + (SolarOnly ? 1 : 0);
-                }
-            }
-        }
-
-        internal static void Bind(MaterialPropertyBlock properties, MaxBakedSolarGI preview, SunLightData sun)
-        {
-            Vector4 settings = Vector4.zero;
-            Vector4 receiverCenter = new Vector4(0f, 0f, 0f, 1f);
-            Vector4 receiverExtents = Vector4.zero;
-            Vector4 receiverForward = Vector4.zero;
-            if (preview && sun.HasSun && sun.Source == preview.Sun)
-            {
-                float gain = preview.Intensity > 0.0f && !float.IsInfinity(preview.Intensity)
-                    ? preview.Intensity : 0.0f;
-                // Match the bake's horizon cutoff; this field contains no sky bounce.
-                if (sun.Direction.y <= 0.000001f) gain = 0.0f;
-                if (gain > 0.0f)
-                {
-                    float hour = preview.SolarHour;
-                    if (BindVolume(preview.Coarse, preview.m_coarseStream, properties, "_MaxSolarCoarse", hour)) settings.x = 1.0f;
-                    if (BindVolume(preview.Fine, preview.m_fineStream, properties, "_MaxSolarFine", hour)) settings.y = 1.0f;
-                    settings.z = gain;
-                    if (settings.x > 0f && settings.y > 0f && preview.FineReceiverWeight < 1f &&
-                        preview.FineReceiverSize.x > 0f && preview.FineReceiverSize.y > 0f && preview.FineReceiverSize.z > 0f)
-                    {
-                        Vector3 center = preview.FineReceiverCenter;
-                        receiverCenter = new Vector4(center.x, center.y, center.z, Mathf.Clamp01(preview.FineReceiverWeight));
-                        receiverExtents = preview.FineReceiverSize * 0.5f;
-                        float yaw = preview.FineReceiverYaw * Mathf.Deg2Rad;
-                        receiverForward = new Vector4(Mathf.Sin(yaw), Mathf.Cos(yaw), 0f, 0f);
-                    }
-                }
-                settings.w = preview.SolarOnly ? 1.0f : 0.0f;
-            }
-            properties.SetVector(SettingsId, settings);
-            properties.SetVector("_MaxSolarFineReceiverCenter", receiverCenter);
-            properties.SetVector("_MaxSolarFineReceiverExtents", receiverExtents);
-            properties.SetVector("_MaxSolarFineReceiverForward", receiverForward);
-        }
-
-        private static bool BindVolume(MaxBakedSolarProbeData volume, MaxSolarIrradianceStream stream,
-            MaterialPropertyBlock properties, string prefix, float hour)
-        {
-            return volume && (volume.UsesIrradianceStream
-                ? volume.BindStreaming(properties, prefix, hour, stream)
-                : volume.Bind(properties, prefix, hour));
-        }
     }
 }

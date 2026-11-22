@@ -8,25 +8,27 @@
 
 void DDDecodeControl(uint packed, out int bottom, out int top, out float opacity)
 {
-    // [工程约定] R16 = Bottom4 + Top4 + TopOpacity8；PPT p67为5/5/3。
+    // [工程约定] RGBA8 = Bottom8 + Top8 + TopOpacity8 + Reserved8；PPT p67为5/5/3。
     // Bottom<=Top；ID已在制作阶段按覆层顺序排列（岩/砂/泥土在前，草在后）。
     // 例如泥9在Bottom、草14在Top，opacity表示草的覆盖率，不是泥的覆盖率。
     // 单材质Bottom=Top，覆盖率规范为0。不能按Height灰度重排，也不把ID当颜色过滤。
-    bottom = (int)(packed & 15u);
-    top = (int)((packed >> 4) & 15u);
-    opacity = bottom == top ? 0 : ((packed >> 8) & 255u) / 255.0;
+    bottom = (int)(packed & 255u);
+    top = (int)((packed >> 8) & 255u);
+    opacity = bottom == top ? 0 : ((packed >> 16) & 255u) / 255.0;
 }
 
-// [工程实现] 只做一次整数Load。R16_UNorm读回[0,1]后还原16bit控制词。
+// [工程实现] 只做一次整数Load。RGBA8_UNorm逐通道恢复字节，保持8bit覆盖率。
 uint DDLoadControl(int2 globalGrid, int level, int side)
 {
     #if defined(DD_CONTROL_RESIDENT)
-    return (uint)round(saturate(_DDControlResident.Load(int3(globalGrid, 0))) * 65535.0);
+    uint4 bytes = (uint4)round(saturate(_DDControlResident.Load(int3(globalGrid, 0))) * 255.0);
+    return bytes.x | (bytes.y << 8) | (bytes.z << 16);
     #else
     // World X/Z is clamped before reconstruction, so these grid coordinates
     // are non-negative even when the window's world origin is negative.
     int2 texel = globalGrid % side;
-    return (uint)round(saturate(_DDControlClip.Load(int4(texel, level, 0))) * 65535.0);
+    uint4 bytes = (uint4)round(saturate(_DDControlClip.Load(int4(texel, level, 0))) * 255.0);
+    return bytes.x | (bytes.y << 8) | (bytes.z << 16);
     #endif
 }
 

@@ -1,0 +1,165 @@
+#pragma target 5.0
+#pragma kernel ClearWorldDraw
+#pragma kernel GenerateGotTile
+#pragma kernel GenerateGotTileDirect DD_CONTROL_RESIDENT
+#pragma kernel WorldDrawOffsets
+#pragma kernel ScatterWorldDraw
+
+#include "GotGrassPlant.hlsl"
+#include "GotGrassDisplayData.hlsl"
+#include "GotGrassVisibility.hlsl"
+
+StructuredBuffer<uint4> _WorldDrawTasks;
+RWStructuredBuffer<WorldGrassDisplayRecord> _WorldDisplayRecords;
+RWStructuredBuffer<uint> _WorldDisplayCounters;
+RWStructuredBuffer<uint> _WorldTypeCounts,_WorldTypeCursors,_WorldTypeOffsets;
+RWStructuredBuffer<uint> _WorldDrawArguments,_WorldDrawIndices,_WorldScatterArgs;
+
+int _WorldDrawTaskCount,_WorldDisplayCapacity,_WorldCandidateStride;
+int _WorldUseHighTopology,_WorldHighIndexCount,_WorldLowIndexCount;
+float _WorldLowTopologyDistance;
+int _EnableCulling,_MaxUseDistanceThinning;
+float3 _CameraPosition;
+float _MaxDistance;
+float4 _Frustum[6];
+
+[numthreads(64,1,1)]
+void ClearWorldDraw(uint3 id:SV_DispatchThreadID)
+{
+    if(id.x==0)
+    {
+        _WorldDisplayCounters[0]=0;
+        _WorldDisplayCounters[1]=0;
+    }
+    if(id.x>=(uint)_GoTTypeCount*2)return;
+    _WorldTypeCounts[id.x]=0;
+    _WorldTypeCursors[id.x]=0;
+}
+
+// A task's z is its strictly increasing exclusive candidate prefix end.
+bool GotGrassResolveTask(uint threadIndex,out uint4 task,out uint offset)
+{
+    task=0;
+    offset=0;
+    uint end=(uint)max(0,_WorldDrawTaskCount);
+    if(end==0 || threadIndex>=_WorldDrawTasks[end-1].z)return false;
+    uint start=0;
+    [loop]while(start<end)
+    {
+        uint middle=start+(end-start)/2;
+        if(threadIndex<_WorldDrawTasks[middle].z)end=middle;
+        else start=middle+1;
+    }
+    task=_WorldDrawTasks[start];
+    offset=threadIndex;
+    if(start>0)offset-=_WorldDrawTasks[start-1].z;
+    return true;
+}
+
+bool GotGrassVisible(SPGrassBlade blade,SPGoTType type,float widthFactor)
+{
+    float halfWidth=abs(blade.Width)*.5*widthFactor;
+    float radius=MaxGrassBaseRadius(blade,type)+halfWidth+2*min(halfWidth,.01);
+    float3 low=blade.Position-radius, high=blade.Position+radius;
+    float2 delta=_CameraPosition.xz-clamp(_CameraPosition.xz,low.xz,high.xz);
+    if(_MaxDistance<0 || dot(delta,delta)>_MaxDistance*_MaxDistance)return false;
+    if(_EnableCulling!=0)
+    {
+        [unroll]for(uint i=0;i<6;i++)
+        {
+            float4 plane=_Frustum[i];
+            float3 positive=float3(plane.x>=0?high.x:low.x,plane.y>=0?high.y:low.y,plane.z>=0?high.z:low.z);
+            if(dot(plane.xyz,positive)+plane.w<0)return false;
+        }
+    }
+    return true;
+}
+
+void GotGrassGenerateCandidate(uint threadIndex)
+{
+    uint4 task;
+    uint offset;
+    if(!GotGrassResolveTask(threadIndex,task,offset))return;
+    int2 worldGrid;
+    if(!MaxGrassWorldPatchCandidate(asint(task.xy),offset,(uint)max(1,_WorldCandidateStride),worldGrid))return;
+    float4 hash;
+    float2 windRoot;
+    MaxGrassPrepareWorldSeed(worldGrid,hash,windRoot);
+    float widthFactor=MaxGrassDisplayWidthFactor(asuint(worldGrid),windRoot,_CameraPosition.xz,
+        _Seed,_GoTGeneration.y,_MaxDistance,_MaxUseDistanceThinning!=0);
+    if(widthFactor<=0)return;
+
+    WorldGrassRecord record;
+    float morphFade;
+    if(!GotGrassPlant(worldGrid,hash,windRoot,record,morphFade))return;
+    widthFactor*=morphFade;
+    uint species=WorldGrassType(record);
+    SPGoTType type=_GoTTypes[species];
+    SPGrassBlade blade;
+    float4 auxiliary;
+    DecodeWorldGrassAtRoot(record,hash,windRoot,blade,auxiliary);
+    if(blade.Height<=0 || !GotGrassVisible(blade,type,widthFactor))return;
+
+    uint address,unused;
+    InterlockedAdd(_WorldDisplayCounters[0],1,address);
+    if(address>=(uint)_WorldDisplayCapacity)
+    {
+        InterlockedAdd(_WorldDisplayCounters[1],1,unused);
+        return;
+    }
+    bool highTopology=_WorldUseHighTopology!=0 && distance(blade.Position,_CameraPosition)<_WorldLowTopologyDistance;
+    WorldGrassDisplayRecord output;
+    output.Grass=record;
+    output.Wind=SPGoTStoredWind(windRoot,auxiliary.zw,type.v[200/4]);
+    output.WidthFactor=widthFactor;
+    output.Reserved=0;
+    output.Bin=species+(highTopology?0:(uint)_GoTTypeCount);
+    _WorldDisplayRecords[address]=output;
+    InterlockedAdd(_WorldTypeCounts[output.Bin],1,unused);
+}
+
+[numthreads(64,1,1)]
+void GenerateGotTile(uint3 id:SV_DispatchThreadID)
+{
+    GotGrassGenerateCandidate(id.x);
+}
+
+[numthreads(64,1,1)]
+void GenerateGotTileDirect(uint3 id:SV_DispatchThreadID)
+{
+    GotGrassGenerateCandidate(id.x);
+}
+
+[numthreads(1,1,1)]
+void WorldDrawOffsets(uint3 id:SV_DispatchThreadID)
+{
+    uint offset=0;
+    uint typeCount=(uint)_GoTTypeCount;
+    [loop]for(uint bin=0;bin<typeCount*2;bin++)
+    {
+        uint count=_WorldTypeCounts[bin];
+        _WorldTypeOffsets[bin]=offset;
+        offset+=count;
+        uint address=bin*5;
+        _WorldDrawArguments[address]=(uint)(bin<typeCount?_WorldHighIndexCount:_WorldLowIndexCount);
+        _WorldDrawArguments[address+1]=count;
+        _WorldDrawArguments[address+2]=0;
+        _WorldDrawArguments[address+3]=0;
+        _WorldDrawArguments[address+4]=0;
+    }
+    uint count=min(_WorldDisplayCounters[0],(uint)_WorldDisplayCapacity);
+    _WorldScatterArgs[0]=(count+63)/64;
+    _WorldScatterArgs[1]=1;
+    _WorldScatterArgs[2]=1;
+}
+
+[numthreads(64,1,1)]
+void ScatterWorldDraw(uint3 id:SV_DispatchThreadID)
+{
+    uint count=min(_WorldDisplayCounters[0],(uint)_WorldDisplayCapacity);
+    if(id.x>=count)return;
+    uint bin=_WorldDisplayRecords[id.x].Bin;
+    uint index;
+    InterlockedAdd(_WorldTypeCursors[bin],1,index);
+    _WorldDrawIndices[_WorldTypeOffsets[bin]+index]=id.x;
+}

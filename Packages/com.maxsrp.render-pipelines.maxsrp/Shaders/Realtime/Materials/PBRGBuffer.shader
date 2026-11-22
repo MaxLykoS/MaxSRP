@@ -1,0 +1,82 @@
+Shader "Unlit/PBRGBuffer"
+{
+    Properties
+    {
+        [MainTexture] _AlbedoMap("Albedo", 2D) = "white" {}
+        _MetalnessMap("Metallic", 2D) = "black" {}
+        _RoughnessMap("Roughness",2D) = "black" {}
+        [Normal] _NormalMap("Normal Map",2D) = "bump" {}
+        [HideInInspector] _MaxSkyVisibilitySlice("Sky Visibility Slice", Float) = -1
+    }
+    SubShader
+    {
+        Tags { "RenderType"="Opaque" "LightMode" = "MaxDeferred"}
+
+        HLSLINCLUDE
+        #pragma enable_cbuffer
+        #pragma enable_d3d11_debug_symbols
+        #include "./PBRGBufferPass.hlsl"
+        ENDHLSL
+
+        Pass
+        {
+            Name "DEFAULT"
+            Cull Back
+
+            HLSLPROGRAM
+            #pragma target 5.0
+            #pragma vertex PBRGBufferVertex
+            #pragma fragment PBRGBufferFragment
+            #pragma multi_compile _ LIGHTMAP_ON
+            #pragma multi_compile _ DIRLIGHTMAP_COMBINED
+    
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "META"
+            Tags { "LightMode" = "Meta" }
+            Cull Off
+            HLSLPROGRAM
+            #pragma target 5.0
+            #pragma vertex PBRMetaVertex
+            #pragma fragment PBRMetaFragment
+            #include "PBRMetaPass.hlsl"
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "MotionVectors"
+            Tags { "LightMode" = "MotionVectors" }
+            ZWrite Off
+            ZTest Equal
+            Cull Back
+            HLSLPROGRAM
+            #pragma target 5.0
+            #pragma vertex MaxMotionVertex
+            #pragma fragment MaxMotionFragment
+            #pragma multi_compile_fragment _ MAX_TAA_VELOCITY_UINT
+            #include "../TemporalAA/MotionVectorsPass.hlsl"
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "ShadowCaster"
+            Tags{"LightMode" = "ShadowCaster"}
+
+            ZWrite On
+            ZTest LEqual
+            ColorMask 0
+            Cull Back
+
+            HLSLPROGRAM
+            #pragma target 5.0
+            #pragma vertex ShadowCasterVertex
+            #pragma fragment ShadowCasterFragment
+            ENDHLSL
+        }
+    }
+}

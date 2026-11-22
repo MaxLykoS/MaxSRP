@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 51c44bd678d34540bf479c4b7f7bcac4, type: 3}
+  m_Name: DefaultTemporalAA
+  m_EditorClassIdentifier:
+  m_pc:
+    Enabled: 1
+    Quality: 0
+    Gen4CurrentFrameWeight: 0.04
+    JitterSequence: 0
+    JitterSpread: 1
+    DepthToleranceMeters: 0.01
+    DepthToleranceRelative: 0.005
+    Sharpness: 0
+  m_mobile:
+    Enabled: 1
+    Quality: 0
+    Gen4CurrentFrameWeight: 0.04
+    JitterSequence: 0
+    JitterSpread: 1
+    DepthToleranceMeters: 0.01
+    DepthToleranceRelative: 0.005
+    Sharpness: 0
+  m_debugView: 0
+  m_temporalShader: {fileID: 4800000, guid: 8b10c09f5fe848258543d41a9f0544e8, type: 3}

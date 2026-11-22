@@ -6,9 +6,9 @@ Unity 2022.3 的独立延迟渲染管线包，包名为 `com.maxsrp.render-pipel
 
 - `Runtime/`：管线、配置类型、渲染 Pass、光照与共享时间渲染基础设施，编译为 `MaxSRP.Runtime`。
 - `ShaderLibrary/`、`Shaders/`：可供项目和扩展包引用的 Shader 与 HLSL。
-- `Res/`、`ThirdParty/`：管线默认资源及其来源、许可说明。
+- `Art/`、`ThirdParty/`：管线默认资源及其来源、许可说明。
 - `Editor/`：光源 Inspector、离线材质 Inspector、烘焙数据导入和构建引用检查，编译为仅 Editor 使用的 `MaxSRP.Editor`。
-- `Default*.asset`：七个模块的默认配置及显式 Shader 引用。
+- `DefaultConfigs/`：七个模块的默认配置及显式 Shader 引用。
 
 ## 使用
 
@@ -19,12 +19,12 @@ Unity 2022.3 的独立延迟渲染管线包，包名为 `com.maxsrp.render-pipel
 其他 Shader 应使用包路径，例如：
 
 ```hlsl
-#include "Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/CommonInput.hlsl"
+#include "Packages/com.maxsrp.render-pipelines.maxsrp/ShaderLibrary/Realtime/Core/CommonInput.hlsl"
 ```
 
 ## 渲染扩展
 
-本包不依赖 MaxTerrain。扩展包引用 `MaxSRP.Runtime`，实现 `MaxSRP.IMaxRenderParticipant`，并通过 `MaxRenderBridge.Register` / `Unregister` 注册。可选的 `IMaxRenderOverlayParticipant` 负责 TAA 后的场景颜色覆盖，`IMaxRenderDiagnosticParticipant` 选择线性材质诊断输出。
+本包不依赖 MaxTerrain。扩展包引用 `MaxSRP.Runtime`，实现 `MaxSRP.IMaxRenderParticipant`，并通过 `MaxRenderBridge.Register` / `Unregister` 注册。可选的 `IMaxRenderDiagnosticParticipant` 选择线性材质诊断输出。
 
 管线拥有相机矩阵、渲染目标、剔除和 Pass 顺序。扩展在管线指定的 GBuffer、MotionVectors 和 CSM 级联中提交几何体；不得自行增加第二份 TAA 或颜色历史。运动数据必须使用相同 jitter 栅格、当前和上一帧无 jitter 变换，以及有效的上一帧形变；没有有效上一状态时拒绝历史。相机切换或内容突变通过 `MaxRenderBridge.InvalidateTemporalHistory` 通知宿主，几何或输入变化通过 `InvalidateShadows` 使缓存阴影失效。
 

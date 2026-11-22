@@ -1,6 +1,9 @@
 #ifndef DIRECT_DELTA_GEOMETRY_INCLUDED
 #define DIRECT_DELTA_GEOMETRY_INCLUDED
 
+// Keep world bounds identical to MeshHeightLayout.WorldSize.
+#define MESH_WORLD_SIZE 10240.0
+
 // 几何阅读入口：Vert → SampleHeight → Frag。源高度法线见MeshHeightNormals.cginc。
 // 三个pass复用同一高度重建和morph；只有Game实体pass调用材质shading。
 
@@ -22,7 +25,6 @@ float4 _MeshObserver; // observer XYZ, vertical scale for the LOD distance
 int _MeshDebug;
 float _MeshHeightScale;
 float _MeshSourceNormals;
-float4 _MeshWireColor;
 UNITY_INSTANCING_BUFFER_START(MeshInstances)
     UNITY_DEFINE_INSTANCED_PROP(float4, _MeshPatch)
     UNITY_DEFINE_INSTANCED_PROP(float4, _MeshParams)
@@ -35,7 +37,7 @@ UNITY_INSTANCING_BUFFER_END(MeshInstances)
 // 每个array slice是一层1/2/4/8/16m高度格；纹理本身没有mip链。
 float SampleHeight(float2 worldXZ, int level, out float invalid)
 {
-    worldXZ = clamp(worldXZ, 0, 10000);
+    worldXZ = clamp(worldXZ, 0, MESH_WORLD_SIZE);
     int stride = 1 << level;
     float2 gridFloat = worldXZ / stride;
     float2 lowWorld = floor(gridFloat) * stride;
@@ -89,7 +91,7 @@ float3 MeshReconstructWorld(Attributes input, float4 patch, float4 parameters,
     float4 observer, out float4 diagnostic)
 {
     float2 index = round(input.uv * MESH_PATCH_QUADS);
-    float2 worldXZ = clamp(patch.xy + index / MESH_PATCH_QUADS * patch.zw, 0, 10000);
+    float2 worldXZ = clamp(patch.xy + index / MESH_PATCH_QUADS * patch.zw, 0, MESH_WORLD_SIZE);
     // A fixed global 16m source is used only for the distance metric.
     // Both paths reconstruct the identical samples. This is an
     // explicit adapter, not Delta Force's unpublished morph formula.
@@ -108,7 +110,7 @@ float3 MeshReconstructWorld(Attributes input, float4 patch, float4 parameters,
     // Independent quarter topology makes this a true zero-area
     // collapse, retaining the other parts of a partial parent patch.
     if (active < .5) worldXZ = patch.xy + patch.zw * .5;
-    worldXZ = clamp(worldXZ, 0, 10000);
+    worldXZ = clamp(worldXZ, 0, MESH_WORLD_SIZE);
     int geometryLod = clamp((int)round(parameters.z), 0, MESH_GEOMETRY_MAX_LOD);
     int level = min(geometryLod, MESH_HEIGHT_MAX_LOD);
     float finalInvalid;
@@ -189,15 +191,5 @@ float4 Frag(Varyings input) : SV_Target
     }
     return float4(color,1);
 }
-float4 FragWire(Varyings input) : SV_Target
-{
-    // An inactive quarter collapses to a point. Also discard its
-    // zero-length line primitives so they cannot leave a dot.
-    clip(input.diagnostic.w - .5);
-    if (input.diagnostic.z > .01) return float4(1,0,1,1);
-    return _MeshWireColor;
-}
-float4 FragDepth(Varyings input) : SV_Target
-{ return 0; }
 
 #endif

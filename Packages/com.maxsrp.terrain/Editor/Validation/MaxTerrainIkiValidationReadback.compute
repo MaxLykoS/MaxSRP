@@ -1,0 +1,24 @@
+#pragma kernel CopyDepth
+#pragma kernel CopyColor
+
+// Editor evidence only: retain the exact device-depth value at each pixel.
+// The D24/S8 production texture is never rebound for writing or modified.
+Texture2D<float> _IkiValidationDepth;
+RWTexture2D<float> _IkiValidationDepthCopy;
+int2 _IkiValidationSize;
+Texture2D<float4> _IkiValidationColor;
+RWTexture2D<float4> _IkiValidationColorCopy;
+
+[numthreads(8, 8, 1)]
+void CopyDepth(uint3 pixel : SV_DispatchThreadID)
+{
+    if (any(pixel.xy >= (uint2)_IkiValidationSize)) return;
+    _IkiValidationDepthCopy[pixel.xy] = _IkiValidationDepth.Load(int3(pixel.xy, 0));
+}
+
+[numthreads(8, 8, 1)]
+void CopyColor(uint3 pixel : SV_DispatchThreadID)
+{
+    if (any(pixel.xy >= (uint2)_IkiValidationSize)) return;
+    _IkiValidationColorCopy[pixel.xy] = _IkiValidationColor.Load(int3(pixel.xy, 0));
+}
